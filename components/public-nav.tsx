@@ -1,10 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Menu, X, Settings, Sparkles } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
+import { db } from "@/lib/db/storage"
+import type { Collection } from "@/lib/mock-data/collections"
 
 interface PublicNavProps {
   logoUrl?: string
@@ -13,6 +15,25 @@ interface PublicNavProps {
 
 export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [collections, setCollections] = useState<Collection[]>([])
+
+  useEffect(() => {
+    const loadedCollections = db.collections.getAll().filter((c) => c.visibility === "public")
+    setCollections(loadedCollections)
+  }, [])
+
+  function handleAnchorClick(e: React.MouseEvent<HTMLAnchorElement>, targetId: string) {
+    e.preventDefault()
+    setIsMenuOpen(false)
+    
+    const element = document.getElementById(targetId)
+    if (element) {
+      element.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      })
+    }
+  }
 
   return (
     <>
@@ -53,31 +74,41 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
         <nav className="p-6 space-y-4">
           <div className="space-y-2">
             <h3 className="text-sm font-semibold text-muted-foreground mb-3">目次</h3>
-            <a
-              href="#collections"
-              onClick={() => setIsMenuOpen(false)}
-              className="block py-2 px-3 rounded-md hover:bg-accent transition-colors"
-            >
-              ITEMs（コレクション）
-            </a>
+            <div>
+              <h4 className="text-sm font-medium mb-2">コレクション</h4>
+              {collections.length === 0 ? (
+                <a className="block py-2 px-3 rounded-md text-sm text-muted-foreground">読み込み中…</a>
+              ) : (
+                collections.map((col) => (
+                  <a
+                    key={col.id}
+                    href={`#collection-${col.id}`}
+                    onClick={(e) => handleAnchorClick(e, `collection-${col.id}`)}
+                    className="block py-2 px-3 rounded-md hover:bg-accent transition-colors cursor-pointer"
+                  >
+                    {col.title}
+                  </a>
+                ))
+              )}
+            </div>
             <a
               href="#all-products"
-              onClick={() => setIsMenuOpen(false)}
-              className="block py-2 px-3 rounded-md hover:bg-accent transition-colors"
+              onClick={(e) => handleAnchorClick(e, "all-products")}
+              className="block py-2 px-3 rounded-md hover:bg-accent transition-colors cursor-pointer"
             >
               すべての商品
             </a>
             <a
               href="#recipes"
-              onClick={() => setIsMenuOpen(false)}
-              className="block py-2 px-3 rounded-md hover:bg-accent transition-colors"
+              onClick={(e) => handleAnchorClick(e, "recipes")}
+              className="block py-2 px-3 rounded-md hover:bg-accent transition-colors cursor-pointer"
             >
               デスクセットアップ
             </a>
             <a
               href="#profile"
-              onClick={() => setIsMenuOpen(false)}
-              className="block py-2 px-3 rounded-md hover:bg-accent transition-colors"
+              onClick={(e) => handleAnchorClick(e, "profile")}
+              className="block py-2 px-3 rounded-md hover:bg-accent transition-colors cursor-pointer"
             >
               プロフィール
             </a>

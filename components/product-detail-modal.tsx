@@ -326,11 +326,11 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
           </div>
         </div>
       ) : (
-        <div className="relative w-[90%] sm:w-[85%] lg:w-[75%] max-w-5xl 
-          h-auto max-h-[85vh]
+        <div className="relative w-[95%] sm:w-[85%] lg:w-[75%] max-w-5xl 
+          h-auto max-h-[80vh] sm:h-[40vh]
           bg-background rounded-lg border shadow-lg 
           animate-in zoom-in-95 fade-in-0 
-          overflow-hidden flex flex-col sm:flex-row">
+          overflow-auto sm:overflow-hidden flex flex-col sm:flex-row">
           <button
             onClick={onClose}
             className="absolute right-3 top-3 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10 bg-background/90 backdrop-blur-sm p-1.5"
@@ -351,7 +351,7 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
             </div>
           </div>
 
-          <div className="flex-1 p-6 space-y-4 text-left overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2">
+          <div className="flex-1 p-6 space-y-4 text-left sm:overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2">
             {hasTags && (
               <div className="flex flex-wrap gap-2">
                 {product.tags.map((tag) => (

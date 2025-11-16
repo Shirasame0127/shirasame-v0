@@ -297,7 +297,7 @@ export default function HomePage() {
                 {collections.map((collection) => {
                   const collectionProducts = getProductsForCollection(collection.id)
                   return (
-                    <div key={collection.id} className="mb-12">
+                    <div key={collection.id} id={`collection-${collection.id}`} className="mb-12 scroll-mt-20">
                       <h3 className="font-heading text-lg sm:text-xl font-semibold mb-4 text-center">{collection.title}</h3>
                       {collection.description && (
                         <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">
@@ -327,7 +327,7 @@ export default function HomePage() {
 
           {/* すべての商品セクション */}
           {products.length > 0 && (
-            <section id="all-products" className="mb-16">
+            <section id="all-products" className="mb-16 scroll-mt-20">
               <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-6 text-center">ALL ITEMS</h2>
               <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">
                 公開中の商品を一覧表示しています
@@ -437,7 +437,7 @@ export default function HomePage() {
               レシピセクション: デスクセットアップ
               ========================== */}
           {recipes.length > 0 && (
-            <section id="recipes" className="mb-16">
+            <section id="recipes" className="mb-16 scroll-mt-20">
               <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-6 text-center">デスクセットアップ</h2>
               <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">
                 実際のデスク環境と使用アイテムを紹介します
@@ -492,7 +492,7 @@ export default function HomePage() {
           )}
 
           {/* プロフィールセクション */}
-          <section id="profile" className="mb-16">
+          <section id="profile" className="mb-16 scroll-mt-20">
             <ProfileCard user={user} />
           </section>
         </div>
