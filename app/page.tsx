@@ -394,7 +394,7 @@ export default function HomePage() {
               </div>
 
               {viewMode === "grid" ? (
-                <div className={`grid gap-3`} style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>
+                <div className={`grid gap-3 grid-cols-4 md:grid-cols-${gridColumns}`}>
                   {filteredAndSortedProducts.map((product) => (
                     <ProductCardSimple key={product.id} product={product} onClick={() => handleProductClick(product)} />
                   ))}
@@ -473,7 +473,7 @@ export default function HomePage() {
                       {linkedProducts.length > 0 && (
                         <div className="mt-8">
                           <h4 className="font-heading text-base sm:text-lg font-semibold mb-4 text-center">使用アイテム</h4>
-                          <div className="grid grid-cols-4 md:grid-cols-6 gap-3">
+                          <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
                             {linkedProducts.map((product) => (
                               <ProductCardSimple
                                 key={product.id}

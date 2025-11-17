@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useToast } from "@/hooks/use-toast"
 
 export default function AdminTagsPage() {
   const [tags, setTags] = useState<Array<{ id: string; name: string; group?: string; linkUrl?: string; linkLabel?: string }>>([])
@@ -31,6 +32,7 @@ export default function AdminTagsPage() {
   const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false)
   const [editingGroupName, setEditingGroupName] = useState("")
   const [newGroupName, setNewGroupName] = useState("")
+  const { toast } = useToast()
 
   useEffect(() => {
     const storedTags = db.tags.getAllWithPlaceholders()
@@ -75,18 +77,29 @@ export default function AdminTagsPage() {
   const addTag = () => {
     const trimmedName = newTagName.trim()
     if (!trimmedName) {
-      alert("タグ名を入力してください")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "タグ名を入力してください"
+      })
       return
     }
     
     if (tags.some(t => t.name === trimmedName)) {
-      alert("同じ名前のタグが既に存在します")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "同じ名前のタグが既に存在します"
+      })
       return
     }
 
-    // リンクURLが指定されている場合、リンクラベルは必須
     if (newTagLinkUrl.trim() && !newTagLinkLabel.trim()) {
-      alert("リンク先URLを指定する場合は、リンクボタンのテキストも入力してください")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "リンク先URLを指定する場合は、リンクボタンのテキストも入力してください"
+      })
       return
     }
 
@@ -114,13 +127,20 @@ export default function AdminTagsPage() {
 
     const trimmedName = editingTag.name.trim()
     if (!trimmedName) {
-      alert("タグ名を入力してください")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "タグ名を入力してください"
+      })
       return
     }
 
-    // リンクURLが指定されている場合、リンクラベルは必須
     if (editingTag.linkUrl?.trim() && !editingTag.linkLabel?.trim()) {
-      alert("リンク先URLを指定する場合は、リンクボタンのテキストも入力してください")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "リンク先URLを指定する場合は、リンクボタンのテキストも入力してください"
+      })
       return
     }
 
@@ -142,11 +162,27 @@ export default function AdminTagsPage() {
   }
 
   const removeTag = (tagId: string) => {
-    if (!confirm("このタグを削除しますか？")) return
-    
-    const updated = tags.filter((t) => t.id !== tagId)
-    setTags(updated)
-    db.tags.saveAll(updated)
+    toast({
+      title: "削除の確認",
+      description: "このタグを削除してもよろしいですか？",
+      action: (
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => {
+            const updated = tags.filter((t) => t.id !== tagId)
+            setTags(updated)
+            db.tags.saveAll(updated)
+            toast({
+              title: "削除完了",
+              description: "タグを削除しました"
+            })
+          }}
+        >
+          削除
+        </Button>
+      ),
+    })
   }
 
   const renameGroup = () => {
@@ -167,19 +203,25 @@ export default function AdminTagsPage() {
   const addNewGroup = () => {
     const trimmedGroupName = newGroupName.trim()
     if (!trimmedGroupName) {
-      alert("グループ名を入力してください")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "グループ名を入力してください"
+      })
       return
     }
     
     if (allGroupNames.includes(trimmedGroupName)) {
-      alert("同じ名前のグループが既に存在します")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "同じ名前のグループが既に存在します"
+      })
       return
     }
     
     console.log("[v0] TagsPage: Creating new group:", trimmedGroupName)
     
-    // グループを作成するために、ダミーのタグを追加して後で削除可能にする
-    // または、グループをローカルストレージに別途保存する
     const groupPlaceholder = {
       id: `group-placeholder-${Date.now()}`,
       name: `__GROUP_PLACEHOLDER__${trimmedGroupName}`,
@@ -191,7 +233,10 @@ export default function AdminTagsPage() {
     db.tags.saveAll(updated)
     
     console.log("[v0] TagsPage: Group created:", trimmedGroupName)
-    alert(`グループ「${trimmedGroupName}」を作成しました。このグループにタグを追加してください。`)
+    toast({
+      title: "作成完了",
+      description: `グループ「${trimmedGroupName}」を作成しました`
+    })
     setNewGroupName("")
     setIsGroupDialogOpen(false)
   }

@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { db } from "@/lib/db/storage"
 import type { Product } from "@/lib/db/schema"
 import { fileToBase64 } from "@/lib/utils/image-utils"
+import { useToast } from "@/hooks/use-toast"
 
 const TAG_CATEGORIES = {
   ジャンル: ["マウス", "キーボード", "照明", "オーディオ", "カメラ", "モニターアーム", "デスク", "チェア"],
@@ -26,6 +27,7 @@ const TAG_CATEGORIES = {
 export default function ProductNewPage() {
   const router = useRouter()
   const linkTags = db.tags.getAll().filter((t: any) => t.linkUrl)
+  const { toast } = useToast()
   
   const [title, setTitle] = useState("")
   const [shortDescription, setShortDescription] = useState("")
@@ -86,7 +88,11 @@ export default function ProductNewPage() {
       const text = await navigator.clipboard.readText()
       updateAffiliateLink(index, "url", text)
     } catch (err) {
-      alert("クリップボードへのアクセスが許可されていません")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "クリップボードへのアクセスが許可されていません"
+      })
     }
   }
 
@@ -122,7 +128,11 @@ export default function ProductNewPage() {
 
   const handleSave = async () => {
     if (!title || !imageFile) {
-      alert("タイトルと画像は必須です")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "タイトルと画像は必須です"
+      })
       return
     }
 
@@ -172,7 +182,10 @@ export default function ProductNewPage() {
 
     db.products.create(newProduct)
 
-    alert("商品を追加しました！")
+    toast({
+      title: "作成完了",
+      description: "商品を追加しました"
+    })
     router.push("/admin/products")
   }
 

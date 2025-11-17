@@ -3,6 +3,8 @@
 import { useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { RotateCw } from 'lucide-react'
 import Cropper from "react-easy-crop"
@@ -12,13 +14,28 @@ interface ImageCropperProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   imageUrl: string
-  onCropComplete: (croppedImage: File) => void
+  onCropComplete: (croppedImage: File, aspectRatio: string) => void
   aspectRatioType?: "product" | "recipe" | "profile" | "header" | "background"
 }
 
+const RECIPE_ASPECT_RATIOS = [
+  { value: "1:1", label: "正方形 (1:1)", ratio: 1 / 1 },
+  { value: "2:3", label: "縦長 (2:3)", ratio: 2 / 3 },
+  { value: "3:2", label: "横長 (3:2)", ratio: 3 / 2 },
+  { value: "3:4", label: "縦長 (3:4)", ratio: 3 / 4 },
+  { value: "4:3", label: "横長 (4:3)", ratio: 4 / 3 },
+  { value: "3:5", label: "縦長 (3:5)", ratio: 3 / 5 },
+  { value: "5:3", label: "横長 (5:3)", ratio: 5 / 3 },
+  { value: "5:7", label: "縦長 (5:7)", ratio: 5 / 7 },
+  { value: "7:5", label: "横長 (7:5)", ratio: 7 / 5 },
+  { value: "4:5", label: "縦長 (4:5)", ratio: 4 / 5 },
+  { value: "5:4", label: "横長 (5:4)", ratio: 5 / 4 },
+  { value: "9:16", label: "縦長 (9:16)", ratio: 9 / 16 },
+  { value: "16:9", label: "横長 (16:9)", ratio: 16 / 9 },
+]
+
 const ASPECT_RATIOS = {
   product: { value: 1, label: "商品画像 (1:1)" },
-  recipe: { value: 4 / 3, label: "レシピ画像 (4:3)" },
   profile: { value: 1, label: "プロフィール画像 (1:1)" },
   header: { value: 3, label: "ヘッダー画像 (3:1)" },
   background: { value: 16 / 9, label: "背景画像 (16:9)" },
@@ -36,8 +53,12 @@ export function ImageCropper({
   const [rotation, setRotation] = useState(0)
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [selectedRecipeAspect, setSelectedRecipeAspect] = useState("4:3")
 
-  const aspectRatio = ASPECT_RATIOS[aspectRatioType].value
+  const isRecipe = aspectRatioType === "recipe"
+  const aspectRatio = isRecipe 
+    ? RECIPE_ASPECT_RATIOS.find(r => r.value === selectedRecipeAspect)?.ratio || 4/3
+    : ASPECT_RATIOS[aspectRatioType]?.value || 1
 
   const onCropCompleteCallback = useCallback((_croppedArea: Area, croppedAreaPixels: Area) => {
     setCroppedAreaPixels(croppedAreaPixels)
@@ -79,7 +100,7 @@ export function ImageCropper({
         (blob) => {
           if (blob) {
             const file = new File([blob], `cropped-${Date.now()}.jpg`, { type: "image/jpeg" })
-            onCropComplete(file)
+            onCropComplete(file, isRecipe ? selectedRecipeAspect : "1:1")
             setCrop({ x: 0, y: 0 })
             setZoom(1)
             setRotation(0)
@@ -110,13 +131,33 @@ export function ImageCropper({
 
   return (
     <Dialog open={open} onOpenChange={(open) => !open && handleCancel()}>
-      <DialogContent className="max-w-2xl mx-4">
+      <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-base">{ASPECT_RATIOS[aspectRatioType].label}</DialogTitle>
+          <DialogTitle className="text-sm sm:text-base">
+            {isRecipe ? "レシピ画像のトリミング" : ASPECT_RATIOS[aspectRatioType]?.label || "画像のトリミング"}
+          </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="relative h-[400px] bg-muted rounded-lg overflow-hidden">
+        <div className="space-y-3 sm:space-y-4">
+          {isRecipe && (
+            <div className="space-y-2">
+              <Label className="text-xs sm:text-sm font-medium">アスペクト比</Label>
+              <Select value={selectedRecipeAspect} onValueChange={setSelectedRecipeAspect}>
+                <SelectTrigger className="text-xs sm:text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RECIPE_ASPECT_RATIOS.map((aspect) => (
+                    <SelectItem key={aspect.value} value={aspect.value} className="text-xs sm:text-sm">
+                      {aspect.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div className="relative h-[250px] sm:h-[400px] bg-muted rounded-lg overflow-hidden">
             <Cropper
               image={imageUrl}
               crop={crop}
@@ -130,15 +171,15 @@ export function ImageCropper({
             />
           </div>
 
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">ズーム</label>
+          <div className="space-y-2 sm:space-y-3">
+            <div className="space-y-1.5 sm:space-y-2">
+              <label className="text-xs sm:text-sm font-medium">ズーム</label>
               <Slider value={[zoom]} onValueChange={(values) => setZoom(values[0])} min={1} max={3} step={0.1} />
             </div>
 
             <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">回転</label>
+              <div className="space-y-1.5 sm:space-y-2">
+                <label className="text-xs sm:text-sm font-medium">回転</label>
                 <Slider
                   value={[rotation]}
                   onValueChange={(values) => setRotation(values[0])}
@@ -147,19 +188,25 @@ export function ImageCropper({
                   step={1}
                 />
               </div>
-              <Button variant="outline" size="sm" onClick={() => setRotation((rotation + 90) % 360)} className="mt-6">
-                <RotateCw className="w-4 h-4" />
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setRotation((rotation + 90) % 360)} 
+                className="mt-5 sm:mt-6"
+              >
+                <RotateCw className="w-3 h-3 sm:w-4 sm:h-4" />
               </Button>
             </div>
           </div>
         </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 flex-col sm:flex-row">
           <Button 
             variant="outline" 
             size="sm" 
             onClick={handleCancel}
             disabled={isProcessing}
+            className="w-full sm:w-auto"
           >
             キャンセル
           </Button>
@@ -167,6 +214,7 @@ export function ImageCropper({
             size="sm" 
             onClick={createCroppedImage}
             disabled={isProcessing}
+            className="w-full sm:w-auto"
           >
             {isProcessing ? "処理中..." : "完了"}
           </Button>

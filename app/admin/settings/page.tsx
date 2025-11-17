@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { db } from "@/lib/db/storage"
 import type { SocialLink } from "@/lib/mock-data/users"
 import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { useToast } from "@/hooks/use-toast"
 
 const generateSocialUrl = (platform: string, username: string): string => {
   const cleanUsername = username.replace(/^@/, "")
@@ -65,6 +66,7 @@ export default function AdminSettingsPage() {
   const [verificationStatus, setVerificationStatus] = useState<
     Record<number, "idle" | "checking" | "valid" | "invalid">
   >({})
+  const { toast } = useToast()
 
   useEffect(() => {
     const currentUser = db.user.get()
@@ -110,7 +112,11 @@ export default function AdminSettingsPage() {
   const verifySocialLink = async (index: number) => {
     const link = socialLinks[index]
     if (!link.url) {
-      alert("URLを入力してください")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "URLを入力してください"
+      })
       return
     }
 
@@ -120,7 +126,11 @@ export default function AdminSettingsPage() {
 
     if (!isValidFormat) {
       setVerificationStatus({ ...verificationStatus, [index]: "invalid" })
-      alert(`${link.platform}の正しいURL形式ではありません`)
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: `${link.platform}の正しいURL形式ではありません`
+      })
       return
     }
 
@@ -128,10 +138,17 @@ export default function AdminSettingsPage() {
 
     if (exists) {
       setVerificationStatus({ ...verificationStatus, [index]: "valid" })
-      alert("アカウントの形式が正しいことを確認しました！\n（実際の存在確認はブラウザの制限により完全には行えません）")
+      toast({
+        title: "確認完了",
+        description: "アカウントの形式が正しいことを確認しました！"
+      })
     } else {
       setVerificationStatus({ ...verificationStatus, [index]: "invalid" })
-      alert("アカウントの確認ができませんでした")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "アカウントの確認ができませんでした"
+      })
     }
   }
 
@@ -155,19 +172,24 @@ export default function AdminSettingsPage() {
     if (avatarFile) {
       const avatarUrl = URL.createObjectURL(avatarFile)
       updates.avatarUrl = avatarUrl
+      updates.profileImage = avatarUrl // DBスキーマに合わせて保存
       db.images.saveUpload("user-avatar", avatarUrl)
     }
 
     if (headerImageFile) {
       const headerUrl = URL.createObjectURL(headerImageFile)
       updates.headerImageUrl = headerUrl
+      updates.headerImage = headerUrl // DBスキーマに合わせて保存
       db.images.saveUpload("user-header", headerUrl)
     }
 
     db.user.update(updates)
     console.log("[v0] Saved settings:", updates)
-    alert("設定を保存しました！")
-    window.location.reload()
+    toast({
+      title: "保存完了",
+      description: "設定を保存しました！"
+    })
+    setTimeout(() => window.location.reload(), 1000)
   }
 
   return (

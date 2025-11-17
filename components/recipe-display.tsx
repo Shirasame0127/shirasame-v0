@@ -9,19 +9,19 @@ import type { Product } from '@/lib/mock-data/products'
 type RecipePin = {
   id: string
   productId: string
-  // 位置（基準画像サイズに対するパーセント）
+  // 位置（パーセント値、0-100）
   dotXPercent: number
   dotYPercent: number
   tagXPercent: number
   tagYPercent: number
-  // サイズ（ピクセル値、編集時の固定値）
-  dotSize: number
-  tagFontSize: number
-  lineWidth: number
-  tagBorderWidth: number
-  tagBorderRadius: number
-  tagPaddingX: number
-  tagPaddingY: number
+  // サイズ（画像幅に対するパーセント値）
+  dotSizePercent: number
+  tagFontSizePercent: number
+  lineWidthPercent: number
+  tagBorderWidthPercent: number
+  tagBorderRadiusPercent: number
+  tagPaddingXPercent: number
+  tagPaddingYPercent: number
   // スタイル
   dotColor: string
   dotShape: 'circle' | 'square' | 'triangle' | 'diamond'
@@ -42,8 +42,9 @@ type RecipeDisplayProps = {
   recipeId: string
   recipeTitle: string
   imageDataUrl: string
-  imageWidth: number  // 基準画像の幅（データベースに保存された値）
-  imageHeight: number // 基準画像の高さ（データベースに保存された値）
+  imageWidth: number
+  imageHeight: number
+  aspectRatio?: string
   pins: RecipePin[]
   products: Product[]
   onProductClick: (product: Product) => void
@@ -85,207 +86,140 @@ export function RecipeDisplay({
   imageDataUrl,
   imageWidth,
   imageHeight,
+  aspectRatio = "4:3",
   pins,
   products,
   onProductClick
 }: RecipeDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const imageRef = useRef<HTMLImageElement>(null)
-  const [scale, setScale] = useState(1)
+  const pinAreaRef = useRef<HTMLDivElement>(null)
   const [imageLoaded, setImageLoaded] = useState(false)
-
-  /**
-   * 画像の読み込みとリサイズを監視してスケールを計算
-   * 編集画面と全く同じロジック
-   */
-  useEffect(() => {
-    const updateScale = () => {
-      if (imageRef.current && containerRef.current && imageLoaded) {
-        const containerRect = containerRef.current.getBoundingClientRect()
-        const imageRect = imageRef.current.getBoundingClientRect()
-        
-        if (containerRect.width > 0 && containerRect.height > 0 &&
-            imageRect.width > 0 && imageRect.height > 0) {
-          const scaleX = imageRect.width / imageWidth
-          const scaleY = imageRect.height / imageHeight
-          const calculatedScale = Math.min(scaleX, scaleY)
-          
-          if (isFinite(calculatedScale) && calculatedScale > 0) {
-            setScale(calculatedScale)
-            console.log('[v0] [公開ページ] スケール計算詳細:', {
-              scale: calculatedScale,
-              表示サイズ: `${imageRect.width}x${imageRect.height}`,
-              基準サイズ: `${imageWidth}x${imageHeight}`,
-              scaleX,
-              scaleY,
-              '使用スケール': calculatedScale === scaleX ? 'scaleX（横基準）' : 'scaleY（縦基準）'
-            })
-          }
-        }
-      }
-    }
-
-    updateScale()
-    window.addEventListener('resize', updateScale)
-    
-    return () => {
-      window.removeEventListener('resize', updateScale)
-    }
-  }, [imageWidth, imageHeight, imageLoaded])
 
   const handleImageLoad = () => {
     setImageLoaded(true)
-    setTimeout(() => {
-      if (imageRef.current && containerRef.current) {
-        const containerRect = containerRef.current.getBoundingClientRect()
-        const imageRect = imageRef.current.getBoundingClientRect()
-        
-        if (containerRect.width > 0 && containerRect.height > 0 &&
-            imageRect.width > 0 && imageRect.height > 0) {
-          const scaleX = imageRect.width / imageWidth
-          const scaleY = imageRect.height / imageHeight
-          const calculatedScale = Math.min(scaleX, scaleY)
-          
-          if (isFinite(calculatedScale) && calculatedScale > 0) {
-            setScale(calculatedScale)
-            console.log('[v0] RecipeDisplay image loaded, scale:', calculatedScale)
-          }
-        }
-      }
-    }, 100)
   }
 
   return (
     <div ref={containerRef} className="relative w-full max-w-5xl mx-auto">
-      <img
-        ref={imageRef}
-        src={imageDataUrl || "/placeholder.svg"}
-        alt={recipeTitle}
-        className="w-full h-auto object-contain rounded-lg"
-        style={{ aspectRatio: '4 / 3' }}
-        onLoad={handleImageLoad}
-      />
+      <div ref={pinAreaRef} className="relative w-full">
+        <img
+          src={imageDataUrl || "/placeholder.svg"}
+          alt={recipeTitle}
+          className="w-full h-auto object-contain rounded-lg"
+          onLoad={handleImageLoad}
+        />
 
-      {imageLoaded && scale > 0 && pins.map((pin) => {
-        const product = products.find(p => p.id === pin.productId)
-        if (!product) return null
+        {imageLoaded && pins.map((pin) => {
+          const product = products.find(p => p.id === pin.productId)
+          if (!product) return null
 
-        const dotXPercent = isFinite(pin.dotXPercent) ? pin.dotXPercent : 50
-        const dotYPercent = isFinite(pin.dotYPercent) ? pin.dotYPercent : 50
-        const tagXPercent = isFinite(pin.tagXPercent) ? pin.tagXPercent : 50
-        const tagYPercent = isFinite(pin.tagYPercent) ? pin.tagYPercent : 50
+          const pinAreaRect = pinAreaRef.current?.getBoundingClientRect()
+          if (!pinAreaRect || pinAreaRect.width === 0) return null
 
-        const safeDotSize = isFinite(pin.dotSize) ? pin.dotSize : 12
-        const safeFontSize = isFinite(pin.tagFontSize) ? pin.tagFontSize : 14
-        const safeLineWidth = isFinite(pin.lineWidth) ? pin.lineWidth : 2
-        const safePaddingX = isFinite(pin.tagPaddingX) ? pin.tagPaddingX : 12
-        const safePaddingY = isFinite(pin.tagPaddingY) ? pin.tagPaddingY : 6
-        const safeBorderRadius = isFinite(pin.tagBorderRadius) ? pin.tagBorderRadius : 4
-        const safeBorderWidth = isFinite(pin.tagBorderWidth || 0) ? (pin.tagBorderWidth || 0) : 0
+          const imageWidthPx = pinAreaRect.width
 
-        const scaledDotSize = Math.max(1, safeDotSize * scale)
-        const scaledFontSize = Math.max(8, safeFontSize * scale)
-        const scaledLineWidth = Math.max(1, safeLineWidth * scale)
-        const scaledPaddingX = Math.max(0, safePaddingX * scale)
-        const scaledPaddingY = Math.max(0, safePaddingY * scale)
-        const scaledBorderRadius = Math.max(0, safeBorderRadius * scale)
-        const scaledBorderWidth = Math.max(0, safeBorderWidth * scale)
+          // パーセント値をピクセルに変換（編集画面と同じ計算）
+          const dotSizePx = (pin.dotSizePercent / 100) * imageWidthPx
+          const fontSizePx = (pin.tagFontSizePercent / 100) * imageWidthPx
+          const lineWidthPx = (pin.lineWidthPercent / 100) * imageWidthPx
+          const paddingXPx = (pin.tagPaddingXPercent / 100) * imageWidthPx
+          const paddingYPx = (pin.tagPaddingYPercent / 100) * imageWidthPx
+          const borderRadiusPx = (pin.tagBorderRadiusPercent / 100) * imageWidthPx
+          const borderWidthPx = (pin.tagBorderWidthPercent / 100) * imageWidthPx
 
-        console.log('[v0] [公開ページ] ピン描画:', {
-          pinId: pin.id,
-          scale,
-          位置: {
-            点: `${dotXPercent}%, ${dotYPercent}%`,
-            タグ: `${tagXPercent}%, ${tagYPercent}%`
-          },
-          元のサイズ: {
-            点: safeDotSize,
-            フォント: safeFontSize,
-            線: safeLineWidth
-          },
-          スケール後: {
-            点: scaledDotSize,
-            フォント: scaledFontSize,
-            線: scaledLineWidth
-          }
-        })
+          console.log('[v0] [公開ページ] ピン描画:', {
+            pinId: pin.id,
+            画像幅: imageWidthPx,
+            位置: { x: `${pin.dotXPercent}%`, y: `${pin.dotYPercent}%` },
+            パーセント値: {
+              点: `${pin.dotSizePercent}%`,
+              フォント: `${pin.tagFontSizePercent}%`,
+              線: `${pin.lineWidthPercent}%`
+            },
+            ピクセル値: {
+              点: dotSizePx,
+              フォント: fontSizePx,
+              線: lineWidthPx
+            }
+          })
 
-        return (
-          <div key={pin.id}>
-            {/* 線 */}
-            <svg
-              className="absolute inset-0 w-full h-full pointer-events-none"
-              style={{ zIndex: 10 }}
-            >
-              <line
-                x1={`${dotXPercent}%`}
-                y1={`${dotYPercent}%`}
-                x2={`${tagXPercent}%`}
-                y2={`${tagYPercent}%`}
-                stroke={pin.lineColor || '#ffffff'}
-                strokeWidth={scaledLineWidth}
-                strokeDasharray={
-                  pin.lineType === 'dashed' ? `${scaledLineWidth * 4} ${scaledLineWidth * 2}` :
-                  pin.lineType === 'dotted' ? `${scaledLineWidth} ${scaledLineWidth}` :
-                  undefined
-                }
-              />
-            </svg>
+          return (
+            <div key={pin.id}>
+              {/* 線 */}
+              <svg
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                style={{ zIndex: 10 }}
+              >
+                <line
+                  x1={`${pin.dotXPercent}%`}
+                  y1={`${pin.dotYPercent}%`}
+                  x2={`${pin.tagXPercent}%`}
+                  y2={`${pin.tagYPercent}%`}
+                  stroke={pin.lineColor || '#ffffff'}
+                  strokeWidth={lineWidthPx}
+                  strokeDasharray={
+                    pin.lineType === 'dashed' ? `${lineWidthPx * 4} ${lineWidthPx * 2}` :
+                    pin.lineType === 'dotted' ? `${lineWidthPx} ${lineWidthPx}` :
+                    undefined
+                  }
+                />
+              </svg>
 
-            {/* 点 */}
-            <div
-              className="absolute cursor-pointer hover:scale-125 transition-transform z-20"
-              style={{
-                left: `${dotXPercent}%`,
-                top: `${dotYPercent}%`,
-                width: `${scaledDotSize}px`,
-                height: `${scaledDotSize}px`,
-                transform: 'translate(-50%, -50%)',
-              }}
-              onClick={() => onProductClick(product)}
-            >
+              {/* 点 */}
               <div
-                className="w-full h-full ring-2 ring-white/30"
+                className="absolute cursor-pointer hover:scale-125 transition-transform z-20"
                 style={{
-                  backgroundColor: pin.dotColor || '#ffffff',
-                  borderRadius: pin.dotShape === 'circle' ? '50%' : 
-                                pin.dotShape === 'square' ? '0' : 
-                                pin.dotShape === 'diamond' ? '15%' : '0',
-                  clipPath: pin.dotShape === 'triangle' ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 
-                            pin.dotShape === 'diamond' ? 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' : 
-                            undefined,
+                  left: `${pin.dotXPercent}%`,
+                  top: `${pin.dotYPercent}%`,
+                  transform: 'translate(-50%, -50%)',
+                  width: dotSizePx,
+                  height: dotSizePx,
                 }}
-              />
-            </div>
+                onClick={() => onProductClick(product)}
+              >
+                <div
+                  className="w-full h-full ring-2 ring-white/30"
+                  style={{
+                    backgroundColor: pin.dotColor || '#ffffff',
+                    borderRadius: pin.dotShape === 'circle' ? '50%' : 
+                                  pin.dotShape === 'square' ? '0' : 
+                                  pin.dotShape === 'diamond' ? '15%' : '0',
+                    clipPath: pin.dotShape === 'triangle' ? 'polygon(50% 0%, 0% 100%, 100% 100%)' : 
+                              pin.dotShape === 'diamond' ? 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' : 
+                              undefined,
+                  }}
+                />
+              </div>
 
-            {/* タグ */}
-            <div
-              className="absolute cursor-pointer hover:scale-105 transition-transform whitespace-nowrap z-30"
-              style={{
-                left: `${tagXPercent}%`,
-                top: `${tagYPercent}%`,
-                fontSize: `${scaledFontSize}px`,
-                fontFamily: pin.tagFontFamily || 'system-ui',
-                fontWeight: pin.tagFontWeight || 'normal',
-                color: pin.tagTextColor || '#ffffff',
-                textShadow: pin.tagTextShadow || '0 2px 4px rgba(0,0,0,0.3)',
-                backgroundColor: pin.tagBackgroundColor || '#000000',
-                opacity: isFinite(pin.tagBackgroundOpacity) ? pin.tagBackgroundOpacity : 0.8,
-                borderWidth: `${scaledBorderWidth}px`,
-                borderStyle: 'solid',
-                borderColor: pin.tagBorderColor || '#ffffff',
-                borderRadius: `${scaledBorderRadius}px`,
-                boxShadow: pin.tagShadow || '0 2px 8px rgba(0,0,0,0.2)',
-                padding: `${scaledPaddingY}px ${scaledPaddingX}px`,
-                transform: 'translate(-50%, -50%)',
-              }}
-              onClick={() => onProductClick(product)}
-            >
-              {pin.tagText || product.title}
+              {/* タグ */}
+              <div
+                className="absolute cursor-pointer hover:scale-105 transition-transform whitespace-nowrap z-30"
+                style={{
+                  left: `${pin.tagXPercent}%`,
+                  top: `${pin.tagYPercent}%`,
+                  transform: 'translate(-50%, -50%)',
+                  fontSize: fontSizePx,
+                  fontFamily: pin.tagFontFamily || 'system-ui',
+                  fontWeight: pin.tagFontWeight || 'normal',
+                  color: pin.tagTextColor || '#ffffff',
+                  textShadow: pin.tagTextShadow || '0 2px 4px rgba(0,0,0,0.3)',
+                  backgroundColor: pin.tagBackgroundColor || '#000000',
+                  opacity: isFinite(pin.tagBackgroundOpacity) ? pin.tagBackgroundOpacity : 0.8,
+                  borderWidth: borderWidthPx,
+                  borderStyle: 'solid',
+                  borderColor: pin.tagBorderColor || '#ffffff',
+                  borderRadius: borderRadiusPx,
+                  boxShadow: pin.tagShadow || '0 2px 8px rgba(0,0,0,0.2)',
+                  padding: `${paddingYPx}px ${paddingXPx}px`,
+                }}
+                onClick={() => onProductClick(product)}
+              >
+                {pin.tagText || product.title}
+              </div>
             </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
     </div>
   )
 }

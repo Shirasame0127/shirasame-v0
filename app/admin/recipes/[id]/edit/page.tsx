@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ProductCard } from "@/components/product-card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { useToast } from "@/hooks/use-toast"
 
 // ===========================
 // 型定義: Pinオブジェクトの構造
@@ -24,34 +25,34 @@ type Pin = {
   id: string                      // 一意のID
   productId: string               // 紐づいている商品のID
   
-  // 点（Dot）のプロパティ
-  dotXPercent: number             // 点のX座標（画像幅の%）
-  dotYPercent: number             // 点のY座標（画像高さの%）
-  dotSize: number                 // 点のサイズ（ピクセル）
+  // 位置（画像サイズに対するパーセント、0-100）
+  dotXPercent: number             // 点のX座標（%）
+  dotYPercent: number             // 点のY座標（%）
+  tagXPercent: number             // タグのX座標（%）
+  tagYPercent: number             // タグのY座標（%）
+  
+  // サイズ（画像幅に対するパーセント）
+  dotSizePercent: number          // 点のサイズ（画像幅の%）default: 1.2
+  tagFontSizePercent: number      // フォントサイズ（画像幅の%）default: 1.4
+  lineWidthPercent: number        // 線の太さ（画像幅の%）default: 0.2
+  tagPaddingXPercent: number      // 横パディング（画像幅の%）default: 1.2
+  tagPaddingYPercent: number      // 縦パディング（画像幅の%）default: 0.6
+  tagBorderRadiusPercent: number  // 角丸（画像幅の%）default: 0.4
+  tagBorderWidthPercent: number   // 枠線（画像幅の%）default: 0
+  
+  // スタイル
   dotColor: string                // 点の色（HEX形式）
   dotShape: 'circle' | 'square' | 'triangle' | 'diamond' // 点の形状
-  
-  // タグ（Tag）のプロパティ
-  tagXPercent: number             // タグのX座標（画像幅の%）
-  tagYPercent: number             // タグのY座標（画像高さの%）
   tagText: string                 // タグに表示するテキスト
-  tagFontSize: number             // フォントサイズ（ピクセル）
   tagFontFamily: string           // フォントファミリー
   tagFontWeight: 'normal' | 'bold' | '300' | '400' | '500' | '600' | '700' // フォントの太さ
   tagTextColor: string            // テキストカラー（HEX形式）
   tagTextShadow: string           // テキストシャドウ（CSS形式）
   tagBackgroundColor: string      // 背景色（HEX形式）
   tagBackgroundOpacity: number    // 背景の不透明度（0-1）
-  tagBorderWidth: number          // 枠線の太さ（ピクセル）
   tagBorderColor: string          // 枠線の色（HEX形式）
-  tagBorderRadius: number         // 角丸の半径（ピクセル）
   tagShadow: string               // ボックスシャドウ（CSS形式）
-  tagPaddingX: number             // 左右のパディング（ピクセル）
-  tagPaddingY: number             // 上下のパディング（ピクセル）
-  
-  // 線（Line）のプロパティ
   lineType: 'solid' | 'dashed' | 'dotted' | 'wavy' | 'hand-drawn' // 線のスタイル
-  lineWidth: number               // 線の太さ（ピクセル）
   lineColor: string               // 線の色（HEX形式）
 }
 
@@ -65,6 +66,8 @@ type DragTarget = { type: 'dot' | 'tag', pinId: string } | null
 // メインコンポーネント
 // ===========================
 export default function RecipeEditPage() {
+
+  const { toast } = useToast()
 
   // ===========================
   // ルーティング関連のフック
@@ -104,7 +107,8 @@ export default function RecipeEditPage() {
   // ===========================
   // Ref: DOM要素への参照
   // ===========================
-  const imageRef = useRef<HTMLDivElement>(null)        // 画像コンテナへの参照（ドラッグ座標計算用）
+  const imageRef = useRef<HTMLDivElement>(null)        // 画像コンテナへの参照
+  const pinAreaRef = useRef<HTMLDivElement>(null)      // ピン配置エリアへの参照（画像と完全に一致）
   const fileInputRef = useRef<HTMLInputElement>(null)  // ファイル入力への参照
 
   // ===========================
@@ -137,29 +141,32 @@ export default function RecipeEditPage() {
         const convertedPins = recipe.pins.map((oldPin: any) => ({
           id: oldPin.id || `pin-${Date.now()}-${oldPin.productId}`,
           productId: oldPin.productId,
+          // 位置（パーセント）
           dotXPercent: oldPin.dotXPercent || 20,
           dotYPercent: oldPin.dotYPercent || 50,
-          dotSize: oldPin.dotSize || 12,
-          dotColor: oldPin.dotColor || '#ffffff',
-          dotShape: oldPin.dotShape || 'circle',
           tagXPercent: oldPin.tagXPercent || 80,
           tagYPercent: oldPin.tagYPercent || 50,
+          // サイズ（画像幅に対するパーセント）
+          dotSizePercent: oldPin.dotSize ? (oldPin.dotSize / (recipe.imageWidth || 1920) * 100) : 1.2,
+          tagFontSizePercent: oldPin.tagFontSize ? (oldPin.tagFontSize / (recipe.imageWidth || 1920) * 100) : 1.4,
+          lineWidthPercent: oldPin.lineWidth ? (oldPin.lineWidth / (recipe.imageWidth || 1920) * 100) : 0.2,
+          tagPaddingXPercent: oldPin.tagPaddingX ? (oldPin.tagPaddingX / (recipe.imageWidth || 1920) * 100) : 1.2,
+          tagPaddingYPercent: oldPin.tagPaddingY ? (oldPin.tagPaddingY / (recipe.imageWidth || 1920) * 100) : 0.6,
+          tagBorderRadiusPercent: oldPin.tagBorderRadius ? (oldPin.tagBorderRadius / (recipe.imageWidth || 1920) * 100) : 0.4,
+          tagBorderWidthPercent: oldPin.tagBorderWidth ? (oldPin.tagBorderWidth / (recipe.imageWidth || 1920) * 100) : 0,
+          // スタイル
+          dotColor: oldPin.dotColor || '#ffffff',
+          dotShape: oldPin.dotShape || 'circle',
           tagText: oldPin.tagText || oldPin.text || '',
-          tagFontSize: oldPin.tagFontSize || oldPin.fontSize || 14,
           tagFontFamily: oldPin.tagFontFamily || 'system-ui',
           tagFontWeight: oldPin.tagFontWeight || 'normal',
           tagTextColor: oldPin.tagTextColor || '#ffffff',
           tagTextShadow: oldPin.tagTextShadow || '0 2px 4px rgba(0,0,0,0.3)',
           tagBackgroundColor: oldPin.tagBackgroundColor || '#000000',
           tagBackgroundOpacity: oldPin.tagBackgroundOpacity ?? 0.8,
-          tagBorderWidth: oldPin.tagBorderWidth || 0,
           tagBorderColor: oldPin.tagBorderColor || '#ffffff',
-          tagBorderRadius: oldPin.tagBorderRadius || 4,
           tagShadow: oldPin.tagShadow || '0 2px 8px rgba(0,0,0,0.2)',
-          tagPaddingX: oldPin.tagPaddingX || 12,
-          tagPaddingY: oldPin.tagPaddingY || 6,
           lineType: oldPin.lineType || 'solid',
-          lineWidth: oldPin.lineWidth || 2,
           lineColor: oldPin.lineColor || '#ffffff',
         }))
         setPins(convertedPins)
@@ -227,31 +234,32 @@ export default function RecipeEditPage() {
           const newPin: Pin = {
             id: `pin-${Date.now()}-${productId}`,
             productId,
-            // 点の初期位置（左側20%、ランダムなY座標）
+            // 位置（パーセント値）
             dotXPercent: 20,
             dotYPercent: 50 + (Math.random() - 0.5) * 40,
-            dotSize: 12,
-            dotColor: '#ffffff',
-            dotShape: 'circle',
-            // タグの初期位置（右側80%、ランダムなY座標）
             tagXPercent: 80,
             tagYPercent: 50 + (Math.random() - 0.5) * 40,
+            // サイズ（画像幅に対するパーセント値）
+            dotSizePercent: 1.2,        // 画像幅の1.2%
+            tagFontSizePercent: 1.4,    // 画像幅の1.4%
+            lineWidthPercent: 0.2,      // 画像幅の0.2%
+            tagPaddingXPercent: 1.2,    // 画像幅の1.2%
+            tagPaddingYPercent: 0.6,    // 画像幅の0.6%
+            tagBorderRadiusPercent: 0.4, // 画像幅の0.4%
+            tagBorderWidthPercent: 0,    // 画像幅の0%
+            // スタイル
+            dotColor: '#ffffff',
+            dotShape: 'circle',
             tagText: product.title,
-            tagFontSize: 14,
             tagFontFamily: 'system-ui',
             tagFontWeight: 'normal',
             tagTextColor: '#ffffff',
             tagTextShadow: '0 2px 4px rgba(0,0,0,0.3)',
             tagBackgroundColor: '#000000',
             tagBackgroundOpacity: 0.8,
-            tagBorderWidth: 0,
             tagBorderColor: '#ffffff',
-            tagBorderRadius: 4,
             tagShadow: '0 2px 8px rgba(0,0,0,0.2)',
-            tagPaddingX: 12,
-            tagPaddingY: 6,
             lineType: 'solid',
-            lineWidth: 2,
             lineColor: '#ffffff',
           }
           setPins(currentPins => [...currentPins, newPin])
@@ -278,9 +286,9 @@ export default function RecipeEditPage() {
   // ===========================
   // マウスの位置から相対座標（%）を計算してピンを移動
   function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
-    if (!imageRef.current || !dragTarget) return
+    if (!pinAreaRef.current || !dragTarget) return
 
-    const rect = imageRef.current.getBoundingClientRect()
+    const rect = pinAreaRef.current.getBoundingClientRect()
     
     const rawX = ((e.clientX - rect.left) / rect.width) * 100
     const rawY = ((e.clientY - rect.top) / rect.height) * 100
@@ -331,10 +339,10 @@ export default function RecipeEditPage() {
   // 関数: タッチ移動時の処理を追加
   // ===========================
   function handleTouchMove(e: React.TouchEvent<HTMLDivElement>) {
-    if (!imageRef.current || !dragTarget || !touchStart) return
+    if (!pinAreaRef.current || !dragTarget || !touchStart) return
 
     const touch = e.touches[0]
-    const rect = imageRef.current.getBoundingClientRect()
+    const rect = pinAreaRef.current.getBoundingClientRect()
     
     const rawX = ((touch.clientX - rect.left) / rect.width) * 100
     const rawY = ((touch.clientY - rect.top) / rect.height) * 100
@@ -384,28 +392,31 @@ export default function RecipeEditPage() {
     
     setPins(pins.map(pin => ({
       ...pin,
-      dotSize: selectedPin.dotSize,
+      dotSizePercent: selectedPin.dotSizePercent,
       dotColor: selectedPin.dotColor,
       dotShape: selectedPin.dotShape,
-      tagFontSize: selectedPin.tagFontSize,
+      tagFontSizePercent: selectedPin.tagFontSizePercent,
       tagFontFamily: selectedPin.tagFontFamily,
       tagFontWeight: selectedPin.tagFontWeight,
       tagTextColor: selectedPin.tagTextColor,
       tagTextShadow: selectedPin.tagTextShadow,
       tagBackgroundColor: selectedPin.tagBackgroundColor,
       tagBackgroundOpacity: selectedPin.tagBackgroundOpacity,
-      tagBorderWidth: selectedPin.tagBorderWidth,
+      tagBorderWidthPercent: selectedPin.tagBorderWidthPercent,
       tagBorderColor: selectedPin.tagBorderColor,
-      tagBorderRadius: selectedPin.tagBorderRadius,
+      tagBorderRadiusPercent: selectedPin.tagBorderRadiusPercent,
       tagShadow: selectedPin.tagShadow,
-      tagPaddingX: selectedPin.tagPaddingX,
-      tagPaddingY: selectedPin.tagPaddingY,
+      tagPaddingXPercent: selectedPin.tagPaddingXPercent,
+      tagPaddingYPercent: selectedPin.tagPaddingYPercent,
       lineType: selectedPin.lineType,
-      lineWidth: selectedPin.lineWidth,
+      lineWidthPercent: selectedPin.lineWidthPercent,
       lineColor: selectedPin.lineColor,
     })))
     
-    alert("すべてのピンに適用しました")
+    toast({
+      title: "適用完了",
+      description: "すべてのピンに適用しました",
+    })
   }
 
   // ===========================
@@ -418,7 +429,11 @@ export default function RecipeEditPage() {
       return
     }
     if (!imageDataUrl) {
-      alert("画像をアップロードしてください")
+      toast({
+        title: "エラー",
+        description: "画像をアップロードしてください",
+        variant: "destructive",
+      })
       return
     }
 
@@ -430,11 +445,19 @@ export default function RecipeEditPage() {
   // ===========================
   function handleSaveWithTitle() {
     if (!tempTitle.trim()) {
-      alert("タイトルを入力してください")
+      toast({
+        title: "エラー",
+        description: "タイトルを入力してください",
+        variant: "destructive",
+      })
       return
     }
     if (!imageDataUrl) {
-      alert("画像をアップロードしてください")
+      toast({
+        title: "エラー",
+        description: "画像をアップロードしてください",
+        variant: "destructive",
+      })
       return
     }
     
@@ -471,14 +494,33 @@ export default function RecipeEditPage() {
       })
     }
 
-    db.recipePins.updateAll(recipeId, pins.map(pin => ({
+    // パーセント値をそのまま保存（スケール計算不要）
+    const pinsToSave = pins.map(pin => ({
       ...pin,
       recipeId,
       createdAt: new Date().toISOString(),
-    })))
+    }))
 
-    alert("保存しました")
-    router.push("/admin/recipes")
+    console.log('[v0] [編集ページ] 保存:', {
+      例: {
+        値: { 
+          点のサイズ: `${pins[0]?.dotSizePercent}%`, 
+          フォント: `${pins[0]?.tagFontSizePercent}%`, 
+          位置: `${pins[0]?.dotXPercent}%, ${pins[0]?.dotYPercent}%`
+        }
+      }
+    })
+
+    db.recipePins.updateAll(recipeId, pinsToSave)
+
+    toast({
+      title: "保存完了",
+      description: "レシピを保存しました",
+    })
+    
+    setTimeout(() => {
+      router.push("/admin/recipes")
+    }, 500)
   }
 
   // ===========================
@@ -486,9 +528,9 @@ export default function RecipeEditPage() {
   // ===========================
   // タグの4隅と上下左右の中点の座標を返す（線の接続用）
   function getConnectionPoints(tagXPercent: number, tagYPercent: number, tagWidth: number, tagHeight: number) {
-    if (!imageRef.current) return []
+    if (!pinAreaRef.current) return []
     
-    const rect = imageRef.current.getBoundingClientRect()
+    const rect = pinAreaRef.current.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0) return []
     
     const offsetX = (tagWidth / rect.width) * 100
@@ -546,23 +588,21 @@ export default function RecipeEditPage() {
   // ===========================
   useEffect(() => {
     const updateScale = () => {
-      if (imageRef.current && imageDataUrl) {
-        const containerRect = imageRef.current.getBoundingClientRect()
+      if (pinAreaRef.current && imageDataUrl) {
         const img = new Image()
         img.src = imageDataUrl
         img.onload = () => {
-          const imageRect = imageRef.current?.getBoundingClientRect()
-          if (imageRect && containerRect.width > 0 && containerRect.height > 0 &&
-              imageRect.width > 0 && imageRect.height > 0) {
-            const scaleX = imageRect.width / imageWidth
-            const scaleY = imageRect.height / imageHeight
+          const pinAreaRect = pinAreaRef.current?.getBoundingClientRect()
+          if (pinAreaRect && pinAreaRect.width > 0 && pinAreaRect.height > 0) {
+            const scaleX = pinAreaRect.width / imageWidth
+            const scaleY = pinAreaRect.height / imageHeight
             const calculatedScale = Math.min(scaleX, scaleY)
             
             if (isFinite(calculatedScale) && calculatedScale > 0) {
               setScale(calculatedScale)
               console.log('[v0] [編集ページ] スケール更新:', {
                 scale: calculatedScale,
-                表示サイズ: `${imageRect.width}x${imageRect.height}`,
+                表示サイズ: `${pinAreaRect.width}x${pinAreaRect.height}`,
                 基準サイズ: `${imageWidth}x${imageHeight}`,
                 scaleX,
                 scaleY
@@ -634,9 +674,11 @@ export default function RecipeEditPage() {
           ========================== */}
       <div className="flex-1 flex flex-col sm:flex-row overflow-hidden">
         {/* ===========================
-            画像エリア
-            ========================== */}
-        <div className="flex-[6] sm:flex-1 flex items-center justify-center p-2 sm:p-4 overflow-hidden bg-zinc-900/50">
+          画像エリア
+        ========================== */}
+        <div className="flex-[6] sm:flex-1 flex items-center aspect-[3/4]justify-center p-2 sm:p-4 overflow-hidden bg-zinc-900/50">
+  
+
           {!imageDataUrl ? (
             /* 画像未選択時: アップロードボタン表示 */
             <div className="flex flex-col items-center gap-4">
@@ -661,73 +703,70 @@ export default function RecipeEditPage() {
             <div
               ref={imageRef}
               className="relative w-full max-w-full max-h-full bg-zinc-800 rounded-lg overflow-hidden shadow-2xl flex items-center justify-center"
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-              style={{ 
-                touchAction: 'none',
-                aspectRatio: '4 / 3'
-              }}
             >
-              {/* レシピ画像 */}
-              <img
-                src={imageDataUrl || "/placeholder.svg"}
-                alt={title}
-                className="w-full h-full object-contain pointer-events-none select-none"
-              />
+              <div
+                ref={pinAreaRef}
+                className="relative"
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                style={{ 
+                height: '-webkit-fill-available',
+                  touchAction: 'none',
+                }}
+              >
+                {/* レシピ画像 */}
+                <img
+                  src={imageDataUrl || "/placeholder.svg"}
+                  alt={title}
+                  className="w-auto object-contain pointer-events-none select-none"
+                  style={{
+                    
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                  }}
+                />
 
               {/* ===========================
                   ピン描画ループ
-                  各ピンに対して点・線・タグを描画
                   ========================== */}
               {pins.map((pin) => {
-                const currentScale = scale
+                const pinAreaRect = pinAreaRef.current?.getBoundingClientRect()
+                if (!pinAreaRect || pinAreaRect.width === 0) return null
+
+                const imageWidthPx = pinAreaRect.width
                 
+                // パーセント値をピクセルに変換
+                const dotSizePx = (pin.dotSizePercent / 100) * imageWidthPx
+                const fontSizePx = (pin.tagFontSizePercent / 100) * imageWidthPx
+                const lineWidthPx = (pin.lineWidthPercent / 100) * imageWidthPx
+                const paddingXPx = (pin.tagPaddingXPercent / 100) * imageWidthPx
+                const paddingYPx = (pin.tagPaddingYPercent / 100) * imageWidthPx
+                const borderRadiusPx = (pin.tagBorderRadiusPercent / 100) * imageWidthPx
+                const borderWidthPx = (pin.tagBorderWidthPercent / 100) * imageWidthPx
+
                 console.log('[v0] [編集ページ] ピン描画:', {
                   pinId: pin.id,
-                  scale: currentScale,
-                  位置: {
-                    点: `${pin.dotXPercent}%, ${pin.dotYPercent}%`,
-                    タグ: `${pin.tagXPercent}%, ${pin.tagYPercent}%`
+                  画像幅: imageWidthPx,
+                  位置: { x: `${pin.dotXPercent}%`, y: `${pin.dotYPercent}%` },
+                  パーセント値: {
+                    点: `${pin.dotSizePercent}%`,
+                    フォント: `${pin.tagFontSizePercent}%`,
+                    線: `${pin.lineWidthPercent}%`
                   },
-                  元のサイズ: {
-                    点: pin.dotSize,
-                    フォント: pin.tagFontSize,
-                    線: pin.lineWidth
-                  },
-                  スケール後: {
-                    点: pin.dotSize * currentScale,
-                    フォント: pin.tagFontSize * currentScale,
-                    線: pin.lineWidth * currentScale
+                  ピクセル値: {
+                    点: dotSizePx,
+                    フォント: fontSizePx,
+                    線: lineWidthPx
                   }
                 })
 
-                if (!isFinite(currentScale) || currentScale <= 0) {
-                  return null // スケールが無効な場合は描画しない
-                }
-
-                const safeDotSize = isFinite(pin.dotSize) ? pin.dotSize : 12
-                const safeFontSize = isFinite(pin.tagFontSize) ? pin.tagFontSize : 14
-                const safeLineWidth = isFinite(pin.lineWidth) ? pin.lineWidth : 2
-                const safePaddingX = isFinite(pin.tagPaddingX) ? pin.tagPaddingX : 12
-                const safePaddingY = isFinite(pin.tagPaddingY) ? pin.tagPaddingY : 6
-                const safeBorderRadius = isFinite(pin.tagBorderRadius) ? pin.tagBorderRadius : 4
-                const safeBorderWidth = isFinite(pin.tagBorderWidth || 0) ? (pin.tagBorderWidth || 0) : 0
-                
-                const scaledDotSize = Math.max(1, safeDotSize * currentScale)
-                const scaledFontSize = Math.max(8, safeFontSize * currentScale)
-                const scaledLineWidth = Math.max(1, safeLineWidth * currentScale)
-                const scaledPaddingX = Math.max(0, safePaddingX * currentScale)
-                const scaledPaddingY = Math.max(0, safePaddingY * currentScale)
-                const scaledBorderRadius = Math.max(0, safeBorderRadius * currentScale)
-                const scaledBorderWidth = Math.max(0, safeBorderWidth * currentScale)
-                
-                const tagTextSafe = pin.tagText || ''
-                const charCount = tagTextSafe.length || 1 // 0を避けるため最低1
-                const estimatedTagWidth = Math.max(100, charCount * scaledFontSize * 0.6 + scaledPaddingX * 2)
-                const estimatedTagHeight = scaledFontSize + scaledPaddingY * 2
+                const tagText = pin.tagText || ''
+                const charCount = tagText.length || 1
+                const estimatedTagWidth = Math.max(100, charCount * fontSizePx * 0.6 + paddingXPx * 2)
+                const estimatedTagHeight = fontSizePx + paddingYPx * 2
                 
                 const connectionPoints = getConnectionPoints(
                   pin.tagXPercent, 
@@ -742,9 +781,7 @@ export default function RecipeEditPage() {
                 
                 return (
                   <div key={pin.id}>
-                    {/* ===========================
-                        線（Line）: 点とタグの最近点を結ぶSVG線
-                        ========================== */}
+                    {/* 線 */}
                     {nearestPoint && (
                       <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
                         <line
@@ -753,23 +790,21 @@ export default function RecipeEditPage() {
                           x2={`${nearestPoint.x}%`}
                           y2={`${nearestPoint.y}%`}
                           stroke={pin.lineColor || '#ffffff'}
-                          strokeWidth={scaledLineWidth}
+                          strokeWidth={lineWidthPx}
                           strokeDasharray={pin.lineType === 'dashed' ? '5,5' : pin.lineType === 'dotted' ? '2,2' : '0'}
                         />
                       </svg>
                     )}
 
-                    {/* ===========================
-                        点（Dot）: ドラッグ可能な視覚的マーカー
-                        ========================== */}
+                    {/* 点 */}
                     <div
                       className="absolute cursor-move z-10"
                       style={{
                         left: `${pin.dotXPercent}%`,
                         top: `${pin.dotYPercent}%`,
                         transform: 'translate(-50%, -50%)',
-                        width: scaledDotSize,
-                        height: scaledDotSize,
+                        width: dotSizePx,
+                        height: dotSizePx,
                       }}
                       onMouseDown={(e) => handleDragStart('dot', pin.id, e)}
                       onTouchStart={(e) => handleTouchStart('dot', pin.id, e)}
@@ -783,9 +818,7 @@ export default function RecipeEditPage() {
                       />
                     </div>
 
-                    {/* ===========================
-                        タグ（Tag）: ドラッグ可能なテキストラベル
-                        ========================== */}
+                    {/* タグ */}
                     <div
                       className="absolute cursor-move z-10"
                       style={{
@@ -798,32 +831,33 @@ export default function RecipeEditPage() {
                     >
                       <div
                         style={{
-                          fontSize: scaledFontSize,
+                          fontSize: fontSizePx,
                           fontFamily: pin.tagFontFamily || 'system-ui',
                           fontWeight: pin.tagFontWeight || 'normal',
                           color: pin.tagTextColor || '#ffffff',
                           textShadow: pin.tagTextShadow || '0 2px 4px rgba(0,0,0,0.3)',
                           backgroundColor: pin.tagBackgroundColor || '#000000',
                           opacity: isFinite(pin.tagBackgroundOpacity) ? pin.tagBackgroundOpacity : 0.8,
-                          borderRadius: scaledBorderRadius,
+                          borderRadius: borderRadiusPx,
                           boxShadow: pin.tagShadow || '0 2px 8px rgba(0,0,0,0.2)',
-                          paddingLeft: scaledPaddingX,
-                          paddingRight: scaledPaddingX,
-                          paddingTop: scaledPaddingY,
-                          paddingBottom: scaledPaddingY,
+                          paddingLeft: paddingXPx,
+                          paddingRight: paddingXPx,
+                          paddingTop: paddingYPx,
+                          paddingBottom: paddingYPx,
                           border: selectedPinId === pin.id 
                             ? '2px solid #3b82f6' 
-                            : scaledBorderWidth > 0 ? `${scaledBorderWidth}px solid ${pin.tagBorderColor || '#ffffff'}` : 'none',
+                            : borderWidthPx > 0 ? `${borderWidthPx}px solid ${pin.tagBorderColor || '#ffffff'}` : 'none',
                           whiteSpace: 'nowrap',
                         }}
                       >
-                        {tagTextSafe}
+                        {tagText}
                       </div>
                     </div>
                   </div>
                 )
               })}
             </div>
+          </div>
           )}
         </div>
 
@@ -890,18 +924,18 @@ export default function RecipeEditPage() {
                       </div>
                     </div>
 
-                    {/* サイズスライダー */}
+                    {/* サイズスライダー: パーセント値で管理 */}
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-center">
                         <p className="text-white text-xs font-medium">サイズ</p>
-                        <span className="text-cyan-400 text-xs font-mono">{selectedPin.tagFontSize}</span>
+                        <span className="text-cyan-400 text-xs font-mono">{selectedPin.tagFontSizePercent.toFixed(1)}%</span>
                       </div>
                       <Slider
-                        value={[selectedPin.tagFontSize]}
-                        onValueChange={([value]) => updatePin(selectedPin.id, { tagFontSize: value })}
-                        min={8}
-                        max={48}
-                        step={1}
+                        value={[selectedPin.tagFontSizePercent]}
+                        onValueChange={([value]) => updatePin(selectedPin.id, { tagFontSizePercent: value })}
+                        min={1.0}
+                        max={5.0}
+                        step={0.1}
                         className="[&_[role=slider]]:bg-cyan-400 [&_[role=slider]]:border-cyan-400 [&_[role=slider]]:transition-all [&_[role=slider]]:duration-200"
                       />
                     </div>
@@ -922,50 +956,50 @@ export default function RecipeEditPage() {
                       />
                     </div>
 
-                    {/* 角丸スライダー */}
+                    {/* 角丸スライダー: パーセント値で管理 */}
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-center">
                         <p className="text-white text-xs font-medium">角丸</p>
-                        <span className="text-cyan-400 text-xs font-mono">{selectedPin.tagBorderRadius}</span>
+                        <span className="text-cyan-400 text-xs font-mono">{selectedPin.tagBorderRadiusPercent.toFixed(1)}%</span>
                       </div>
                       <Slider
-                        value={[selectedPin.tagBorderRadius]}
-                        onValueChange={([value]) => updatePin(selectedPin.id, { tagBorderRadius: value })}
+                        value={[selectedPin.tagBorderRadiusPercent]}
+                        onValueChange={([value]) => updatePin(selectedPin.id, { tagBorderRadiusPercent: value })}
                         min={0}
-                        max={24}
-                        step={1}
+                        max={2.0}
+                        step={0.1}
                         className="[&_[role=slider]]:bg-cyan-400 [&_[role=slider]]:border-cyan-400 [&_[role=slider]]:transition-all [&_[role=slider]]:duration-200"
                       />
                     </div>
 
-                    {/* 点のサイズ */}
+                    {/* 点のサイズ: パーセント値で管理 */}
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-center">
                         <p className="text-white text-xs font-medium">点のサイズ</p>
-                        <span className="text-cyan-400 text-xs font-mono">{selectedPin.dotSize}</span>
+                        <span className="text-cyan-400 text-xs font-mono">{selectedPin.dotSizePercent.toFixed(1)}%</span>
                       </div>
                       <Slider
-                        value={[selectedPin.dotSize]}
-                        onValueChange={([value]) => updatePin(selectedPin.id, { dotSize: value })}
-                        min={4}
-                        max={32}
-                        step={1}
+                        value={[selectedPin.dotSizePercent]}
+                        onValueChange={([value]) => updatePin(selectedPin.id, { dotSizePercent: value })}
+                        min={0.5}
+                        max={3.0}
+                        step={0.1}
                         className="[&_[role=slider]]:bg-cyan-400 [&_[role=slider]]:border-cyan-400 [&_[role=slider]]:transition-all [&_[role=slider]]:duration-200"
                       />
                     </div>
 
-                    {/* 線の太さ */}
+                    {/* 線の太さ: パーセント値で管理 */}
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-center">
                         <p className="text-white text-xs font-medium">線の太さ</p>
-                        <span className="text-cyan-400 text-xs font-mono">{selectedPin.lineWidth}</span>
+                        <span className="text-cyan-400 text-xs font-mono">{selectedPin.lineWidthPercent.toFixed(1)}%</span>
                       </div>
                       <Slider
-                        value={[selectedPin.lineWidth]}
-                        onValueChange={([value]) => updatePin(selectedPin.id, { lineWidth: value })}
-                        min={1}
-                        max={8}
-                        step={1}
+                        value={[selectedPin.lineWidthPercent]}
+                        onValueChange={([value]) => updatePin(selectedPin.id, { lineWidthPercent: value })}
+                        min={0.1}
+                        max={1.0}
+                        step={0.1}
                         className="[&_[role=slider]]:bg-cyan-400 [&_[role=slider]]:border-cyan-400 [&_[role=slider]]:transition-all [&_[role=slider]]:duration-200"
                       />
                     </div>

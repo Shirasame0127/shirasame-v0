@@ -4,13 +4,14 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { ArrowLeft, Save, Eye } from "lucide-react"
+import { ArrowLeft, Save, Eye } from 'lucide-react'
 import Link from "next/link"
 import { mockUser } from "@/lib/mock-data/users"
 import { ChromePicker } from "react-color"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ImageUpload } from "@/components/image-upload"
 import { db } from "@/lib/db/storage"
+import { useToast } from "@/hooks/use-toast"
 
 const FONT_OPTIONS = [
   { value: "sans-serif", label: "Sans Serif (デフォルト)" },
@@ -30,6 +31,8 @@ const fileToBase64 = (file: File): Promise<string> => {
 }
 
 export default function ThemeCustomizerPage() {
+  const { toast } = useToast()
+  
   const [primaryColor, setPrimaryColor] = useState("#3b82f6")
   const [backgroundColor, setBackgroundColor] = useState(mockUser.backgroundColor || "#ffffff")
   const [textColor, setTextColor] = useState("#000000")
@@ -61,7 +64,11 @@ export default function ThemeCustomizerPage() {
 
     db.theme.set(themeData)
     console.log("[v0] Saved theme to DB")
-    alert("テーマを保存しました！")
+    
+    toast({
+      title: "保存完了",
+      description: "テーマを保存しました",
+    })
   }
 
   return (

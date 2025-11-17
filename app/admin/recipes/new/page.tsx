@@ -11,12 +11,14 @@ import { useRouter } from 'next/navigation'
 import { db } from "@/lib/db/storage"
 import { convertImageToBase64 } from "@/lib/utils/image-utils"
 import type { Recipe, RecipeImage } from "@/lib/mock-data/recipes"
+import { useToast } from "@/hooks/use-toast"
 
 export default function RecipeNewPage() {
   const router = useRouter()
   const [title, setTitle] = useState("")
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imageUrl, setImageUrl] = useState<string>("")
+  const { toast } = useToast()
 
   const handleImageChange = async (file: File | null) => {
     setImageFile(file)
@@ -28,11 +30,19 @@ export default function RecipeNewPage() {
 
   const handleSave = async () => {
     if (!title) {
-      alert("タイトルを入力してください")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "タイトルを入力してください"
+      })
       return
     }
     if (!imageUrl) {
-      alert("画像を選択してください")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "画像を選択してください"
+      })
       return
     }
 
@@ -59,7 +69,10 @@ export default function RecipeNewPage() {
     db.recipes.create(recipe)
     db.recipeImages.upsert(recipeImage)
 
-    alert("レシピを作成しました！")
+    toast({
+      title: "作成完了",
+      description: "レシピを作成しました"
+    })
     router.push(`/admin/recipes/${recipeId}/edit`)
   }
 

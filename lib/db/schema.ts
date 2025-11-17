@@ -41,6 +41,7 @@ export interface DBRecipe {
   image_data_url: string // Base64画像データ（ローカル保存）
   image_width: number
   image_height: number
+  aspect_ratio: string // "4:3", "16:9", "1:1" など
   published: boolean
   created_at: string
   updated_at: string
@@ -226,6 +227,7 @@ export type Recipe = {
   imageDataUrl: string // Base64画像データ
   imageWidth: number // 基準画像の幅（ピクセル）
   imageHeight: number // 基準画像の高さ（ピクセル）
+  aspectRatio: string // アスペクト比情報
   pins: Array<{
     id: string
     productId: string

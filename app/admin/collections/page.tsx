@@ -10,10 +10,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { db } from "@/lib/db/storage"
 import { ProductCard } from "@/components/product-card"
-import { Plus, Edit, Trash2, Save, X } from "lucide-react"
+import { Plus, Edit, Trash2, Save, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { Collection } from "@/types/collection" // Declare the Collection variable
+import { useToast } from "@/hooks/use-toast"
 
 export default function AdminCollectionsPage() {
   const [collections, setCollections] = useState<Collection[]>([])
@@ -22,6 +23,7 @@ export default function AdminCollectionsPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [manageProductsDialogOpen, setManageProductsDialogOpen] = useState(false)
   const [managingCollectionId, setManagingCollectionId] = useState<string | null>(null)
+  const { toast } = useToast()
 
   const [formData, setFormData] = useState({
     title: "",
@@ -58,7 +60,11 @@ export default function AdminCollectionsPage() {
 
   const handleSave = () => {
     if (!formData.title.trim()) {
-      alert("タイトルを入力してください")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "タイトルを入力してください"
+      })
       return
     }
 
@@ -73,34 +79,73 @@ export default function AdminCollectionsPage() {
       }
       db.collections.create(newCollection)
       setCollections([...collections, newCollection])
-      alert("コレクションを作成しました！")
+      toast({
+        title: "作成完了",
+        description: "コレクションを作成しました"
+      })
     } else if (editingCollection) {
       db.collections.update(editingCollection.id, formData)
       setCollections(collections.map((col) => (col.id === editingCollection.id ? { ...col, ...formData } : col)))
-      alert("コレクションを更新しました！")
+      toast({
+        title: "更新完了",
+        description: "コレクションを更新しました"
+      })
     }
 
     setDialogOpen(false)
   }
 
   const handleDelete = (collectionId: string) => {
-    if (confirm("このコレクションを削除しますか？")) {
-      db.collections.delete(collectionId)
-      setCollections(collections.filter((col) => col.id !== collectionId))
-      alert("コレクションを削除しました！")
-    }
+    toast({
+      title: "削除の確認",
+      description: "このコレクションを削除してもよろしいですか？",
+      action: (
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => {
+            db.collections.delete(collectionId)
+            setCollections(collections.filter((col) => col.id !== collectionId))
+            toast({
+              title: "削除完了",
+              description: "コレクションを削除しました"
+            })
+          }}
+        >
+          削除
+        </Button>
+      ),
+    })
   }
 
   const handleAddProduct = (collectionId: string, productId: string) => {
     db.collectionItems.addProduct(collectionId, productId)
-    alert("商品を追加しました！")
+    toast({
+      title: "追加完了",
+      description: "商品を追加しました"
+    })
   }
 
   const handleRemoveProduct = (collectionId: string, productId: string) => {
-    if (confirm("この商品をコレクションから削除しますか？")) {
-      db.collectionItems.removeProduct(collectionId, productId)
-      alert("商品を削除しました！")
-    }
+    toast({
+      title: "削除の確認",
+      description: "この商品をコレクションから削除してもよろしいですか？",
+      action: (
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => {
+            db.collectionItems.removeProduct(collectionId, productId)
+            toast({
+              title: "削除完了",
+              description: "商品を削除しました"
+            })
+          }}
+        >
+          削除
+        </Button>
+      ),
+    })
   }
 
   const getCollectionProducts = (collectionId: string) => {
