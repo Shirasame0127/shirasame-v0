@@ -16,6 +16,14 @@ import { ProductCard } from "@/components/product-card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
+import { WEB_FONTS, getFontsByCategory } from "@/lib/fonts/web-fonts"
+import { getCurrentUser } from "@/lib/auth"
+
+const DEFAULT_STAGE_ASPECT_RATIO = 3 / 2 // 画像がまだ無いときのフォールバック比率
+const LAYOUT_RATIOS = {
+  mobile: { imageRow: 3, panelRow: 2, panelMinPercent: 40 },
+  desktop: { imageFlex: 3, panelFlex: 2, panelMinPercent: 32 },
+} as const
 
 // ===========================
 // 型定義: Pinオブジェクトの構造
@@ -104,11 +112,25 @@ export default function RecipeEditPage() {
   const [tempTitle, setTempTitle] = useState("")                          // タイトル入力モーダル用のステート追加
   const [scale, setScale] = useState(1)                                   // スケールをstateで管理
 
+  const [customFonts, setCustomFonts] = useState<any[]>([])
+  const [favoriteFonts, setFavoriteFonts] = useState<string[]>([])
+  const [currentUserId, setCurrentUserId] = useState<string>('')
+  const [isUploadingFont, setIsUploadingFont] = useState(false)
+
+  const [fontCategory, setFontCategory] = useState<'japanese' | 'english' | 'all' | 'favorite' | 'custom'>('all')
+  const [fontSearch, setFontSearch] = useState('')
+
   // ===========================
   // Ref: DOM要素への参照
   // ===========================
   const imageRef = useRef<HTMLDivElement>(null)        // 画像コンテナへの参照
   const pinAreaRef = useRef<HTMLDivElement>(null)      // ピン配置エリアへの参照（画像と完全に一致）
+  const imageElRef = useRef<HTMLImageElement | null>(null) // 実際に表示される img 要素の参照
+  const [imageDisplayWidth, setImageDisplayWidth] = useState<number | null>(null)
+  const [imageDisplayHeight, setImageDisplayHeight] = useState<number | null>(null)
+  const [pinAreaOffsetLeft, setPinAreaOffsetLeft] = useState<number>(0)
+  const [pinAreaOffsetTop, setPinAreaOffsetTop] = useState<number>(0)
+  const [isMobileView, setIsMobileView] = useState<boolean>(false)
   const fileInputRef = useRef<HTMLInputElement>(null)  // ファイル入力への参照
 
   // ===========================
@@ -116,7 +138,19 @@ export default function RecipeEditPage() {
   // ===========================
   useEffect(() => {
     loadData()
+    loadUserFonts()
   }, [recipeId])
+
+  function loadUserFonts() {
+    const user = getCurrentUser()
+    if (user) {
+      setCurrentUserId(user.id)
+      const favorites = db.user.getFavoriteFonts(user.id)
+      setFavoriteFonts(favorites)
+      const customs = db.customFonts.getAll(user.id)
+      setCustomFonts(customs)
+    }
+  }
 
   // ===========================
   // 関数: データベースからレシピデータを読み込む
@@ -381,6 +415,129 @@ export default function RecipeEditPage() {
     setPins(pins.map(pin => pin.id === pinId ? { ...pin, ...updates } : pin))
   }
 
+  function toggleFavoriteFont(fontFamily: string) {
+    if (!currentUserId) return
+    
+    if (favoriteFonts.includes(fontFamily)) {
+      db.user.removeFavoriteFont(currentUserId, fontFamily)
+      setFavoriteFonts(favoriteFonts.filter(f => f !== fontFamily))
+      toast({
+        title: "お気に入りから削除",
+        description: "フォントをお気に入りから削除しました",
+      })
+    } else {
+      db.user.addFavoriteFont(currentUserId, fontFamily)
+      setFavoriteFonts([...favoriteFonts, fontFamily])
+      toast({
+        title: "お気に入りに追加",
+        description: "フォントをお気に入りに追加しました",
+      })
+    }
+  }
+
+  async function handleFontUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // フォントファイルの検証
+    const validExtensions = ['.ttf', '.otf', '.woff', '.woff2']
+    const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
+    
+    if (!validExtensions.includes(fileExtension)) {
+      toast({
+        title: "エラー",
+        description: "サポートされているフォント形式：TTF, OTF, WOFF, WOFF2",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsUploadingFont(true)
+
+    try {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const fontDataUrl = event.target?.result as string
+        const fontName = file.name.replace(fileExtension, '')
+        const fontFamily = `custom-${fontName.replace(/[^a-zA-Z0-9]/g, '-')}`
+
+        // カスタムフォントをデータベースに保存
+        const newFont = db.customFonts.create({
+          userId: currentUserId,
+          name: fontName,
+          family: fontFamily,
+          fontDataUrl,
+        })
+
+        setCustomFonts([...customFonts, newFont])
+        
+        // フォントをページに動的にロード
+        if (typeof document !== 'undefined') {
+          const styleId = `custom-font-${fontFamily}`
+          if (!document.getElementById(styleId)) {
+            const style = document.createElement('style')
+            style.id = styleId
+            style.textContent = `
+              @font-face {
+                font-family: '${fontFamily}';
+                src: url('${fontDataUrl}');
+              }
+            `
+            document.head.appendChild(style)
+          }
+        }
+
+        toast({
+          title: "アップロード完了",
+          description: `${fontName}を追加しました`,
+        })
+
+        setIsUploadingFont(false)
+      }
+      reader.readAsDataURL(file)
+    } catch (error) {
+      console.error('[v0] Font upload error:', error)
+      toast({
+        title: "エラー",
+        description: "フォントのアップロードに失敗しました",
+        variant: "destructive",
+      })
+      setIsUploadingFont(false)
+    }
+  }
+
+  function handleDeleteCustomFont(fontId: string) {
+    const confirmed = window.confirm("このカスタムフォントを削除しますか？")
+    if (!confirmed) return
+
+    db.customFonts.delete(fontId)
+    setCustomFonts(customFonts.filter(f => f.id !== fontId))
+    
+    toast({
+      title: "削除完了",
+      description: "カスタムフォントを削除しました",
+    })
+  }
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    
+    customFonts.forEach(font => {
+      const styleId = `custom-font-${font.family}`
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement('style')
+        style.id = styleId
+        style.textContent = `
+          @font-face {
+            font-family: '${font.family}';
+            src: url('${font.fontDataUrl}');
+          }
+        `
+        document.head.appendChild(style)
+      }
+    })
+  }, [customFonts])
+
   // ===========================
   // 関数: 選択中のピンのプロパティをすべてのピンに適用
   // ===========================
@@ -575,6 +732,26 @@ export default function RecipeEditPage() {
   // 選択中のピンを取得
   // ===========================
   const selectedPin = pins.find(p => p.id === selectedPinId)
+  const imageAspectRatio = imageWidth > 0 && imageHeight > 0 ? imageWidth / imageHeight : null
+
+  const filteredFonts = (() => {
+    if (fontCategory === 'favorite') {
+      const allFonts = WEB_FONTS
+      const favoriteList = allFonts.filter(font => favoriteFonts.includes(font.family))
+      return fontSearch 
+        ? favoriteList.filter(font => font.name.toLowerCase().includes(fontSearch.toLowerCase()))
+        : favoriteList
+    } else if (fontCategory === 'custom') {
+      return fontSearch
+        ? customFonts.filter(font => font.name.toLowerCase().includes(fontSearch.toLowerCase()))
+        : customFonts
+    } else {
+      const fonts = getFontsByCategory(fontCategory as any)
+      return fontSearch 
+        ? fonts.filter(font => font.name.toLowerCase().includes(fontSearch.toLowerCase()))
+        : fonts
+    }
+  })()
 
   // ===========================
   // カラープリセット（プロパティパネル用）
@@ -587,43 +764,93 @@ export default function RecipeEditPage() {
   // ===========================
   // ===========================
   useEffect(() => {
-    const updateScale = () => {
-      if (pinAreaRef.current && imageDataUrl) {
-        const img = new Image()
-        img.src = imageDataUrl
-        img.onload = () => {
-          const pinAreaRect = pinAreaRef.current?.getBoundingClientRect()
-          if (pinAreaRect && pinAreaRect.width > 0 && pinAreaRect.height > 0) {
-            const scaleX = pinAreaRect.width / imageWidth
-            const scaleY = pinAreaRect.height / imageHeight
-            const calculatedScale = Math.min(scaleX, scaleY)
-            
-            if (isFinite(calculatedScale) && calculatedScale > 0) {
-              setScale(calculatedScale)
-              console.log('[v0] [編集ページ] スケール更新:', {
-                scale: calculatedScale,
-                表示サイズ: `${pinAreaRect.width}x${pinAreaRect.height}`,
-                基準サイズ: `${imageWidth}x${imageHeight}`,
-                scaleX,
-                scaleY
-              })
-            }
-          }
+    const updateScaleAndSize = () => {
+      if (!imageElRef.current || !imageRef.current) return
+
+      const imgRect = imageElRef.current.getBoundingClientRect()
+      const wrapperRect = imageRef.current.getBoundingClientRect()
+
+      if (imgRect.width > 0 && imgRect.height > 0) {
+        setImageDisplayWidth(Math.round(imgRect.width))
+        setImageDisplayHeight(Math.round(imgRect.height))
+
+        // ピンエリアの左上オフセット（wrapper 相対）
+        setPinAreaOffsetLeft(Math.round(imgRect.left - wrapperRect.left))
+        setPinAreaOffsetTop(Math.round(imgRect.top - wrapperRect.top))
+
+        const scaleX = imgRect.width / imageWidth
+        const scaleY = imgRect.height / imageHeight
+        const calculatedScale = Math.min(scaleX, scaleY)
+
+        if (isFinite(calculatedScale) && calculatedScale > 0) {
+          setScale(calculatedScale)
+          console.log('[v0] [編集ページ] スケール更新:', {
+            scale: calculatedScale,
+            表示サイズ: `${imgRect.width}x${imgRect.height}`,
+            基準サイズ: `${imageWidth}x${imageHeight}`,
+            scaleX,
+            scaleY
+          })
         }
       }
     }
 
-    updateScale()
-    window.addEventListener('resize', updateScale)
-    
+    updateScaleAndSize()
+    window.addEventListener('resize', updateScaleAndSize)
+
     return () => {
-      window.removeEventListener('resize', updateScale)
+      window.removeEventListener('resize', updateScaleAndSize)
     }
   }, [imageDataUrl, imageWidth, imageHeight])
+
+  // モバイル判定: PC以外はスマホ表示フラグを立てる
+  useEffect(() => {
+    const checkMobile = () => {
+      if (typeof window === 'undefined') return
+      setIsMobileView(window.innerWidth < 1024)
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
 
   // ===========================
   // JSX: UI構造
   // ===========================
+  // 画像要素がロードされたときに表示サイズを計測して pinArea に反映
+  function handleImageElementLoad() {
+    if (!imageElRef.current || !pinAreaRef.current) return
+    const imgRect = imageElRef.current.getBoundingClientRect()
+    setImageDisplayWidth(Math.round(imgRect.width))
+    setImageDisplayHeight(Math.round(imgRect.height))
+    // scale は既存の useEffect で再計算されますが、ここでも念の為更新
+    const scaleX = imgRect.width / imageWidth
+    const scaleY = imgRect.height / imageHeight
+    const calculatedScale = Math.min(scaleX, scaleY)
+    if (isFinite(calculatedScale) && calculatedScale > 0) setScale(calculatedScale)
+  }
+
+  // ResizeObserver で画像の表示サイズ変化を監視（レスポンシブ対応）
+  useEffect(() => {
+    const el = imageElRef.current
+    if (!el) return
+
+    let ro: ResizeObserver | null = null
+    if (typeof window !== 'undefined' && 'ResizeObserver' in window) {
+      ro = new ResizeObserver(() => {
+        handleImageElementLoad()
+      })
+      ro.observe(el)
+    } else {
+      // フォールバック
+      window.addEventListener('resize', handleImageElementLoad)
+    }
+
+    return () => {
+      if (ro) ro.disconnect()
+      else window.removeEventListener('resize', handleImageElementLoad)
+    }
+  }, [imageDataUrl, imageWidth, imageHeight])
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-zinc-950">
       {/* ===========================
@@ -672,11 +899,24 @@ export default function RecipeEditPage() {
           PC: 左右2分割（画像 | プロパティパネル）
           スマホ: 縦分割（画像 | プロパティ）、プロパティパネルは下部固定ではなく並列配置
           ========================== */}
-      <div className="flex-1 flex flex-col sm:flex-row overflow-hidden">
+      <div
+        className="flex-1 grid sm:flex sm:flex-row overflow-hidden"
+        style={{
+          gridTemplateRows: `${LAYOUT_RATIOS.mobile.imageRow}fr ${LAYOUT_RATIOS.mobile.panelRow}fr`,
+        }}
+      >
         {/* ===========================
           画像エリア
         ========================== */}
-        <div className="flex-[6] sm:flex-1 flex items-center aspect-[3/4]justify-center p-2 sm:p-4 overflow-hidden bg-zinc-900/50">
+        <div
+          className="flex items-center justify-center p-2 sm:p-4 bg-zinc-900/50"
+          style={{
+            flexGrow: LAYOUT_RATIOS.desktop.imageFlex,
+            flexShrink: 1,
+            flexBasis: 0,
+            minWidth: 0,
+          }}
+        >
   
 
           {!imageDataUrl ? (
@@ -702,162 +942,190 @@ export default function RecipeEditPage() {
             /* 画像選択済み: キャンバスとピン表示 */
             <div
               ref={imageRef}
-              className="relative w-full max-w-full max-h-full bg-zinc-800 rounded-lg overflow-hidden shadow-2xl flex items-center justify-center"
+              className="relative flex w-full h-full px-3 sm:px-6 items-center justify-center"
             >
               <div
-                ref={pinAreaRef}
-                className="relative"
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                style={{ 
-                height: '-webkit-fill-available',
-                  touchAction: 'none',
+                className="relative bg-zinc-800 rounded-lg overflow-hidden shadow-2xl mx-auto"
+                style={{
+                  aspectRatio: imageAspectRatio ?? DEFAULT_STAGE_ASPECT_RATIO,
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
                 }}
               >
-                {/* レシピ画像 */}
+                {/* レシピ画像 (フロー内に配置してコンテナサイズを決定させる) */}
                 <img
+                  ref={imageElRef}
+                  onLoad={handleImageElementLoad}
                   src={imageDataUrl || "/placeholder.svg"}
                   alt={title}
-                  className="w-auto object-contain pointer-events-none select-none"
+                  className="pointer-events-none select-none block"
                   style={{
-                    
                     maxWidth: '100%',
                     maxHeight: '100%',
+                    width: 'auto',
+                    height: 'auto',
+                    objectFit: 'contain',
                   }}
                 />
 
-              {/* ===========================
-                  ピン描画ループ
-                  ========================== */}
-              {pins.map((pin) => {
-                const pinAreaRect = pinAreaRef.current?.getBoundingClientRect()
-                if (!pinAreaRect || pinAreaRect.width === 0) return null
+                <div
+                  ref={pinAreaRef}
+                  className="absolute inset-0"
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  style={{
+                    touchAction: 'none',
+                    width: '100%',
+                    height: '100%',
+                  }}
+                >
+                  {/* ===========================
+                      ピン描画ループ
+                      ========================== */}
+                  {pins.map((pin) => {
+              const pinAreaRect = pinAreaRef.current?.getBoundingClientRect()
+              if (!pinAreaRect || pinAreaRect.width === 0) return null
 
-                const imageWidthPx = pinAreaRect.width
-                
-                // パーセント値をピクセルに変換
-                const dotSizePx = (pin.dotSizePercent / 100) * imageWidthPx
-                const fontSizePx = (pin.tagFontSizePercent / 100) * imageWidthPx
-                const lineWidthPx = (pin.lineWidthPercent / 100) * imageWidthPx
-                const paddingXPx = (pin.tagPaddingXPercent / 100) * imageWidthPx
-                const paddingYPx = (pin.tagPaddingYPercent / 100) * imageWidthPx
-                const borderRadiusPx = (pin.tagBorderRadiusPercent / 100) * imageWidthPx
-                const borderWidthPx = (pin.tagBorderWidthPercent / 100) * imageWidthPx
+              const imageWidthPx = pinAreaRect.width
+              
+              // パーセント値をピクセルに変換
+              const dotSizePx = (pin.dotSizePercent / 100) * imageWidthPx
+              const fontSizePx = (pin.tagFontSizePercent / 100) * imageWidthPx
+              const lineWidthPx = (pin.lineWidthPercent / 100) * imageWidthPx
+              const paddingXPx = (pin.tagPaddingXPercent / 100) * imageWidthPx
+              const paddingYPx = (pin.tagPaddingYPercent / 100) * imageWidthPx
+              const borderRadiusPx = (pin.tagBorderRadiusPercent / 100) * imageWidthPx
+              const borderWidthPx = (pin.tagBorderWidthPercent / 100) * imageWidthPx
 
-                console.log('[v0] [編集ページ] ピン描画:', {
-                  pinId: pin.id,
-                  画像幅: imageWidthPx,
-                  位置: { x: `${pin.dotXPercent}%`, y: `${pin.dotYPercent}%` },
-                  パーセント値: {
-                    点: `${pin.dotSizePercent}%`,
-                    フォント: `${pin.tagFontSizePercent}%`,
-                    線: `${pin.lineWidthPercent}%`
-                  },
-                  ピクセル値: {
-                    点: dotSizePx,
-                    フォント: fontSizePx,
-                    線: lineWidthPx
-                  }
-                })
+              console.log('[v0] [編集ページ] ピン描画:', {
+                pinId: pin.id,
+                画像幅: imageWidthPx,
+                位置: { x: `${pin.dotXPercent}%`, y: `${pin.dotYPercent}%` },
+                パーセント値: {
+                  点: `${pin.dotSizePercent}%`,
+                  フォント: `${pin.tagFontSizePercent}%`,
+                  線: `${pin.lineWidthPercent}%`
+                },
+                ピクセル値: {
+                  点: dotSizePx,
+                  フォント: fontSizePx,
+                  線: lineWidthPx
+                }
+              })
 
-                const tagText = pin.tagText || ''
-                const charCount = tagText.length || 1
-                const estimatedTagWidth = Math.max(100, charCount * fontSizePx * 0.6 + paddingXPx * 2)
-                const estimatedTagHeight = fontSizePx + paddingYPx * 2
-                
-                const connectionPoints = getConnectionPoints(
-                  pin.tagXPercent, 
-                  pin.tagYPercent, 
-                  estimatedTagWidth, 
-                  estimatedTagHeight
-                )
-                
-                const nearestPoint = connectionPoints.length > 0 
-                  ? findNearestConnectionPoint(pin.dotXPercent, pin.dotYPercent, connectionPoints)
-                  : { x: pin.tagXPercent, y: pin.tagYPercent }
-                
-                return (
-                  <div key={pin.id}>
-                    {/* 線 */}
-                    {nearestPoint && (
-                      <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
-                        <line
-                          x1={`${pin.dotXPercent}%`}
-                          y1={`${pin.dotYPercent}%`}
-                          x2={`${nearestPoint.x}%`}
-                          y2={`${nearestPoint.y}%`}
-                          stroke={pin.lineColor || '#ffffff'}
-                          strokeWidth={lineWidthPx}
-                          strokeDasharray={pin.lineType === 'dashed' ? '5,5' : pin.lineType === 'dotted' ? '2,2' : '0'}
-                        />
-                      </svg>
-                    )}
+              const tagText = pin.tagText || ''
+              const charCount = tagText.length || 1
+              const estimatedTagWidth = Math.max(100, charCount * fontSizePx * 0.6 + paddingXPx * 2)
+              const estimatedTagHeight = fontSizePx + paddingYPx * 2
+              
+              const connectionPoints = getConnectionPoints(
+                pin.tagXPercent, 
+                pin.tagYPercent, 
+                estimatedTagWidth, 
+                estimatedTagHeight
+              )
+              
+              const nearestPoint = connectionPoints.length > 0 
+                ? findNearestConnectionPoint(pin.dotXPercent, pin.dotYPercent, connectionPoints)
+                : { x: pin.tagXPercent, y: pin.tagYPercent }
+              
+              return (
+                <div key={pin.id}>
+                  {/* 線 */}
+                  {nearestPoint && (
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
+                      <line
+                        x1={`${pin.dotXPercent}%`}
+                        y1={`${pin.dotYPercent}%`}
+                        x2={`${nearestPoint.x}%`}
+                        y2={`${nearestPoint.y}%`}
+                        stroke={pin.lineColor || '#ffffff'}
+                        strokeWidth={lineWidthPx}
+                        strokeDasharray={pin.lineType === 'dashed' ? '5,5' : pin.lineType === 'dotted' ? '2,2' : '0'}
+                      />
+                    </svg>
+                  )}
 
-                    {/* 点 */}
+                  {/* 点 */}
+                  <div
+                    className="absolute z-10"
+                    style={{
+                      left: `${pin.dotXPercent}%`,
+                      top: `${pin.dotYPercent}%`,
+                      transform: 'translate(-50%, -50%)',
+                      // ヒット領域は視覚要素より大きくとる（モバイルで掴みやすく）
+                      width: isMobileView ? Math.max(dotSizePx * 3, 40) : Math.max(dotSizePx * 1.6, 24),
+                      height: isMobileView ? Math.max(dotSizePx * 3, 40) : Math.max(dotSizePx * 1.6, 24),
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'move',
+                      // タッチイベントを確実に受け取る
+                      touchAction: 'none'
+                    }}
+                    onMouseDown={(e) => handleDragStart('dot', pin.id, e)}
+                    onTouchStart={(e) => handleTouchStart('dot', pin.id, e)}
+                  >
                     <div
-                      className="absolute cursor-move z-10"
+                      // 視覚的なドットは中央に固定し、元のサイズを維持
+                      className={`${pin.dotShape === 'circle' ? 'rounded-full' : ''}`}
                       style={{
-                        left: `${pin.dotXPercent}%`,
-                        top: `${pin.dotYPercent}%`,
-                        transform: 'translate(-50%, -50%)',
                         width: dotSizePx,
                         height: dotSizePx,
+                        backgroundColor: pin.dotColor || '#ffffff',
+                        border: selectedPinId === pin.id ? '2px solid #3b82f6' : 'none',
+                        boxSizing: 'content-box',
                       }}
-                      onMouseDown={(e) => handleDragStart('dot', pin.id, e)}
-                      onTouchStart={(e) => handleTouchStart('dot', pin.id, e)}
-                    >
-                      <div
-                        className={`w-full h-full ${pin.dotShape === 'circle' ? 'rounded-full' : ''}`}
-                        style={{
-                          backgroundColor: pin.dotColor || '#ffffff',
-                          border: selectedPinId === pin.id ? '2px solid #3b82f6' : 'none',
-                        }}
-                      />
-                    </div>
+                    />
+                  </div>
 
-                    {/* タグ */}
+                  {/* タグ */}
+                  <div
+                    className="absolute cursor-move z-10"
+                    style={{
+                      left: `${pin.tagXPercent}%`,
+                      top: `${pin.tagYPercent}%`,
+                      transform: 'translate(-50%, -50%)',
+                    }}
+                    onMouseDown={(e) => handleDragStart('tag', pin.id, e)}
+                    onTouchStart={(e) => handleTouchStart('tag', pin.id, e)}
+                  >
                     <div
-                      className="absolute cursor-move z-10"
                       style={{
-                        left: `${pin.tagXPercent}%`,
-                        top: `${pin.tagYPercent}%`,
-                        transform: 'translate(-50%, -50%)',
+                        fontSize: fontSizePx,
+                        fontFamily: pin.tagFontFamily || 'system-ui',
+                        fontWeight: pin.tagFontWeight || 'normal',
+                        color: pin.tagTextColor || '#ffffff',
+                        textShadow: pin.tagTextShadow || '0 2px 4px rgba(0,0,0,0.3)',
+                        backgroundColor: pin.tagBackgroundColor || '#000000',
+                        opacity: isFinite(pin.tagBackgroundOpacity) ? pin.tagBackgroundOpacity : 0.8,
+                        borderRadius: borderRadiusPx,
+                        boxShadow: pin.tagShadow || '0 2px 8px rgba(0,0,0,0.2)',
+                        paddingLeft: paddingXPx,
+                        paddingRight: paddingXPx,
+                        paddingTop: paddingYPx,
+                        paddingBottom: paddingYPx,
+                        border: selectedPinId === pin.id 
+                          ? '2px solid #3b82f6' 
+                          : borderWidthPx > 0 ? `${borderWidthPx}px solid ${pin.tagBorderColor || '#ffffff'}` : 'none',
+                        whiteSpace: 'nowrap',
                       }}
-                      onMouseDown={(e) => handleDragStart('tag', pin.id, e)}
-                      onTouchStart={(e) => handleTouchStart('tag', pin.id, e)}
                     >
-                      <div
-                        style={{
-                          fontSize: fontSizePx,
-                          fontFamily: pin.tagFontFamily || 'system-ui',
-                          fontWeight: pin.tagFontWeight || 'normal',
-                          color: pin.tagTextColor || '#ffffff',
-                          textShadow: pin.tagTextShadow || '0 2px 4px rgba(0,0,0,0.3)',
-                          backgroundColor: pin.tagBackgroundColor || '#000000',
-                          opacity: isFinite(pin.tagBackgroundOpacity) ? pin.tagBackgroundOpacity : 0.8,
-                          borderRadius: borderRadiusPx,
-                          boxShadow: pin.tagShadow || '0 2px 8px rgba(0,0,0,0.2)',
-                          paddingLeft: paddingXPx,
-                          paddingRight: paddingXPx,
-                          paddingTop: paddingYPx,
-                          paddingBottom: paddingYPx,
-                          border: selectedPinId === pin.id 
-                            ? '2px solid #3b82f6' 
-                            : borderWidthPx > 0 ? `${borderWidthPx}px solid ${pin.tagBorderColor || '#ffffff'}` : 'none',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {tagText}
-                      </div>
+                      {tagText}
                     </div>
                   </div>
-                )
-              })}
+                </div>
+              )
+                  })}
+                </div>
+              </div>
             </div>
-          </div>
           )}
         </div>
 
@@ -865,7 +1133,16 @@ export default function RecipeEditPage() {
             プロパティパネル: 改善されたデザインとアニメーション
             ========================== */}
         {imageDataUrl && (
-          <div className="flex-[4] sm:flex-1 flex flex-col border-l border-zinc-800 overflow-hidden bg-zinc-900">
+          <div
+            className="flex flex-col border-t sm:border-t-0 sm:border-l border-zinc-800 overflow-hidden bg-zinc-900"
+            style={{
+              flexGrow: LAYOUT_RATIOS.desktop.panelFlex,
+              flexShrink: 1,
+              flexBasis: 0,
+              minWidth: isMobileView ? '100%' : `${LAYOUT_RATIOS.desktop.panelMinPercent}%`,
+              minHeight: isMobileView ? `${LAYOUT_RATIOS.mobile.panelMinPercent}%` : undefined,
+            }}
+          >
             {selectedPin ? (
               <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300">
                 <div className="flex-shrink-0 p-2 border-b border-zinc-800 bg-zinc-900">
@@ -1005,24 +1282,214 @@ export default function RecipeEditPage() {
                     </div>
                   </TabsContent>
 
-                  {/* フォントタブ: コンパクト化 */}
-                  <TabsContent value="font" className="flex-1 overflow-y-auto p-3 mt-0 animate-in slide-in-from-bottom-2 duration-200">
-                    <div className="grid grid-cols-2 gap-2">
-                      {['system-ui', 'serif', 'monospace', 'cursive'].map(font => (
+                  <TabsContent value="font" className="flex-1 overflow-hidden p-3 mt-0 animate-in slide-in-from-bottom-2 duration-200 flex flex-col">
+                    {/* フィルターUI */}
+                    <div className="space-y-2 mb-3 flex-shrink-0">
+                      <div className="grid grid-cols-5 gap-1">
                         <button
-                          key={font}
-                          onClick={() => updatePin(selectedPin.id, { tagFontFamily: font })}
-                          className={`p-2.5 rounded-lg border text-xs transition-all duration-200 hover:scale-105 ${
-                            selectedPin.tagFontFamily === font
-                              ? 'border-cyan-400 bg-cyan-400/10 text-white shadow-lg shadow-cyan-400/20'
-                              : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600'
+                          onClick={() => setFontCategory('all')}
+                          className={`px-2 py-1.5 rounded text-xs transition-all duration-200 ${
+                            fontCategory === 'all'
+                              ? 'bg-cyan-400 text-white'
+                              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                           }`}
-                          style={{ fontFamily: font }}
                         >
-                          {font === 'system-ui' ? 'システム' : font === 'serif' ? 'セリフ' : font === 'monospace' ? 'モノ' : '手書き'}
+                          すべて
                         </button>
-                      ))}
+                        <button
+                          onClick={() => setFontCategory('japanese')}
+                          className={`px-2 py-1.5 rounded text-xs transition-all duration-200 ${
+                            fontCategory === 'japanese'
+                              ? 'bg-cyan-400 text-white'
+                              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                          }`}
+                        >
+                          日本語
+                        </button>
+                        <button
+                          onClick={() => setFontCategory('english')}
+                          className={`px-2 py-1.5 rounded text-xs transition-all duration-200 ${
+                            fontCategory === 'english'
+                              ? 'bg-cyan-400 text-white'
+                              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                          }`}
+                        >
+                          英語
+                        </button>
+                        <button
+                          onClick={() => setFontCategory('favorite')}
+                          className={`px-2 py-1.5 rounded text-xs transition-all duration-200 ${
+                            fontCategory === 'favorite'
+                              ? 'bg-cyan-400 text-white'
+                              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                          }`}
+                        >
+                          お気に入り
+                        </button>
+                        <button
+                          onClick={() => setFontCategory('custom')}
+                          className={`px-2 py-1.5 rounded text-xs transition-all duration-200 ${
+                            fontCategory === 'custom'
+                              ? 'bg-cyan-400 text-white'
+                              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                          }`}
+                        >
+                          カスタム
+                        </button>
+                      </div>
+
+                      {/* 検索ボックス */}
+                      <Input
+                        placeholder="フォント名で検索..."
+                        value={fontSearch}
+                        onChange={(e) => setFontSearch(e.target.value)}
+                        className="bg-zinc-800 border-zinc-700 text-white text-xs h-8"
+                      />
+
+                      {fontCategory === 'custom' && (
+                        <div>
+                          <input
+                            type="file"
+                            accept=".ttf,.otf,.woff,.woff2"
+                            onChange={handleFontUpload}
+                            className="hidden"
+                            id="font-upload"
+                          />
+                          <Button
+                            onClick={() => document.getElementById('font-upload')?.click()}
+                            disabled={isUploadingFont}
+                            className="w-full bg-cyan-500 hover:bg-cyan-600 text-white text-xs h-8"
+                          >
+                            {isUploadingFont ? 'アップロード中...' : 'フォントをアップロード'}
+                          </Button>
+                        </div>
+                      )}
                     </div>
+
+                    {/* フォントリスト */}
+                    <ScrollArea className="flex-1">
+                      <div className="grid grid-cols-3 gap-1">
+                        {fontCategory === 'custom' ? (
+                          filteredFonts.length === 0 ? (
+                            <div className="col-span-3 text-center text-zinc-500 text-xs py-8">
+                              カスタムフォントがありません。<br/>
+                              フォントファイルをアップロードしてください。
+                            </div>
+                          ) : (
+                            filteredFonts.map((font: any) => (
+                              <div
+                                key={font.id}
+                                className={`p-2 rounded-lg border text-left text-xs transition-all duration-200 ${
+                                  selectedPin.tagFontFamily === font.family
+                                    ? 'border-cyan-400 bg-cyan-400/10 text-white shadow-lg shadow-cyan-400/20'
+                                    : 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600'
+                                }`}
+                              >
+                                <div className="flex flex-col gap-1">
+                                  <button
+                                    onClick={() => updatePin(selectedPin.id, { tagFontFamily: font.family })}
+                                    className="text-left truncate"
+                                    style={{ fontFamily: font.family }}
+                                    title={font.name}
+                                  >
+                                    {font.name}
+                                  </button>
+                                  <Button
+                                    onClick={() => handleDeleteCustomFont(font.id)}
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 w-full text-zinc-500 hover:text-red-400 text-xs"
+                                  >
+                                    削除
+                                  </Button>
+                                </div>
+                              </div>
+                            ))
+                          )
+                        ) : fontCategory === 'favorite' ? (
+                          filteredFonts.length === 0 ? (
+                            <div className="col-span-3 text-center text-zinc-500 text-xs py-8">
+                              お気に入りフォントがありません。<br/>
+                              フォント横のハートアイコンをクリックして追加してください。
+                            </div>
+                          ) : (
+                            filteredFonts.map((font: any) => (
+                              <button
+                                key={font.family}
+                                onClick={() => {
+                                  updatePin(selectedPin.id, { tagFontFamily: font.family })
+                                  if (typeof document !== 'undefined') {
+                                    const linkId = `font-${font.family.replace(/[^a-zA-Z0-9]/g, '-')}`
+                                    if (!document.getElementById(linkId)) {
+                                      const link = document.createElement('link')
+                                      link.id = linkId
+                                      link.rel = 'stylesheet'
+                                      link.href = font.googleFontUrl
+                                      document.head.appendChild(link)
+                                    }
+                                  }
+                                }}
+                                className={`p-2 rounded-lg border text-left text-xs transition-all duration-200 truncate ${
+                                  selectedPin.tagFontFamily === font.family
+                                    ? 'border-cyan-400 bg-cyan-400/10 text-white shadow-lg shadow-cyan-400/20'
+                                    : 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600'
+                                }`}
+                                style={{ fontFamily: font.family }}
+                                title={font.name}
+                              >
+                                {font.name}
+                              </button>
+                            ))
+                          )
+                        ) : (
+                          filteredFonts.map((font: any) => (
+                            <div
+                              key={font.family}
+                              className={`p-2 rounded-lg border text-left text-xs transition-all duration-200 ${
+                                selectedPin.tagFontFamily === font.family
+                                  ? 'border-cyan-400 bg-cyan-400/10 text-white shadow-lg shadow-cyan-400/20'
+                                  : 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    updatePin(selectedPin.id, { tagFontFamily: font.family })
+                                    if (typeof document !== 'undefined') {
+                                      const linkId = `font-${font.family.replace(/[^a-zA-Z0-9]/g, '-')}`
+                                      if (!document.getElementById(linkId)) {
+                                        const link = document.createElement('link')
+                                        link.id = linkId
+                                        link.rel = 'stylesheet'
+                                        link.href = font.googleFontUrl
+                                        document.head.appendChild(link)
+                                      }
+                                    }
+                                  }}
+                                  className="text-left truncate flex-1"
+                                  style={{ fontFamily: font.family }}
+                                  title={font.name}
+                                >
+                                  {font.name}
+                                </button>
+                                <button
+                                  onClick={() => toggleFavoriteFont(font.family)}
+                                  className={`text-xs transition-colors flex-shrink-0 ${
+                                    favoriteFonts.includes(font.family)
+                                      ? 'text-red-400 hover:text-red-500'
+                                      : 'text-zinc-500 hover:text-red-400'
+                                  }`}
+                                  aria-label={favoriteFonts.includes(font.family) ? 'お気に入りを外す' : 'お気に入りに追加'}
+                                  title={favoriteFonts.includes(font.family) ? 'お気に入り解除' : 'お気に入り追加'}
+                                >
+                                  {favoriteFonts.includes(font.family) ? '★' : '☆'}
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </ScrollArea>
                   </TabsContent>
 
                   <TabsContent value="effect" className="flex-1 overflow-y-auto p-3 mt-0 animate-in slide-in-from-bottom-2 duration-200">

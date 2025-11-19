@@ -9,10 +9,10 @@ interface ProfileHeaderProps {
 export function ProfileHeader({ user }: ProfileHeaderProps) {
   return (
     <div className="relative overflow-hidden">
-      {user.headerImageUrl && (
+      {(user.headerImage || user.headerImageUrl) && (
         <div className="absolute inset-0">
           <Image
-            src={user.headerImageUrl || "/placeholder.svg"}
+            src={user.headerImage || user.headerImageUrl || "/placeholder.svg"}
             alt="ヘッダー画像"
             fill
             className="object-cover opacity-30"
@@ -22,13 +22,13 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
         </div>
       )}
 
-      {!user.headerImageUrl && <div className="absolute inset-0 bg-gradient-to-b from-primary/10 to-background" />}
+      {!user.headerImage && !user.headerImageUrl && <div className="absolute inset-0 bg-gradient-to-b from-primary/10 to-background" />}
 
       <div className="relative py-8 md:py-16 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <div className="mb-4 md:mb-6 inline-block">
             <Image
-              src={user.avatarUrl || "/placeholder.svg"}
+              src={user.profileImage || user.avatarUrl || "/placeholder.svg"}
               alt={user.displayName}
               width={80}
               height={80}

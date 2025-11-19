@@ -13,6 +13,7 @@ import { db } from "@/lib/db/storage"
 import type { SocialLink } from "@/lib/mock-data/users"
 import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
+import { fileToBase64 } from "@/lib/utils/image-utils"
 
 const generateSocialUrl = (platform: string, username: string): string => {
   const cleanUsername = username.replace(/^@/, "")
@@ -66,6 +67,9 @@ export default function AdminSettingsPage() {
   const [verificationStatus, setVerificationStatus] = useState<
     Record<number, "idle" | "checking" | "valid" | "invalid">
   >({})
+  const [amazonAccessKey, setAmazonAccessKey] = useState("")
+  const [amazonSecretKey, setAmazonSecretKey] = useState("")
+  const [amazonAssociateId, setAmazonAssociateId] = useState("")
   const { toast } = useToast()
 
   useEffect(() => {
@@ -78,12 +82,11 @@ export default function AdminSettingsPage() {
       setBackgroundType(currentUser.backgroundType || "color")
       setBackgroundColor(currentUser.backgroundValue || "#ffffff")
       setSocialLinks(currentUser.socialLinks || [])
+      setAmazonAccessKey(currentUser.amazonAccessKey || "")
+      setAmazonSecretKey(currentUser.amazonSecretKey || "")
+      setAmazonAssociateId(currentUser.amazonAssociateId || "")
     }
   }, [])
-
-  if (!user) {
-    return <div className="flex items-center justify-center min-h-screen">読み込み中...</div>
-  }
 
   const addSocialLink = () => {
     setSocialLinks([...socialLinks, { platform: "x", url: "", username: "" }])
@@ -152,44 +155,61 @@ export default function AdminSettingsPage() {
     }
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const updates: any = {
       displayName,
       bio,
       email,
       backgroundType,
       socialLinks: socialLinks.filter((link) => link.url),
+      amazonAccessKey,
+      amazonSecretKey,
+      amazonAssociateId,
     }
 
     if (backgroundType === "color") {
       updates.backgroundValue = backgroundColor
     } else if (backgroundImageFile) {
-      const imageUrl = URL.createObjectURL(backgroundImageFile)
-      updates.backgroundValue = imageUrl
-      db.images.saveUpload("user-background", imageUrl)
+      const imageBase64 = await fileToBase64(backgroundImageFile)
+      updates.backgroundValue = imageBase64
     }
 
     if (avatarFile) {
-      const avatarUrl = URL.createObjectURL(avatarFile)
-      updates.avatarUrl = avatarUrl
-      updates.profileImage = avatarUrl // DBスキーマに合わせて保存
-      db.images.saveUpload("user-avatar", avatarUrl)
+      const avatarBase64 = await fileToBase64(avatarFile)
+      updates.avatarUrl = avatarBase64
+      updates.profileImage = avatarBase64
     }
 
     if (headerImageFile) {
-      const headerUrl = URL.createObjectURL(headerImageFile)
-      updates.headerImageUrl = headerUrl
-      updates.headerImage = headerUrl // DBスキーマに合わせて保存
-      db.images.saveUpload("user-header", headerUrl)
+      const headerBase64 = await fileToBase64(headerImageFile)
+      updates.headerImageUrl = headerBase64
+      updates.headerImage = headerBase64
     }
 
     db.user.update(updates)
     console.log("[v0] Saved settings:", updates)
+    
+    const updatedUser = db.user.get()
+    if (updatedUser) {
+      setUser(updatedUser)
+      setDisplayName(updatedUser.displayName)
+      setBio(updatedUser.bio || "")
+      setEmail(updatedUser.email)
+      setBackgroundType(updatedUser.backgroundType || "color")
+      setBackgroundColor(updatedUser.backgroundValue || "#ffffff")
+      setSocialLinks(updatedUser.socialLinks || [])
+      setAmazonAccessKey(updatedUser.amazonAccessKey || "")
+      setAmazonSecretKey(updatedUser.amazonSecretKey || "")
+      setAmazonAssociateId(updatedUser.amazonAssociateId || "")
+      setAvatarFile(null)
+      setHeaderImageFile(null)
+      setBackgroundImageFile(null)
+    }
+    
     toast({
       title: "保存完了",
       description: "設定を保存しました！"
     })
-    setTimeout(() => window.location.reload(), 1000)
   }
 
   return (
@@ -215,7 +235,7 @@ export default function AdminSettingsPage() {
             <div className="space-y-2">
               <Label>プロフィール画像</Label>
               <div className="max-w-[200px]">
-                <ImageUpload value={user.avatarUrl} onChange={setAvatarFile} aspectRatioType="profile" />
+                <ImageUpload value={user?.avatarUrl || ""} onChange={setAvatarFile} aspectRatioType="profile" />
               </div>
             </div>
 
@@ -354,7 +374,7 @@ export default function AdminSettingsPage() {
           </CardHeader>
           <CardContent>
             <div className="max-w-[600px]">
-              <ImageUpload value={user.headerImageUrl} onChange={setHeaderImageFile} aspectRatioType="header" />
+              <ImageUpload value={user?.headerImageUrl || ""} onChange={setHeaderImageFile} aspectRatioType="header" />
             </div>
           </CardContent>
         </Card>
@@ -399,7 +419,7 @@ export default function AdminSettingsPage() {
                 <Label>背景画像</Label>
                 <div className="max-w-[600px]">
                   <ImageUpload
-                    value={user.backgroundType === "image" ? user.backgroundValue : ""}
+                    value={user?.backgroundType === "image" ? user?.backgroundValue : ""}
                     onChange={setBackgroundImageFile}
                     aspectRatioType="background"
                   />
@@ -423,6 +443,49 @@ export default function AdminSettingsPage() {
             <div className="space-y-2">
               <Label htmlFor="rakuten">楽天アフィリエイトID</Label>
               <Input id="rakuten" placeholder="your-rakuten-id" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Amazonアソシエイト設定</CardTitle>
+            <CardDescription>Amazon Product Advertising APIの認証情報</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="amazonAccessKey">Access Key</Label>
+              <Input
+                id="amazonAccessKey"
+                type="password"
+                placeholder="AKIAIOSFODNN7EXAMPLE"
+                value={amazonAccessKey}
+                onChange={(e) => setAmazonAccessKey(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="amazonSecretKey">Secret Key</Label>
+              <Input
+                id="amazonSecretKey"
+                type="password"
+                placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                value={amazonSecretKey}
+                onChange={(e) => setAmazonSecretKey(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="amazonAssociateId">アソシエイトID（トラッキングID）</Label>
+              <Input
+                id="amazonAssociateId"
+                placeholder="your-associate-id-22"
+                value={amazonAssociateId}
+                onChange={(e) => setAmazonAssociateId(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                アソシエイトIDは、アフィリエイトリンクに含まれる「-22」で終わるIDです
+              </p>
             </div>
           </CardContent>
         </Card>

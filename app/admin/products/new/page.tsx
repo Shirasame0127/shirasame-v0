@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation'
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { db } from "@/lib/db/storage"
+import { auth } from "@/lib/auth"
 import type { Product } from "@/lib/db/schema"
 import { fileToBase64 } from "@/lib/utils/image-utils"
 import { useToast } from "@/hooks/use-toast"
@@ -36,6 +37,7 @@ export default function ProductNewPage() {
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
   const [relatedLinks, setRelatedLinks] = useState<string[]>([""])
   const [price, setPrice] = useState("")
+  const [showPrice, setShowPrice] = useState(true)
   const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState("")
   const [published, setPublished] = useState(true)
@@ -127,6 +129,17 @@ export default function ProductNewPage() {
   }
 
   const handleSave = async () => {
+    const currentUser = auth.getCurrentUser()
+    if (!currentUser) {
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "ログインが必要です"
+      })
+      router.push('/admin/login')
+      return
+    }
+
     if (!title || !imageFile) {
       toast({
         variant: "destructive",
@@ -153,7 +166,7 @@ export default function ProductNewPage() {
 
     const newProduct: Product = {
       id: `prod-${Date.now()}`,
-      userId: "user-shirasame",
+      userId: currentUser.id, // ユーザーIDを設定
       title,
       slug: title.toLowerCase().replace(/\s+/g, "-"),
       shortDescription,
@@ -175,6 +188,7 @@ export default function ProductNewPage() {
       affiliateLinks: affiliateLinks.filter((link) => link.url),
       tags,
       price: price ? Number(price) : undefined,
+      showPrice,
       published,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -257,6 +271,11 @@ export default function ProductNewPage() {
               <div className="space-y-2">
                 <Label>価格（円）</Label>
                 <Input type="number" placeholder="15800" value={price} onChange={(e) => setPrice(e.target.value)} />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label>価格を表示する</Label>
+                <Switch checked={showPrice} onCheckedChange={setShowPrice} />
               </div>
 
               <div className="flex items-center justify-between">

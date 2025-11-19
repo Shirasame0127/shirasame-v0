@@ -1,9 +1,11 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from 'next/navigation'
 import { cn } from "@/lib/utils"
-import { Home, Package, Camera, Layout, Settings, Palette, Tag } from "lucide-react"
+import { Home, Package, Camera, Layout, Settings, Palette, Tag, Calendar, LogOut } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { auth } from '@/lib/auth'
 
 const navItems = [
   { href: "/admin", icon: Home, label: "ダッシュボード" },
@@ -11,12 +13,22 @@ const navItems = [
   { href: "/admin/recipes", icon: Camera, label: "レシピ管理" },
   { href: "/admin/collections", icon: Layout, label: "コレクション" },
   { href: "/admin/tags", icon: Tag, label: "タグ管理" },
+  { href: "/admin/amazon-sales", icon: Calendar, label: "セールスケジュール" },
   { href: "/admin/theme", icon: Palette, label: "テーマ" },
   { href: "/admin/settings", icon: Settings, label: "設定" },
 ]
 
 export function AdminNav() {
   const pathname = usePathname()
+  const router = useRouter()
+  
+  const handleLogout = () => {
+    auth.logout()
+    router.push('/admin/login')
+    router.refresh()
+  }
+
+  const currentUser = auth.getCurrentUser()
 
   return (
     <nav className="border-b bg-card">
@@ -25,9 +37,25 @@ export function AdminNav() {
           <Link href="/admin" className="font-bold text-xl">
             しらさめ管理画面
           </Link>
-          <Link href="/" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            公開ページを見る →
-          </Link>
+          <div className="flex items-center gap-4">
+            {currentUser && (
+              <span className="text-sm text-muted-foreground">
+                {currentUser.username}
+              </span>
+            )}
+            <Link href="/" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              公開ページを見る →
+            </Link>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLogout}
+              className="gap-2"
+            >
+              <LogOut className="w-4 h-4" />
+              ログアウト
+            </Button>
+          </div>
         </div>
         <div className="flex gap-1 overflow-x-auto pb-px -mb-px">
           {navItems.map((item) => {

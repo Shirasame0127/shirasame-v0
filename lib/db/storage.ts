@@ -17,6 +17,7 @@ const STORAGE_KEYS = {
   TAGS: "mock_tags",
   CUSTOM_FONTS: "mock_custom_fonts",
   IMAGE_UPLOADS: "mock_image_uploads",
+  AMAZON_SALE_SCHEDULES: "amazon_sale_schedules", // Amazonセールスケジュール用
 } as const
 
 // 型安全なストレージヘルパー
@@ -60,18 +61,22 @@ export const recipeImageStorage = new LocalStorage<RecipeImage[]>(STORAGE_KEYS.R
 export const recipeItemStorage = new LocalStorage<RecipeItem[]>(STORAGE_KEYS.RECIPE_ITEMS)
 export const collectionStorage = new LocalStorage<Collection[]>(STORAGE_KEYS.COLLECTIONS)
 export const collectionItemStorage = new LocalStorage<CollectionItem[]>(STORAGE_KEYS.COLLECTION_ITEMS)
-export const userStorage = new LocalStorage<User | null>(STORAGE_KEYS.USER)
+export const userStorage = new LocalStorage<User[]>(STORAGE_KEYS.USER)
 export const themeStorage = new LocalStorage<any>(STORAGE_KEYS.THEME)
 export const tagStorage = new LocalStorage<any[]>(STORAGE_KEYS.TAGS)
 export const customFontStorage = new LocalStorage<CustomFont[]>(STORAGE_KEYS.CUSTOM_FONTS)
 export const imageUploadStorage = new LocalStorage<Record<string, string>>(STORAGE_KEYS.IMAGE_UPLOADS)
 export const recipePinStorage = new LocalStorage<any[]>(STORAGE_KEYS.RECIPE_PINS) // 新しいストレージインスタンス追加
+export const amazonSaleScheduleStorage = new LocalStorage<any[]>(STORAGE_KEYS.AMAZON_SALE_SCHEDULES) // Amazonセールスケジュール用のストレージインスタンスを追加
 
 // データベース操作API
 export const db = {
   // 商品操作
   products: {
-    getAll: () => productStorage.get([]),
+    getAll: (userId?: string) => {
+      const products = productStorage.get([])
+      return userId ? products.filter(p => p.userId === userId) : products
+    },
     getById: (id: string) => productStorage.get([]).find((p) => p.id === id),
     create: (product: Product) => {
       productStorage.update((products) => [...products, product])
@@ -92,7 +97,10 @@ export const db = {
 
   // レシピ操作
   recipes: {
-    getAll: () => recipeStorage.get([]),
+    getAll: (userId?: string) => {
+      const recipes = recipeStorage.get([])
+      return userId ? recipes.filter(r => r.userId === userId) : recipes
+    },
     getById: (id: string) => {
       const recipe = recipeStorage.get([]).find((r) => r.id === id)
       if (!recipe) return null
@@ -166,7 +174,10 @@ export const db = {
 
   // コレクション操作
   collections: {
-    getAll: () => collectionStorage.get([]),
+    getAll: (userId?: string) => {
+      const collections = collectionStorage.get([])
+      return userId ? collections.filter(c => c.userId === userId) : collections
+    },
     getById: (id: string) => collectionStorage.get([]).find((c) => c.id === id),
     create: (collection: Collection) => {
       collectionStorage.update((collections) => [...collections, collection])
@@ -212,13 +223,93 @@ export const db = {
 
   // ユーザー操作
   user: {
-    get: () => userStorage.get(null),
-    update: (updates: Partial<User>) => {
-      const current = userStorage.get(null)
-      if (current) {
-        userStorage.set({ ...current, ...updates })
-        console.log("[v0] DB: Updated user")
+    get: (userId?: string) => {
+      let users = userStorage.get([])
+      
+      if (!Array.isArray(users)) {
+        console.warn("[v0] DB: userStorage returned non-array, converting to array format")
+        if (users && typeof users === 'object' && (users as any).id) {
+          // 単一オブジェクトを配列に変換
+          users = [users as any]
+          userStorage.set(users)
+        } else {
+          console.error("[v0] DB: userStorage data is invalid, returning empty array")
+          users = []
+        }
       }
+      
+      if (userId) {
+        return users.find((u: any) => u.id === userId) || null
+      }
+      return users.length > 0 ? users[0] : null
+    },
+    create: (user: User) => {
+      let users = userStorage.get([])
+      if (!Array.isArray(users)) {
+        users = []
+      }
+      userStorage.set([...users, user])
+      console.log("[v0] DB: Created user", user.id)
+    },
+    update: (userId: string, updates: Partial<User>) => {
+      let users = userStorage.get([])
+      if (!Array.isArray(users)) {
+        console.error("[v0] DB: Cannot update user, storage is not an array")
+        return
+      }
+      const updatedUsers = users.map((u: any) => 
+        u.id === userId ? { ...u, ...updates } : u
+      )
+      userStorage.set(updatedUsers)
+      console.log("[v0] DB: Updated user", userId)
+    },
+    addFavoriteFont: (userId: string, fontFamily: string) => {
+      let users = userStorage.get([])
+      if (!Array.isArray(users)) {
+        console.error("[v0] DB: Cannot add favorite font, storage is not an array")
+        return
+      }
+      const updatedUsers = users.map((u: any) => {
+        if (u.id === userId) {
+          const favorites = u.favoriteFonts || []
+          if (!favorites.includes(fontFamily)) {
+            return { ...u, favoriteFonts: [...favorites, fontFamily] }
+          }
+        }
+        return u
+      })
+      userStorage.set(updatedUsers)
+      console.log("[v0] DB: Added favorite font", fontFamily)
+    },
+    removeFavoriteFont: (userId: string, fontFamily: string) => {
+      let users = userStorage.get([])
+      if (!Array.isArray(users)) {
+        console.error("[v0] DB: Cannot remove favorite font, storage is not an array")
+        return
+      }
+      const updatedUsers = users.map((u: any) => {
+        if (u.id === userId) {
+          const favorites = u.favoriteFonts || []
+          return { ...u, favoriteFonts: favorites.filter((f: string) => f !== fontFamily) }
+        }
+        return u
+      })
+      userStorage.set(updatedUsers)
+      console.log("[v0] DB: Removed favorite font", fontFamily)
+    },
+    getFavoriteFonts: (userId: string) => {
+      let users = userStorage.get([])
+      if (!Array.isArray(users)) {
+        console.warn("[v0] DB: userStorage.get([]) did not return an array, attempting to convert")
+        if (users && typeof users === 'object' && (users as any).id) {
+          users = [users as any]
+          userStorage.set(users)
+        } else {
+          return []
+        }
+      }
+      const user = users.find((u: any) => u.id === userId)
+      return user?.favoriteFonts || []
     },
   },
 
@@ -312,6 +403,71 @@ export const db = {
     },
   },
 
+  // Amazonセールスケジュール操作
+  amazonSaleSchedules: {
+    getAll: (userId?: string) => {
+      const schedules = amazonSaleScheduleStorage.get([])
+      return userId ? schedules.filter((s: any) => s.userId === userId) : schedules
+    },
+    getById: (id: string) => amazonSaleScheduleStorage.get([]).find((s: any) => s.id === id),
+    create: (schedule: any) => {
+      const newSchedule = {
+        id: `sale-${Date.now()}`,
+        ...schedule,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      amazonSaleScheduleStorage.update((schedules) => [...schedules, newSchedule])
+      console.log("[v0] DB: Created Amazon sale schedule", newSchedule.id)
+      return newSchedule
+    },
+    update: (id: string, updates: any) => {
+      amazonSaleScheduleStorage.update((schedules) =>
+        schedules.map((s: any) => (s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s)),
+      )
+      console.log("[v0] DB: Updated Amazon sale schedule", id)
+    },
+    delete: (id: string) => {
+      amazonSaleScheduleStorage.update((schedules) => schedules.filter((s: any) => s.id !== id))
+      console.log("[v0] DB: Deleted Amazon sale schedule", id)
+    },
+    getActiveSchedules: (userId?: string) => {
+      const now = new Date()
+      const schedules = amazonSaleScheduleStorage.get([])
+      const activeSchedules = schedules.filter((s: any) => {
+        const startDate = new Date(s.startDate)
+        const endDate = new Date(s.endDate)
+        return now >= startDate && now <= endDate
+      })
+      return userId ? activeSchedules.filter((s: any) => s.userId === userId) : activeSchedules
+    },
+  },
+
+  // カスタムフォント操作
+  customFonts: {
+    getAll: (userId: string) => {
+      const fonts = customFontStorage.get([])
+      return fonts.filter((f: any) => f.userId === userId)
+    },
+    getById: (id: string) => {
+      return customFontStorage.get([]).find((f: any) => f.id === id)
+    },
+    create: (font: Omit<CustomFont, 'id' | 'createdAt'>) => {
+      const newFont: CustomFont = {
+        id: `custom-font-${Date.now()}`,
+        ...font,
+        createdAt: new Date().toISOString(),
+      }
+      customFontStorage.update((fonts) => [...fonts, newFont])
+      console.log("[v0] DB: Created custom font", newFont.id)
+      return newFont
+    },
+    delete: (id: string) => {
+      customFontStorage.update((fonts) => fonts.filter((f: any) => f.id !== id))
+      console.log("[v0] DB: Deleted custom font", id)
+    },
+  },
+
   // データ初期化（初回ロード時にモックデータをストレージに保存）
   initialize: (mockData: {
     products?: Product[]
@@ -332,7 +488,7 @@ export const db = {
       if (mockData.recipeItems) recipeItemStorage.set(mockData.recipeItems)
       if (mockData.collections) collectionStorage.set(mockData.collections)
       if (mockData.collectionItems) collectionItemStorage.set(mockData.collectionItems)
-      if (mockData.user) userStorage.set(mockData.user)
+      if (mockData.user) userStorage.set([mockData.user])
 
       localStorage.setItem("mock_initialized", "true")
       console.log("[v0] DB: Initialized with mock data")

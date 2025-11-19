@@ -6,8 +6,9 @@ import Image from "next/image"
 import Link from "next/link"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ExternalLink } from "lucide-react"
+import { ExternalLink, Sparkles } from 'lucide-react'
 import type { Product } from "@/lib/mock-data/products"
+import { db } from "@/lib/db/storage"
 
 interface ProductCardProps {
   product: Product
@@ -19,6 +20,20 @@ interface ProductCardProps {
 export function ProductCard({ product, size = "md", isAdminMode = false, onClick }: ProductCardProps) {
   const mainImage = product.images.find((img) => img.role === "main") || product.images[0]
 
+  const getActiveSaleInfo = () => {
+    const activeSchedules = db.amazonSaleSchedules?.getActiveSchedules() || []
+    
+    for (const schedule of activeSchedules) {
+      const collection = db.collections.getById(schedule.collectionId)
+      if (collection && collection.productIds.includes(product.id)) {
+        return { isOnSale: true, saleName: schedule.saleName }
+      }
+    }
+    return { isOnSale: false, saleName: null }
+  }
+
+  const { isOnSale, saleName } = getActiveSaleInfo()
+
   const handleClick = (e: React.MouseEvent) => {
     if (isAdminMode && onClick) {
       e.preventDefault()
@@ -29,9 +44,17 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
   if (size === "sm") {
     const content = (
       <>
-        <CardHeader className="p-0">
+        <CardHeader className="p-0 relative">
           <div className="block relative aspect-square overflow-hidden bg-muted">
             <Image src={mainImage?.url || "/placeholder.svg"} alt={product.title} fill className="object-cover" />
+            {isOnSale && (
+              <div className="absolute top-1 right-1 z-10">
+                <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 flex items-center gap-1">
+                  <Sparkles className="w-2.5 h-2.5" />
+                  {saleName}
+                </Badge>
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent className="p-2">
@@ -60,7 +83,7 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
 
   const content = (
     <>
-      <CardHeader className="p-0">
+      <CardHeader className="p-0 relative">
         <div className="block relative aspect-square overflow-hidden bg-muted">
           <Image
             src={mainImage?.url || "/placeholder.svg"}
@@ -68,6 +91,14 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
             fill
             className="object-cover group-hover:scale-105 transition-transform duration-300"
           />
+          {isOnSale && (
+            <div className="absolute top-2 right-2 z-10">
+              <Badge variant="destructive" className="text-xs px-2 py-1 flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3" />
+                {saleName}
+              </Badge>
+            </div>
+          )}
         </div>
       </CardHeader>
       <CardContent className="p-2 md:p-4">
@@ -82,7 +113,7 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
         </div>
       </CardContent>
       <CardFooter className="p-2 md:p-4 md:pt-0 flex items-center justify-between">
-        {product.price && <p className="font-bold text-sm md:text-lg">¥{product.price.toLocaleString()}</p>}
+        {isAdminMode && product.price && <p className="font-bold text-sm md:text-lg">¥{product.price.toLocaleString()}</p>}
         {!isAdminMode && (
           <span className="text-xs md:text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-1">
             詳細

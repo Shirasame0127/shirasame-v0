@@ -3,10 +3,11 @@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { ExternalLink, X } from 'lucide-react'
+import { ExternalLink, X, Sparkles } from 'lucide-react'
 import Image from "next/image"
 import type { Product } from "@/lib/db/schema"
-import { useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
+import { db } from "@/lib/db/storage"
 
 interface ProductDetailModalProps {
   product: Product | null
@@ -181,23 +182,55 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
     }
   }, [isOpen])
 
+  const leftImageRef = useRef<HTMLDivElement | null>(null)
+  const [modalMinHeight, setModalMinHeight] = useState<number | undefined>(undefined)
+
+  useEffect(() => {
+    function updateHeight() {
+      // Only apply minHeight for desktop/PC widths (>= 1024px)
+      const isDesktop = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(min-width: 1024px)').matches
+      if (isDesktop && leftImageRef.current) {
+        setModalMinHeight(leftImageRef.current.clientHeight)
+      } else {
+        setModalMinHeight(undefined)
+      }
+    }
+
+    updateHeight()
+    window.addEventListener('resize', updateHeight)
+    return () => window.removeEventListener('resize', updateHeight)
+  }, [isOpen, product])
+
   if (!isOpen || !product) return null
+
+  const getActiveSaleInfo = () => {
+    const activeSchedules = db.amazonSaleSchedules?.getActiveSchedules() || []
+    
+    for (const schedule of activeSchedules) {
+      const collection = db.collections.getById(schedule.collectionId)
+      if (collection && collection.productIds.includes(product.id)) {
+        return { isOnSale: true, saleName: schedule.saleName }
+      }
+    }
+    return { isOnSale: false, saleName: null }
+  }
+
+  const { isOnSale, saleName } = getActiveSaleInfo()
 
   const mainImage = product.images.find((img) => img.role === "main") || product.images[0]
   const attachmentImages = product.images.filter((img) => img.role === "attachment").slice(0, 4)
 
   const hasTags = product.tags && product.tags.length > 0
   const hasShortDescription = !!product.shortDescription
-  const hasPrice = !!product.price
+  const hasPrice = !!product.price && (product.showPrice ?? true)
   const hasBody = !!product.body
   const hasAffiliateLinks = product.affiliateLinks && product.affiliateLinks.length > 0
   const hasNotes = !!product.notes
   const hasAttachments = attachmentImages.length > 0
   const hasRelatedLinks = product.relatedLinks && product.relatedLinks.length > 0
 
-  const contentCount = [
+  const rightSideElementCount = [
     hasTags,
-    product.title,
     hasShortDescription,
     hasPrice,
     hasBody,
@@ -207,9 +240,23 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
     hasRelatedLinks
   ].filter(Boolean).length
 
-  const isSimpleLayout = contentCount <= 3
+  const useVerticalLayout = rightSideElementCount <= 1
 
-  const isScrollableRight = hasAttachments || hasRelatedLinks
+  const modalClassName = useVerticalLayout
+    ? 'relative w-[90%] sm:w-1/2 sm:max-w-[400px] h-auto max-h-[85vh] bg-background rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-auto flex flex-col'
+    : 'relative w-[95%] sm:w-[85%] lg:w-[75%] max-w-5xl h-auto max-h-[80vh] sm:h-[40vh] bg-background rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-auto sm:overflow-hidden flex flex-col sm:flex-row'
+
+  const leftImageClassName = useVerticalLayout
+    ? 'flex-shrink-0 w-full p-4 flex items-center justify-center'
+    : 'flex-shrink-0 sm:w-1/2 p-6 sm:border-r flex items-center justify-center sm:sticky sm:top-0 sm:self-start'
+
+  const innerImageClassName = useVerticalLayout
+    ? 'relative w-full max-w-sm aspect-square mx-auto rounded-lg overflow-hidden bg-muted shadow-sm'
+    : 'relative w-full aspect-square rounded-lg overflow-hidden bg-muted shadow-sm'
+
+  const rightContentClassName = useVerticalLayout
+    ? 'flex-1 p-6 space-y-4 text-left [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2 overflow-auto'
+    : 'flex-1 p-6 space-y-4 text-left sm:overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -218,227 +265,131 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
         onClick={onClose}
       />
 
-      {isSimpleLayout ? (
-        <div className="relative w-[90%] sm:w-auto sm:max-w-md h-auto max-h-[85vh] bg-background rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-hidden flex flex-col">
-          <button
-            onClick={onClose}
-            className="absolute right-3 top-3 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10 bg-background/90 backdrop-blur-sm p-1.5"
-          >
-            <X className="h-4 w-4" />
-            <span className="sr-only">閉じる</span>
-          </button>
+      <div className={modalClassName} style={!useVerticalLayout && modalMinHeight ? { minHeight: `${modalMinHeight}px` } : undefined}>
+        <button
+          onClick={onClose}
+          className="absolute right-3 top-3 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10 bg-background/90 backdrop-blur-sm p-1.5"
+        >
+          <X className="h-4 w-4" />
+          <span className="sr-only">閉じる</span>
+        </button>
 
-          <div className="overflow-y-auto p-6 space-y-4 text-left [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2">
-            <div className="relative w-full aspect-square max-w-sm mx-auto rounded-lg overflow-hidden bg-muted shadow-sm">
-              <Image
-                src={mainImage?.url || "/placeholder.svg"}
-                alt={product.title}
-                fill
-                className="object-cover"
-                priority
-              />
+        <div ref={leftImageRef} className={leftImageClassName}>
+          <div className={innerImageClassName}>
+            <Image
+              src={mainImage?.url || "/placeholder.svg"}
+              alt={product.title}
+              fill
+              className="object-cover"
+              priority
+            />
+          </div>
+        </div>
+
+        <div className={rightContentClassName}>
+          {hasTags && (
+            <div className="flex flex-wrap gap-2">
+              {product.tags.map((tag) => (
+                <Badge key={tag} variant="secondary" className="text-xs">
+                  {tag}
+                </Badge>
+              ))}
             </div>
+          )}
 
-            {hasTags && (
-              <div className="flex flex-wrap gap-2">
-                {product.tags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="text-xs">
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
-            )}
+          <h1 className="text-xl font-bold">{product.title}</h1>
 
-            <h1 className="text-xl font-bold">{product.title}</h1>
+          {hasShortDescription && (
+            <p className="text-sm text-muted-foreground">
+              {product.shortDescription}
+            </p>
+          )}
 
-            {hasShortDescription && (
-              <p className="text-sm text-muted-foreground">
-                {product.shortDescription}
-              </p>
-            )}
-
-            {hasPrice && (
+          {hasPrice ? (
+            <div className="flex items-center gap-3">
               <p className="text-2xl font-bold">
                 ¥{product.price.toLocaleString()}
               </p>
-            )}
-
-            {hasBody && (
-              <Card>
-                <CardContent className="px-4">
-                  <h2 className="font-semibold mb-2 text-sm">商品詳細</h2>
-                  <p className="text-sm leading-relaxed">{product.body}</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {hasAffiliateLinks && (
-              <div className="space-y-2">
-                <h3 className="font-semibold text-sm text-center">購入リンク</h3>
-                {product.affiliateLinks.map((link, index) => (
-                  <Button key={index} asChild variant="default" size="lg" className="w-full">
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-2"
-                    >
-                      {link.label}
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  </Button>
-                ))}
-              </div>
-            )}
-
-            {hasNotes && (
-              <Card>
-                <CardContent className="p-4">
-                  <h3 className="font-semibold mb-2 text-sm">備考</h3>
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{product.notes}</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {hasAttachments && (
-              <div>
-                <h3 className="font-semibold mb-2 text-sm text-center">添付画像</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {attachmentImages.map((img) => (
-                    <div key={img.id} className="relative aspect-square rounded-md overflow-hidden bg-muted">
-                      <Image src={img.url || "/placeholder.svg"} alt="添付画像" fill className="object-cover" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {hasRelatedLinks && (
-              <div>
-                <h3 className="font-semibold mb-2 text-sm text-center">関連リンク</h3>
-                <div className="space-y-4">
-                  {product.relatedLinks.map((link, index) => (
-                    <EmbeddedLink key={index} url={link} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="relative w-[95%] sm:w-[85%] lg:w-[75%] max-w-5xl 
-          h-auto max-h-[80vh] sm:h-[40vh]
-          bg-background rounded-lg border shadow-lg 
-          animate-in zoom-in-95 fade-in-0 
-          overflow-auto sm:overflow-hidden flex flex-col sm:flex-row">
-          <button
-            onClick={onClose}
-            className="absolute right-3 top-3 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10 bg-background/90 backdrop-blur-sm p-1.5"
-          >
-            <X className="h-4 w-4" />
-            <span className="sr-only">閉じる</span>
-          </button>
-
-          <div className="flex-shrink-0 sm:w-1/2 p-6 sm:border-r flex items-center justify-center sm:sticky sm:top-0 sm:self-start">
-            <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-muted shadow-sm">
-              <Image
-                src={mainImage?.url || "/placeholder.svg"}
-                alt={product.title}
-                fill
-                className="object-cover"
-                priority
-              />
+              {isOnSale && (
+                <Badge variant="destructive" className="text-sm px-3 py-1.5 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  {saleName || 'セール'}
+                </Badge>
+              )}
             </div>
-          </div>
+          ) : (
+            isOnSale && (
+              <div className="flex items-center gap-3">
+                <Badge variant="destructive" className="text-sm px-3 py-1.5 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  {saleName || 'セール'}
+                </Badge>
+              </div>
+            )
+          )}
 
-          <div className="flex-1 p-6 space-y-4 text-left sm:overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2">
-            {hasTags && (
-              <div className="flex flex-wrap gap-2">
-                {product.tags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="text-xs">
-                    {tag}
-                  </Badge>
+          {hasBody && (
+            <Card>
+              <CardContent className="px-2">
+                <h2 className="font-semibold mb-2 text-sm">商品詳細</h2>
+                <p className="text-sm leading-relaxed">{product.body}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {hasAffiliateLinks && (
+            <div className="space-y-2">
+              <h3 className="font-semibold text-sm text-center">購入リンク</h3>
+              {product.affiliateLinks.map((link, index) => (
+                <Button key={index} asChild variant="default" size="lg" className="w-full">
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2"
+                  >
+                    {link.label}
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {hasNotes && (
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="font-semibold mb-2 text-sm">備考</h3>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{product.notes}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {hasAttachments && (
+            <div>
+              <h3 className="font-semibold mb-2 text-sm text-center">添付画像</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {attachmentImages.map((img) => (
+                  <div key={img.id} className="relative aspect-square rounded-md overflow-hidden bg-muted">
+                    <Image src={img.url || "/placeholder.svg"} alt="添付画像" fill className="object-cover" />
+                  </div>
                 ))}
               </div>
-            )}
+            </div>
+          )}
 
-            <h1 className="text-xl font-bold">{product.title}</h1>
-
-            {hasShortDescription && (
-              <p className="text-sm text-muted-foreground">
-                {product.shortDescription}
-              </p>
-            )}
-
-            {hasPrice && (
-              <p className="text-2xl font-bold">
-                ¥{product.price.toLocaleString()}
-              </p>
-            )}
-
-            {hasBody && (
-              <Card>
-                <CardContent className="px-2">
-                  <h2 className="font-semibold mb-2 text-sm">商品詳細</h2>
-                  <p className="text-sm leading-relaxed">{product.body}</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {hasAffiliateLinks && (
-              <div className="space-y-2">
-                <h3 className="font-semibold text-sm text-center">購入リンク</h3>
-                {product.affiliateLinks.map((link, index) => (
-                  <Button key={index} asChild variant="default" size="lg" className="w-full">
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-2"
-                    >
-                      {link.label}
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  </Button>
+          {hasRelatedLinks && (
+            <div>
+              <h3 className="font-semibold mb-2 text-sm text-center">関連リンク</h3>
+              <div className="space-y-4">
+                {product.relatedLinks.map((link, index) => (
+                  <EmbeddedLink key={index} url={link} />
                 ))}
               </div>
-            )}
-
-            {hasNotes && (
-              <Card>
-                <CardContent className="p-4">
-                  <h3 className="font-semibold mb-2 text-sm">備考</h3>
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{product.notes}</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {hasAttachments && (
-              <div>
-                <h3 className="font-semibold mb-2 text-sm text-center">添付画像</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {attachmentImages.map((img) => (
-                    <div key={img.id} className="relative aspect-square rounded-md overflow-hidden bg-muted">
-                      <Image src={img.url || "/placeholder.svg"} alt="添付画像" fill className="object-cover" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {hasRelatedLinks && (
-              <div>
-                <h3 className="font-semibold mb-2 text-sm text-center">関連リンク</h3>
-                <div className="space-y-4">
-                  {product.relatedLinks.map((link, index) => (
-                    <EmbeddedLink key={index} url={link} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }

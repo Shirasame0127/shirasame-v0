@@ -35,6 +35,7 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
   const [relatedLinks, setRelatedLinks] = useState<string[]>(product?.relatedLinks || [""])
   const [price, setPrice] = useState(product?.price?.toString() || "")
+  const [showPrice, setShowPrice] = useState(product?.showPrice ?? true)
   const [tags, setTags] = useState<string[]>(product?.tags || [])
   const [tagInput, setTagInput] = useState("")
   const [published, setPublished] = useState(product?.published ?? true)
@@ -128,6 +129,7 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
       notes: notes.trim() || undefined,
       relatedLinks: relatedLinks.filter((link) => link.trim()),
       price: price ? Number(price) : undefined,
+      showPrice,
       tags,
       published,
       images: [
@@ -245,9 +247,14 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
               </div>
 
               <div className="flex items-center justify-between">
-                <Label>公開する</Label>
-                <Switch checked={published} onCheckedChange={setPublished} />
+                <Label>価格を表示する</Label>
+                <Switch checked={showPrice} onCheckedChange={setShowPrice} />
               </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Label>公開する</Label>
+              <Switch checked={published} onCheckedChange={setPublished} />
             </div>
           </CardContent>
         </Card>

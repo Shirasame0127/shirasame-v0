@@ -12,6 +12,7 @@ export interface DBProduct {
   related_links: string[] // JSONB
   created_at: string
   updated_at: string
+  show_price: boolean | null
 }
 
 export interface DBProductImage {
@@ -176,17 +177,20 @@ export interface DBUser {
   background_type: "color" | "image"
   background_value: string
   social_links: any // JSONB
+  amazon_access_key: string | null
+  amazon_secret_key: string | null
+  amazon_associate_id: string | null
+  favorite_fonts: string[] // フォントファミリー名の配列
   created_at: string
   updated_at: string
 }
 
-export interface DBTag {
+export interface DBCustomFont {
   id: string
-  name: string
-  group: string | null // グループ名（nullの場合は未分類）
-  link_url: string | null // リンク先URL（リンク用タグの場合のみ）
-  link_label: string | null // リンクボタン表示テキスト（リンク用タグの場合は必須）
-  user_id: string | null
+  user_id: string
+  name: string // フォント表示名
+  family: string // font-family名（一意）
+  font_data_url: string // Base64エンコードされたフォントファイル（woff2形式推奨）
   created_at: string
 }
 
@@ -213,6 +217,7 @@ export type Product = {
   }>
   tags: string[]
   price?: number
+  showPrice?: boolean
   notes?: string
   relatedLinks?: string[]
   published: boolean
@@ -296,6 +301,10 @@ export type User = {
     email?: string
     form?: string
   }
+  amazonAccessKey?: string
+  amazonSecretKey?: string
+  amazonAssociateId?: string
+  favoriteFonts?: string[]
   createdAt: string
   updatedAt: string
 }
@@ -317,5 +326,36 @@ export type Tag = {
   linkUrl?: string // リンク先URL
   linkLabel?: string // リンクボタン表示テキスト
   userId?: string
+  createdAt: string
+}
+
+export interface DBAmazonSaleSchedule {
+  id: string
+  user_id: string
+  sale_name: string // 大型セール名（例：プライムデー、ブラックフライデー）
+  start_date: string // ISO 8601形式
+  end_date: string // ISO 8601形式
+  collection_id: string // 自動生成されるコレクションID
+  created_at: string
+  updated_at: string
+}
+
+export type AmazonSaleSchedule = {
+  id: string
+  userId: string
+  saleName: string
+  startDate: string
+  endDate: string
+  collectionId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type CustomFont = {
+  id: string
+  userId: string
+  name: string
+  family: string
+  fontDataUrl: string
   createdAt: string
 }

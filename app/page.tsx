@@ -271,13 +271,13 @@ export default function HomePage() {
         <div className="fixed inset-0 -z-10" style={{ backgroundColor: user.backgroundValue }} />
       )}
 
-      <PublicNav logoUrl={user.avatarUrl} siteName={user.displayName} />
+      <PublicNav logoUrl={user.avatarUrl || user.profileImage} siteName={user.displayName} />
 
       <main>
-        {user.headerImageUrl && (
-          <div className="relative h-72 md:h-96 lg:h-[30rem] overflow-hidden"> {/* ヘッダー画像の高さを1.5倍に */}
+        {(user.headerImage || user.headerImageUrl) && (
+          <div className="relative h-72 md:h-96 lg:h-[30rem] overflow-hidden">
             <Image
-              src={user.headerImageUrl || "/placeholder.svg"}
+              src={user.headerImage || user.headerImageUrl || "/placeholder.svg"}
               alt="ヘッダー画像"
               fill
               className="object-cover"
@@ -444,7 +444,7 @@ export default function HomePage() {
               </p>
 
               <div className="space-y-12">
-                {recipes.map((recipe) => {
+                {recipes.map((recipe, index) => {
                   const pins = db.recipePins.getByRecipeId(recipe.id)
                   if (!recipe.imageDataUrl) return null
 
@@ -453,37 +453,60 @@ export default function HomePage() {
 
                   console.log("[v0] Recipe:", recipe.id, "Pins count:", pins.length)
 
+                  const isEvenIndex = index % 2 === 0
+                  const imageFirst = isEvenIndex
+
                   return (
-                    <div key={recipe.id} className="border rounded-lg p-6 bg-card shadow-md">
+                    <div
+                      key={recipe.id}
+                      className="
+                        p-3 md:p-6 
+                        bg-card 
+                        shadow-md
+                        rounded-t-md          /* 上だけ角丸 */
+                        rounded-b-md        /* 下は角丸なし */
+                        bg-gradient-to-b      /* 上 → 下へグラデーション */
+                        from-card             /* 上は元の背景色 */
+                        to-transparent        /* 下は透明 */
+                      "
+                    >
+
                       <h3 className="font-heading text-xl sm:text-2xl font-semibold mb-6 text-center">{recipe.title}</h3>
 
-                      {/* Zustandベースのレシピ表示コンポーネントを使用 */}
-                      <RecipeDisplay
-                        recipeId={recipe.id}
-                        recipeTitle={recipe.title}
-                        imageDataUrl={recipe.imageDataUrl}
-                        imageWidth={recipe.imageWidth}
-                        imageHeight={recipe.imageHeight}
-                        pins={pins}
-                        products={products}
-                        onProductClick={handleProductClick}
-                      />
-
-                      {/* 使用アイテム一覧 */}
-                      {linkedProducts.length > 0 && (
-                        <div className="mt-8">
-                          <h4 className="font-heading text-base sm:text-lg font-semibold mb-4 text-center">使用アイテム</h4>
-                          <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
-                            {linkedProducts.map((product) => (
-                              <ProductCardSimple
-                                key={product.id}
-                                product={product}
-                                onClick={() => handleProductClick(product)}
-                              />
-                            ))}
-                          </div>
+                      {/* スマホ: 縦並び、PC: 左右分割 */}
+                      <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-start bg-transparent">
+                        {/* レシピ画像エリア */}
+                        <div className={`w-full md:w-1/2 ${imageFirst ? 'md:order-1' : 'md:order-2'}`}>
+                          <RecipeDisplay
+                            recipeId={recipe.id}
+                            recipeTitle={recipe.title}
+                            imageDataUrl={recipe.imageDataUrl}
+                            imageWidth={recipe.imageWidth}
+                            imageHeight={recipe.imageHeight}
+                            pins={pins}
+                            products={products}
+                            onProductClick={handleProductClick}
+                          />
                         </div>
-                      )}
+
+                        {/* 使用アイテムエリア */}
+                        <div className={`w-full bg-transparent md:w-1/2 ${imageFirst ? 'md:order-2' : 'md:order-1'}`}>
+                          {linkedProducts.length > 0 && (
+                            <div>
+                              <h4 className="font-heading text-base sm:text-lg font-semibold mb-4 text-center md:text-left">使用アイテム</h4>
+                              <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-3 gap-3">
+                                {linkedProducts.map((product) => (
+                                  <ProductCardSimple
+                                    key={product.id}
+                                    product={product}
+                                    onClick={() => handleProductClick(product)}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )
                 })}

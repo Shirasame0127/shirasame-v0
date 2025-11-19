@@ -9,6 +9,7 @@ import { ArrowLeft, Save } from 'lucide-react'
 import Link from "next/link"
 import { useRouter } from 'next/navigation'
 import { db } from "@/lib/db/storage"
+import { auth } from "@/lib/auth"
 import { convertImageToBase64 } from "@/lib/utils/image-utils"
 import type { Recipe, RecipeImage } from "@/lib/mock-data/recipes"
 import { useToast } from "@/hooks/use-toast"
@@ -29,6 +30,17 @@ export default function RecipeNewPage() {
   }
 
   const handleSave = async () => {
+    const currentUser = auth.getCurrentUser()
+    if (!currentUser) {
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "ログインが必要です"
+      })
+      router.push('/admin/login')
+      return
+    }
+
     if (!title) {
       toast({
         variant: "destructive",
@@ -49,7 +61,7 @@ export default function RecipeNewPage() {
     const recipeId = `recipe-${Date.now()}`
     const recipe: Recipe = {
       id: recipeId,
-      userId: "user-shirasame",
+      userId: currentUser.id, // ユーザーIDを設定
       title,
       baseImageId: recipeId,
       width: 1920,

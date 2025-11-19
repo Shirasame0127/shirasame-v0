@@ -2,10 +2,11 @@
 
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Package, Camera, Eye, TrendingUp, Plus, ArrowRight } from "lucide-react"
+import { Package, Camera, Eye, TrendingUp, Plus, ArrowRight } from 'lucide-react'
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { db } from "@/lib/db/storage"
+import { auth } from "@/lib/auth"
 import type { Product, Recipe } from "@/lib/db/schema"
 
 export default function AdminDashboard() {
@@ -15,9 +16,17 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     console.log("[v0] Dashboard: Loading data from DB")
+    const currentUser = auth.getCurrentUser()
+    
+    if (!currentUser) {
+      console.error("[v0] Dashboard: No user logged in")
+      setIsLoading(false)
+      return
+    }
+
     try {
-      const loadedProducts = db.products.getAll()
-      const loadedRecipes = db.recipes.getAll()
+      const loadedProducts = db.products.getAll(currentUser.id)
+      const loadedRecipes = db.recipes.getAll(currentUser.id)
 
       console.log("[v0] Dashboard: Products loaded:", loadedProducts.length)
       console.log("[v0] Dashboard: Recipes loaded:", loadedRecipes.length)

@@ -24,7 +24,7 @@ export const mockUser: User = {
   id: "user-shirasame",
   name: "shirasame",
   displayName: "しらさめ",
-  email: "shirasame@example.com",
+  email: "shirasame.official@gmail.com",
   avatarUrl: "/minimalist-avatar-profile.jpg",
   headerImageUrl: "/minimalist-desk-setup-with-keyboard-and-monitor.jpg",
   backgroundColor: "#ffffff",
@@ -44,4 +44,12 @@ export const mockUser: User = {
   ],
   createdAt: "2024-01-01T00:00:00Z",
   updatedAt: "2025-01-10T00:00:00Z",
+}
+
+export const mockAuthUser = {
+  id: "user-shirasame",
+  username: "shirasame",
+  email: "shirasame.official@gmail.com",
+  password: "shirasame",
+  createdAt: "2024-01-01T00:00:00Z",
 }

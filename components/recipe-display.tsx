@@ -105,7 +105,7 @@ export function RecipeDisplay({
         <img
           src={imageDataUrl || "/placeholder.svg"}
           alt={recipeTitle}
-          className="w-full h-auto object-contain rounded-lg"
+          className="w-full h-auto object-contain rounded-md"
           onLoad={handleImageLoad}
         />
 
