@@ -11,7 +11,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { db } from "@/lib/db/storage"
 import type { SocialLink } from "@/lib/mock-data/users"
-import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { fileToBase64 } from "@/lib/utils/image-utils"
 
@@ -59,7 +59,8 @@ export default function AdminSettingsPage() {
   const [bio, setBio] = useState("")
   const [email, setEmail] = useState("")
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
-  const [headerImageFile, setHeaderImageFile] = useState<File | null>(null)
+  const [headerImageKeys, setHeaderImageKeys] = useState<string[]>([]) // キー配列で管理
+  const [newHeaderImageFile, setNewHeaderImageFile] = useState<File | null>(null)
   const [backgroundType, setBackgroundType] = useState<"color" | "image">("color")
   const [backgroundColor, setBackgroundColor] = useState("#ffffff")
   const [backgroundImageFile, setBackgroundImageFile] = useState<File | null>(null)
@@ -85,6 +86,9 @@ export default function AdminSettingsPage() {
       setAmazonAccessKey(currentUser.amazonAccessKey || "")
       setAmazonSecretKey(currentUser.amazonSecretKey || "")
       setAmazonAssociateId(currentUser.amazonAssociateId || "")
+      setHeaderImageKeys(
+        currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []),
+      )
     }
   }, [])
 
@@ -103,7 +107,7 @@ export default function AdminSettingsPage() {
     const updated = [...socialLinks]
     updated[index] = { ...updated[index], [field]: value } as SocialLink
 
-    if (field === "username" && value && !['email', 'form'].includes(updated[index].platform)) {
+    if (field === "username" && value && !["email", "form"].includes(updated[index].platform)) {
       const generatedUrl = generateSocialUrl(updated[index].platform, value)
       updated[index].url = generatedUrl
     }
@@ -118,7 +122,7 @@ export default function AdminSettingsPage() {
       toast({
         variant: "destructive",
         title: "エラー",
-        description: "URLを入力してください"
+        description: "URLを入力してください",
       })
       return
     }
@@ -132,7 +136,7 @@ export default function AdminSettingsPage() {
       toast({
         variant: "destructive",
         title: "エラー",
-        description: `${link.platform}の正しいURL形式ではありません`
+        description: `${link.platform}の正しいURL形式ではありません`,
       })
       return
     }
@@ -143,19 +147,51 @@ export default function AdminSettingsPage() {
       setVerificationStatus({ ...verificationStatus, [index]: "valid" })
       toast({
         title: "確認完了",
-        description: "アカウントの形式が正しいことを確認しました！"
+        description: "アカウントの形式が正しいことを確認しました！",
       })
     } else {
       setVerificationStatus({ ...verificationStatus, [index]: "invalid" })
       toast({
         variant: "destructive",
         title: "エラー",
-        description: "アカウントの確認ができませんでした"
+        description: "アカウントの確認ができませんでした",
       })
     }
   }
 
+  const addHeaderImage = async () => {
+    if (newHeaderImageFile) {
+      const imageKey = `header-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const headerBase64 = await fileToBase64(newHeaderImageFile)
+      db.images.saveUpload(imageKey, headerBase64)
+
+      setHeaderImageKeys([...headerImageKeys, imageKey])
+      setNewHeaderImageFile(null)
+      toast({
+        title: "追加完了",
+        description: "ヘッダー画像を追加しました",
+      })
+    }
+  }
+
+  const removeHeaderImage = (index: number) => {
+    setHeaderImageKeys(headerImageKeys.filter((_, i) => i !== index))
+    toast({
+      title: "削除完了",
+      description: "ヘッダー画像を削除しました",
+    })
+  }
+
   const handleSave = async () => {
+    if (!user) {
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "ユーザー情報が読み込まれていません",
+      })
+      return
+    }
+
     const updates: any = {
       displayName,
       bio,
@@ -165,30 +201,29 @@ export default function AdminSettingsPage() {
       amazonAccessKey,
       amazonSecretKey,
       amazonAssociateId,
+      headerImageKeys, // キー配列を保存
     }
 
     if (backgroundType === "color") {
       updates.backgroundValue = backgroundColor
     } else if (backgroundImageFile) {
+      const bgKey = `background-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const imageBase64 = await fileToBase64(backgroundImageFile)
-      updates.backgroundValue = imageBase64
+      db.images.saveUpload(bgKey, imageBase64)
+      updates.backgroundImageKey = bgKey
+      updates.backgroundValue = bgKey
     }
 
     if (avatarFile) {
+      const avatarKey = `avatar-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const avatarBase64 = await fileToBase64(avatarFile)
-      updates.avatarUrl = avatarBase64
-      updates.profileImage = avatarBase64
+      db.images.saveUpload(avatarKey, avatarBase64)
+      updates.profileImageKey = avatarKey
     }
 
-    if (headerImageFile) {
-      const headerBase64 = await fileToBase64(headerImageFile)
-      updates.headerImageUrl = headerBase64
-      updates.headerImage = headerBase64
-    }
-
-    db.user.update(updates)
+    db.user.update(user.id, updates)
     console.log("[v0] Saved settings:", updates)
-    
+
     const updatedUser = db.user.get()
     if (updatedUser) {
       setUser(updatedUser)
@@ -201,16 +236,24 @@ export default function AdminSettingsPage() {
       setAmazonAccessKey(updatedUser.amazonAccessKey || "")
       setAmazonSecretKey(updatedUser.amazonSecretKey || "")
       setAmazonAssociateId(updatedUser.amazonAssociateId || "")
+      setHeaderImageKeys(
+        updatedUser.headerImageKeys || (updatedUser.headerImageKey ? [updatedUser.headerImageKey] : []),
+      )
       setAvatarFile(null)
-      setHeaderImageFile(null)
+      setNewHeaderImageFile(null)
       setBackgroundImageFile(null)
     }
-    
+
     toast({
       title: "保存完了",
-      description: "設定を保存しました！"
+      description: "設定を保存しました！",
     })
   }
+
+  const headerImageUrls = headerImageKeys.map((key) => db.images.getUpload(key)).filter(Boolean)
+  const profileImageUrl = user?.profileImageKey
+    ? db.images.getUpload(user.profileImageKey)
+    : user?.avatarUrl || user?.profileImage
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -235,7 +278,7 @@ export default function AdminSettingsPage() {
             <div className="space-y-2">
               <Label>プロフィール画像</Label>
               <div className="max-w-[200px]">
-                <ImageUpload value={user?.avatarUrl || ""} onChange={setAvatarFile} aspectRatioType="profile" />
+                <ImageUpload value={profileImageUrl || ""} onChange={setAvatarFile} aspectRatioType="profile" />
               </div>
             </div>
 
@@ -261,7 +304,9 @@ export default function AdminSettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>SNSリンク</CardTitle>
-                <CardDescription>X、TikTok、YouTube、Instagram、Twitch、Discord、note、メール、フォームのリンク</CardDescription>
+                <CardDescription>
+                  X、TikTok、YouTube、Instagram、Twitch、Discord、note、メール、フォームのリンク
+                </CardDescription>
               </div>
               <Button type="button" size="sm" variant="outline" onClick={addSocialLink}>
                 <Plus className="w-4 h-4 mr-1" />
@@ -280,9 +325,18 @@ export default function AdminSettingsPage() {
                       <Label>プラットフォーム</Label>
                       <Select
                         value={link.platform}
-                        onValueChange={(value: "x" | "tiktok" | "youtube" | "instagram" | "email" | "form" | "twitch" | "discord" | "note") =>
-                          updateSocialLink(index, "platform", value)
-                        }
+                        onValueChange={(
+                          value:
+                            | "x"
+                            | "tiktok"
+                            | "youtube"
+                            | "instagram"
+                            | "email"
+                            | "form"
+                            | "twitch"
+                            | "discord"
+                            | "note",
+                        ) => updateSocialLink(index, "platform", value)}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -301,7 +355,7 @@ export default function AdminSettingsPage() {
                       </Select>
                     </div>
 
-                    {!['email', 'form'].includes(link.platform) && (
+                    {!["email", "form"].includes(link.platform) && (
                       <div className="space-y-2">
                         <Label>ユーザー名</Label>
                         <Input
@@ -314,15 +368,21 @@ export default function AdminSettingsPage() {
                     )}
 
                     <div className="space-y-2">
-                      <Label>{link.platform === 'email' ? 'メールアドレス' : link.platform === 'form' ? 'フォームURL' : 'URL'}</Label>
+                      <Label>
+                        {link.platform === "email"
+                          ? "メールアドレス"
+                          : link.platform === "form"
+                            ? "フォームURL"
+                            : "URL"}
+                      </Label>
                       <div className="flex gap-2">
                         <Input
                           placeholder={
-                            link.platform === 'email' 
-                              ? 'mailto:your@email.com' 
-                              : link.platform === 'form' 
-                              ? 'https://forms.example.com/...' 
-                              : 'https://...'
+                            link.platform === "email"
+                              ? "mailto:your@email.com"
+                              : link.platform === "form"
+                                ? "https://forms.example.com/..."
+                                : "https://..."
                           }
                           value={link.url}
                           onChange={(e) => updateSocialLink(index, "url", e.target.value)}
@@ -370,11 +430,70 @@ export default function AdminSettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle>ヘッダー画像</CardTitle>
-            <CardDescription>プロフィールヘッダーに表示される画像</CardDescription>
+            <CardDescription>プロフィールヘッダーに表示される画像（2枚以上でスライドショー表示）</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="max-w-[600px]">
-              <ImageUpload value={user?.headerImageUrl || ""} onChange={setHeaderImageFile} aspectRatioType="header" />
+          <CardContent className="space-y-4">
+            <div className="space-y-4">
+              {headerImageUrls.map((imageUrl, index) => (
+                <div key={index} className="space-y-2">
+                  <Label>ヘッダー画像 {index + 1}</Label>
+                  <div className="flex gap-2 items-start">
+                    <div className="flex-1 max-w-[600px]">
+                      <ImageUpload
+                        value={imageUrl || ""}
+                        onChange={(file) => {
+                          if (file) {
+                            // 既存の画像を置き換え
+                            const replaceImage = async () => {
+                              const imageKey = headerImageKeys[index]
+                              const headerBase64 = await fileToBase64(file)
+                              db.images.saveUpload(imageKey, headerBase64)
+
+                              toast({
+                                title: "更新完了",
+                                description: `ヘッダー画像 ${index + 1} を更新しました`,
+                              })
+
+                              // 状態を更新
+                              const updatedUrls = [...headerImageUrls]
+                              updatedUrls[index] = headerBase64
+                              setHeaderImageKeys([...headerImageKeys])
+                            }
+                            replaceImage()
+                          }
+                        }}
+                        aspectRatioType="header"
+                      />
+                    </div>
+                    <Button type="button" variant="destructive" size="icon" onClick={() => removeHeaderImage(index)}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <Label>新しいヘッダー画像を追加</Label>
+              <div className="max-w-[600px]">
+                <ImageUpload
+                  value=""
+                  onChange={async (file) => {
+                    if (file) {
+                      const imageKey = `header-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+                      const headerBase64 = await fileToBase64(file)
+                      db.images.saveUpload(imageKey, headerBase64)
+
+                      setHeaderImageKeys([...headerImageKeys, imageKey])
+                      toast({
+                        title: "追加完了",
+                        description: "ヘッダー画像を追加しました",
+                      })
+                    }
+                  }}
+                  aspectRatioType="header"
+                />
+              </div>
             </div>
           </CardContent>
         </Card>

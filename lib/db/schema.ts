@@ -52,30 +52,31 @@ export interface DBRecipePin {
   id: string
   recipe_id: string
   product_id: string
-  
+
   // ========================================
   // 重要：すべての位置とサイズは相対値（パーセント）で保存
   // ========================================
-  
+
   // 点（ドット）の位置とプロパティ
   dot_x_percent: number // 点のX位置 (0-100) ※画像幅に対する割合
   dot_y_percent: number // 点のY位置 (0-100) ※画像高さに対する割合
   dot_size_percent: number // 点のサイズ（画像幅に対する割合） default: 1.2 (画像幅の1.2%が12pxに相当)
   dot_color: string // 点の色 default: '#ffffff'
-  dot_shape: 'circle' | 'square' | 'triangle' | 'diamond' // 点の形状
-  
+  dot_shape: "circle" | "square" | "triangle" | "diamond" // 点の形状
+
   // タグ（ラベル）の位置とプロパティ
   tag_x_percent: number // タグのX位置 (0-100) ※画像幅に対する割合
   tag_y_percent: number // タグのY位置 (0-100) ※画像高さに対する割合
-  tag_text: string // タグのテキスト
-  
+  tag_text: string // タグのテキスト（商品名がデフォルト）
+  tag_display_text?: string // 表示用テキスト（商品名とは別に設定可能）
+
   // タグのスタイル（すべて相対値）
   tag_font_size_percent: number // フォントサイズ（画像幅に対する割合） default: 1.4 (画像幅の1.4%が14pxに相当)
   tag_font_family: string // フォント default: 'system-ui'
-  tag_font_weight: 'normal' | 'bold' | '300' | '400' | '500' | '600' | '700'
+  tag_font_weight: "normal" | "bold" | "300" | "400" | "500" | "600" | "700"
   tag_text_color: string // テキスト色 default: '#ffffff'
   tag_text_shadow: string // テキストシャドウ CSS値 default: '0 2px 4px rgba(0,0,0,0.3)'
-  
+
   // タグの背景とボーダー
   tag_background_color: string // 背景色 default: '#000000'
   tag_background_opacity: number // 背景の不透明度 (0-1) default: 0.8
@@ -83,15 +84,36 @@ export interface DBRecipePin {
   tag_border_color: string // 枠線の色 default: '#ffffff'
   tag_border_radius_percent: number // 角丸（画像幅に対する割合） default: 0.4 (画像幅の0.4%が4pxに相当)
   tag_shadow: string // タグのシャドウ CSS値 default: '0 2px 8px rgba(0,0,0,0.2)'
-  
+
   tag_padding_x_percent: number // 横方向のパディング（画像幅に対する割合） default: 1.2 (画像幅の1.2%が12pxに相当)
   tag_padding_y_percent: number // 縦方向のパディング（画像幅に対する割合） default: 0.6 (画像幅の0.6%が6pxに相当)
-  
+
   // 線のプロパティ
-  line_type: 'solid' | 'dashed' | 'dotted' | 'wavy' | 'hand-drawn' // 線のタイプ
+  line_type: "solid" | "dashed" | "dotted" | "wavy" | "hand-drawn" // 線のタイプ
   line_width_percent: number // 線の太さ（画像幅に対する割合） default: 0.2 (画像幅の0.2%が2pxに相対)
   line_color: string // 線の色 default: '#ffffff'
-  
+
+  tag_text_stroke_color?: string
+  tag_text_stroke_width?: number
+  tag_background_width_percent?: number
+  tag_background_height_percent?: number
+  tag_background_offset_x_percent?: number
+  tag_background_offset_y_percent?: number
+  tag_shadow_color?: string
+  tag_shadow_opacity?: number
+  tag_shadow_blur?: number
+  tag_shadow_distance?: number
+  tag_shadow_angle?: number
+  tag_text_align?: "left" | "center" | "right"
+  tag_vertical_writing?: boolean
+  tag_letter_spacing?: number
+  tag_line_height?: number
+  tag_bold?: boolean
+  tag_italic?: boolean
+  tag_underline?: boolean
+  tag_text_transform?: "uppercase" | "lowercase" | "none"
+  tag_display_text?: string // 表示用テキスト
+
   created_at: string
 }
 
@@ -162,20 +184,8 @@ export interface DBTheme {
   heading_font: string
   body_font: string
   background_image: string | null
-  header_image: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface DBUser {
-  id: string
-  username: string
-  display_name: string
-  bio: string
-  profile_image: string | null
-  header_image: string | null
-  background_type: "color" | "image"
-  background_value: string
+  header_image: string | null // 後方互換性のため残す
+  header_images: string[] // 複数ヘッダー画像対応
   social_links: any // JSONB
   amazon_access_key: string | null
   amazon_secret_key: string | null
@@ -241,14 +251,14 @@ export type Recipe = {
     dotYPercent: number
     dotSizePercent: number // ピクセルから相対値に変更
     dotColor: string
-    dotShape: 'circle' | 'square' | 'triangle' | 'diamond'
+    dotShape: "circle" | "square" | "triangle" | "diamond"
     // タグのプロパティ（すべて相対値）
     tagXPercent: number
     tagYPercent: number
     tagText: string
     tagFontSizePercent: number // ピクセルから相対値に変更
     tagFontFamily: string
-    tagFontWeight: 'normal' | 'bold' | '300' | '400' | '500' | '600' | '700'
+    tagFontWeight: "normal" | "bold" | "300" | "400" | "500" | "600" | "700"
     tagTextColor: string
     tagTextShadow: string
     tagBackgroundColor: string
@@ -260,9 +270,30 @@ export type Recipe = {
     tagPaddingXPercent: number // ピクセルから相対値に変更
     tagPaddingYPercent: number // ピクセルから相対値に変更
     // 線のプロパティ
-    lineType: 'solid' | 'dashed' | 'dotted' | 'wavy' | 'hand-drawn'
+    lineType: "solid" | "dashed" | "dotted" | "wavy" | "hand-drawn"
     lineWidthPercent: number // ピクセルから相対値に変更
     lineColor: string
+
+    tagTextStrokeColor?: string
+    tagTextStrokeWidth?: number
+    tagBackgroundWidthPercent?: number
+    tagBackgroundHeightPercent?: number
+    tagBackgroundOffsetXPercent?: number
+    tagBackgroundOffsetYPercent?: number
+    tagShadowColor?: string
+    tagShadowOpacity?: number
+    tagShadowBlur?: number
+    tagShadowDistance?: number
+    tagShadowAngle?: number
+    tagTextAlign?: "left" | "center" | "right"
+    tagVerticalWriting?: boolean
+    tagLetterSpacing?: number
+    tagLineHeight?: number
+    tagBold?: boolean
+    tagItalic?: boolean
+    tagUnderline?: boolean
+    tagTextTransform?: "uppercase" | "lowercase" | "none"
+    tagDisplayText?: string // 表示用テキスト
   }>
   published: boolean
   createdAt: string
@@ -285,11 +316,16 @@ export type User = {
   username: string
   displayName: string
   bio: string
-  profileImage?: string
-  headerImage?: string
+  profileImageKey?: string // base64直接保存からキー参照に変更
+  profileImage?: string // 後方互換性のため残す
+  headerImageKey?: string // 後方互換性のため残す
+  headerImageKeys?: string[] // 複数ヘッダー画像をキー配列で管理
+  headerImage?: string // 後方互換性のため残す
+  headerImages?: string[] // 後方互換性のため残す
   backgroundType: "color" | "image"
   backgroundColor?: string
-  backgroundImageUrl?: string
+  backgroundImageKey?: string // 背景画像もキー参照に
+  backgroundImageUrl?: string // 後方互換性のため残す
   socialLinks?: {
     twitter?: string
     tiktok?: string

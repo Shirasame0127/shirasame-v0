@@ -1,5 +1,5 @@
 import type { Product, ProductImage, AffiliateLink } from "@/lib/mock-data/products"
-import type { Recipe, RecipeImage, RecipeItem, AnnotationStyle, CustomFont } from "@/lib/mock-data/recipes"
+import type { Recipe, RecipeImage, RecipeItem, CustomFont } from "@/lib/mock-data/recipes"
 import type { Collection, CollectionItem } from "@/lib/mock-data/collections"
 import type { User } from "@/lib/mock-data/users"
 
@@ -75,7 +75,7 @@ export const db = {
   products: {
     getAll: (userId?: string) => {
       const products = productStorage.get([])
-      return userId ? products.filter(p => p.userId === userId) : products
+      return userId ? products.filter((p) => p.userId === userId) : products
     },
     getById: (id: string) => productStorage.get([]).find((p) => p.id === id),
     create: (product: Product) => {
@@ -99,23 +99,23 @@ export const db = {
   recipes: {
     getAll: (userId?: string) => {
       const recipes = recipeStorage.get([])
-      return userId ? recipes.filter(r => r.userId === userId) : recipes
+      return userId ? recipes.filter((r) => r.userId === userId) : recipes
     },
     getById: (id: string) => {
       const recipe = recipeStorage.get([]).find((r) => r.id === id)
       if (!recipe) return null
-      
+
       // ピン情報を取得して結合
       const pins = db.recipePins.getByRecipeId(id)
       return { ...recipe, pins }
     },
-    create: (recipe: Omit<Recipe, 'pins'>) => {
+    create: (recipe: Omit<Recipe, "pins">) => {
       const newRecipe = { ...recipe, pins: [] }
       recipeStorage.update((recipes) => [...recipes, newRecipe])
       console.log("[v0] DB: Created recipe", recipe.id)
       return newRecipe
     },
-    update: (id: string, updates: Partial<Omit<Recipe, 'pins'>>) => {
+    update: (id: string, updates: Partial<Omit<Recipe, "pins">>) => {
       recipeStorage.update((recipes) =>
         recipes.map((r) => (r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r)),
       )
@@ -128,9 +128,7 @@ export const db = {
       console.log("[v0] DB: Deleted recipe", id)
     },
     togglePublish: (id: string) => {
-      recipeStorage.update((recipes) =>
-        recipes.map((r) => (r.id === id ? { ...r, published: !r.published } : r)),
-      )
+      recipeStorage.update((recipes) => recipes.map((r) => (r.id === id ? { ...r, published: !r.published } : r)))
       console.log("[v0] DB: Toggled recipe publish status", id)
     },
   },
@@ -176,7 +174,7 @@ export const db = {
   collections: {
     getAll: (userId?: string) => {
       const collections = collectionStorage.get([])
-      return userId ? collections.filter(c => c.userId === userId) : collections
+      return userId ? collections.filter((c) => c.userId === userId) : collections
     },
     getById: (id: string) => collectionStorage.get([]).find((c) => c.id === id),
     create: (collection: Collection) => {
@@ -225,10 +223,10 @@ export const db = {
   user: {
     get: (userId?: string) => {
       let users = userStorage.get([])
-      
+
       if (!Array.isArray(users)) {
         console.warn("[v0] DB: userStorage returned non-array, converting to array format")
-        if (users && typeof users === 'object' && (users as any).id) {
+        if (users && typeof users === "object" && (users as any).id) {
           // 単一オブジェクトを配列に変換
           users = [users as any]
           userStorage.set(users)
@@ -237,7 +235,7 @@ export const db = {
           users = []
         }
       }
-      
+
       if (userId) {
         return users.find((u: any) => u.id === userId) || null
       }
@@ -252,19 +250,17 @@ export const db = {
       console.log("[v0] DB: Created user", user.id)
     },
     update: (userId: string, updates: Partial<User>) => {
-      let users = userStorage.get([])
+      const users = userStorage.get([])
       if (!Array.isArray(users)) {
         console.error("[v0] DB: Cannot update user, storage is not an array")
         return
       }
-      const updatedUsers = users.map((u: any) => 
-        u.id === userId ? { ...u, ...updates } : u
-      )
+      const updatedUsers = users.map((u: any) => (u.id === userId ? { ...u, ...updates } : u))
       userStorage.set(updatedUsers)
       console.log("[v0] DB: Updated user", userId)
     },
     addFavoriteFont: (userId: string, fontFamily: string) => {
-      let users = userStorage.get([])
+      const users = userStorage.get([])
       if (!Array.isArray(users)) {
         console.error("[v0] DB: Cannot add favorite font, storage is not an array")
         return
@@ -282,7 +278,7 @@ export const db = {
       console.log("[v0] DB: Added favorite font", fontFamily)
     },
     removeFavoriteFont: (userId: string, fontFamily: string) => {
-      let users = userStorage.get([])
+      const users = userStorage.get([])
       if (!Array.isArray(users)) {
         console.error("[v0] DB: Cannot remove favorite font, storage is not an array")
         return
@@ -301,7 +297,7 @@ export const db = {
       let users = userStorage.get([])
       if (!Array.isArray(users)) {
         console.warn("[v0] DB: userStorage.get([]) did not return an array, attempting to convert")
-        if (users && typeof users === 'object' && (users as any).id) {
+        if (users && typeof users === "object" && (users as any).id) {
           users = [users as any]
           userStorage.set(users)
         } else {
@@ -334,18 +330,18 @@ export const db = {
   tags: {
     getAll: () => {
       const allTags = tagStorage.get([])
-      return allTags.filter((t: any) => !t.name?.startsWith('__GROUP_PLACEHOLDER__'))
+      return allTags.filter((t: any) => !t.name?.startsWith("__GROUP_PLACEHOLDER__"))
     },
-    
+
     getAllWithPlaceholders: () => {
       return tagStorage.get([])
     },
-    
+
     saveAll: (tags: any[]) => {
       tagStorage.set(tags)
       console.log("[v0] DB: Saved all tags", tags.length)
     },
-    
+
     getCustomTags: () => {
       const tags = tagStorage.get([])
       return tags.filter((t: any) => t.category === "カスタム").map((t: any) => t.name)
@@ -387,10 +383,7 @@ export const db = {
       return pin
     },
     updateAll: (recipeId: string, pins: any[]) => {
-      recipePinStorage.update((allPins) => [
-        ...allPins.filter((p: any) => p.recipeId !== recipeId),
-        ...pins
-      ])
+      recipePinStorage.update((allPins) => [...allPins.filter((p: any) => p.recipeId !== recipeId), ...pins])
       console.log("[v0] DB: Updated all pins for recipe", recipeId)
     },
     deleteById: (id: string) => {
@@ -452,7 +445,7 @@ export const db = {
     getById: (id: string) => {
       return customFontStorage.get([]).find((f: any) => f.id === id)
     },
-    create: (font: Omit<CustomFont, 'id' | 'createdAt'>) => {
+    create: (font: Omit<CustomFont, "id" | "createdAt">) => {
       const newFont: CustomFont = {
         id: `custom-font-${Date.now()}`,
         ...font,
@@ -488,10 +481,40 @@ export const db = {
       if (mockData.recipeItems) recipeItemStorage.set(mockData.recipeItems)
       if (mockData.collections) collectionStorage.set(mockData.collections)
       if (mockData.collectionItems) collectionItemStorage.set(mockData.collectionItems)
-      if (mockData.user) userStorage.set([mockData.user])
+      if (mockData.user) {
+        const existingUsers = userStorage.get([])
+        if (!Array.isArray(existingUsers) || existingUsers.length === 0) {
+          userStorage.set([mockData.user])
+        }
+      }
 
       localStorage.setItem("mock_initialized", "true")
       console.log("[v0] DB: Initialized with mock data")
+    } else {
+      if (mockData.user) {
+        const existingUsers = userStorage.get([])
+        if (Array.isArray(existingUsers) && existingUsers.length > 0) {
+          const existingUser = existingUsers[0]
+          // headerImageKeys, profileImageKey, customFonts など、ユーザーが設定したデータは保持
+          const mergedUser = {
+            ...mockData.user,
+            headerImageKeys: existingUser.headerImageKeys || mockData.user.headerImageKeys || [],
+            profileImageKey: existingUser.profileImageKey || mockData.user.profileImageKey,
+            backgroundImageKey: existingUser.backgroundImageKey || mockData.user.backgroundImageKey,
+            customFonts: existingUser.customFonts || mockData.user.customFonts || [],
+            favoriteFonts: existingUser.favoriteFonts || mockData.user.favoriteFonts || [],
+            avatarUrl: existingUser.avatarUrl || mockData.user.avatarUrl,
+            headerImage: existingUser.headerImage || mockData.user.headerImage,
+            backgroundValue: existingUser.backgroundValue || mockData.user.backgroundValue,
+            socialLinks: existingUser.socialLinks || mockData.user.socialLinks,
+            amazonAccessKey: existingUser.amazonAccessKey || mockData.user.amazonAccessKey,
+            amazonSecretKey: existingUser.amazonSecretKey || mockData.user.amazonSecretKey,
+            amazonAssociateId: existingUser.amazonAssociateId || mockData.user.amazonAssociateId,
+          }
+          userStorage.set([mergedUser])
+          console.log("[v0] DB: Merged existing user data with mock defaults")
+        }
+      }
     }
   },
 

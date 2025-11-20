@@ -2,8 +2,9 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from 'next/navigation'
+import { useState } from 'react'
 import { cn } from "@/lib/utils"
-import { Home, Package, Camera, Layout, Settings, Palette, Tag, Calendar, LogOut } from 'lucide-react'
+import { Home, Package, Camera, Layout, Settings, Palette, Tag, Calendar, LogOut, Menu, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { auth } from '@/lib/auth'
 
@@ -21,6 +22,7 @@ const navItems = [
 export function AdminNav() {
   const pathname = usePathname()
   const router = useRouter()
+  const [openMenu, setOpenMenu] = useState(false)
   
   const handleLogout = () => {
     auth.logout()
@@ -31,33 +33,54 @@ export function AdminNav() {
   const currentUser = auth.getCurrentUser()
 
   return (
-    <nav className="border-b bg-card">
+    <nav className="border-b bg-card relative">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <Link href="/admin" className="font-bold text-xl">
-            しらさめ管理画面
+            管理画面
           </Link>
           <div className="flex items-center gap-4">
             {currentUser && (
-              <span className="text-sm text-muted-foreground">
+              <span className="hidden sm:inline text-sm text-muted-foreground">
                 {currentUser.username}
               </span>
             )}
-            <Link href="/" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Link href="/" className="hidden sm:inline text-sm text-muted-foreground hover:text-foreground transition-colors">
               公開ページを見る →
             </Link>
             <Button
               variant="ghost"
               size="sm"
               onClick={handleLogout}
-              className="gap-2"
+              className="hidden sm:inline gap-2"
             >
               <LogOut className="w-4 h-4" />
               ログアウト
             </Button>
+
+            {/* モバイル: ダッシュボードアイコン（ハンバーガーの左） */}
+            <Link
+              href="/admin"
+              onClick={() => setOpenMenu(false)}
+              className="inline-flex items-center justify-center p-2 rounded-md sm:hidden text-muted-foreground hover:text-foreground"
+              aria-label="Dashboard"
+            >
+              <Home className="w-5 h-5" />
+            </Link>
+
+            {/* ハンバーガー: スマホ時は右端に配置 */}
+            <button
+              onClick={() => setOpenMenu(s => !s)}
+              className="inline-flex items-center justify-center p-2 rounded-md sm:hidden"
+              aria-label="Open menu"
+            >
+              {openMenu ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
           </div>
         </div>
-        <div className="flex gap-1 overflow-x-auto pb-px -mb-px">
+
+        {/* デスクトップ: 横並びメニュー */}
+        <div className="hidden sm:flex gap-1 overflow-x-auto pb-px -mb-px">
           {navItems.map((item) => {
             const Icon = item.icon
             const isActive = pathname === item.href
@@ -78,6 +101,33 @@ export function AdminNav() {
             )
           })}
         </div>
+
+        {/* モバイルメニューのドロップダウン */}
+        {openMenu && (
+          <div className="sm:hidden absolute right-4 top-16 z-50 w-56 bg-card border rounded-md shadow-lg">
+            <div className="flex flex-col">
+              {navItems.map((item) => {
+                const Icon = item.icon
+                const isActive = pathname === item.href
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setOpenMenu(false)}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b transition-colors",
+                      isActive ? "bg-zinc-100 text-foreground" : "text-muted-foreground hover:bg-zinc-50",
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {item.label}
+                  </Link>
+                )
+              })}
+              <button onClick={handleLogout} className="text-left px-4 py-3 text-sm text-muted-foreground hover:bg-zinc-50">ログアウト</button>
+            </div>
+          </div>
+        )}
       </div>
     </nav>
   )

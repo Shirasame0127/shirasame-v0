@@ -1,4 +1,4 @@
-# ガジェット紹介サイト
+# ガジェット紹介サイト
 
 *Automatically synced with your [v0.app](https://v0.app) deployments*
 
@@ -28,3 +28,38 @@ Continue building your app on:
 2. Deploy your chats from the v0 interface
 3. Changes are automatically pushed to this repository
 4. Vercel deploys the latest version from this repository
+
+## 画像保存方式
+
+このプロジェクトでは、画像を localStorage のマップ（キー: `mock_image_uploads`）に保存します。
+
+### 保存API
+- `db.images.saveUpload(key: string, url: string)`: 画像を保存
+- `db.images.getUpload(key: string)`: 画像を取得
+
+### 実装例
+
+**ユーザープロフィールアイコン:**
+- 保存時: `profileImageKey` をユーザー情報に格納
+- 表示時: `db.images.getUpload(user.profileImageKey)` で取得
+
+**ヘッダー画像（複数対応）:**
+- 保存時: `headerImageKeys[]` 配列をユーザー情報に格納
+- 表示時: キー配列をマップして各画像を取得し、スライドショー表示
+
+**背景画像:**
+- 保存時: `backgroundImageKey` をユーザー情報に格納
+- 表示時: `db.images.getUpload(user.backgroundImageKey)` で取得
+
+### 影響範囲
+- `lib/db/storage.ts`: `imageUploadStorage` API
+- `lib/db/schema.ts`: `User` 型に `*Key` フィールド追加
+- `app/admin/settings/page.tsx`: 画像アップロード処理
+- `components/profile-header.tsx`: ヘッダー画像表示
+
+### ローカル動作確認手順
+1. 管理画面 `/admin/settings` にアクセス
+2. プロフィール画像、ヘッダー画像、背景画像をアップロード
+3. 「保存」をクリック
+4. ブラウザの開発者ツール → Application → Local Storage で `mock_image_uploads` を確認
+5. 公開ページ `/` でヘッダー画像のスライドショーとプロフィール画像が正しく表示されることを確認

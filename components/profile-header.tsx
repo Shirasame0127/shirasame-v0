@@ -1,5 +1,8 @@
+"use client"
+
+import { useState, useEffect } from "react"
 import Image from "next/image"
-import { SocialLinks } from "@/components/social-links"
+import { db } from "@/lib/db/storage"
 import type { User } from "@/lib/mock-data/users"
 
 interface ProfileHeaderProps {
@@ -7,40 +10,75 @@ interface ProfileHeaderProps {
 }
 
 export function ProfileHeader({ user }: ProfileHeaderProps) {
+  const [images, setImages] = useState<string[]>([])
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [isLoaded, setIsLoaded] = useState(false)
+
+  useEffect(() => {
+    const loadImages = () => {
+      const headerImageKeys = user.headerImageKeys || (user.headerImageKey ? [user.headerImageKey] : [])
+
+      const loadedImages = headerImageKeys.map((key) => db.images.getUpload(key)).filter((img): img is string => !!img)
+
+      const legacyImages = user.headerImages || (user.headerImage ? [user.headerImage] : [])
+
+      const finalImages = loadedImages.length > 0 ? loadedImages : legacyImages
+
+      console.log("[v0] ProfileHeader loaded images:", {
+        keys: headerImageKeys,
+        loadedCount: loadedImages.length,
+        legacyCount: legacyImages.length,
+        finalCount: finalImages.length,
+      })
+
+      setImages(finalImages)
+      setIsLoaded(true)
+    }
+
+    loadImages()
+  }, [user])
+
+  useEffect(() => {
+    if (images.length > 1) {
+      const interval = setInterval(() => {
+        setCurrentImageIndex((prev) => (prev + 1) % images.length)
+      }, 5000)
+
+      return () => clearInterval(interval)
+    }
+  }, [images.length])
+
+  if (!isLoaded) {
+    return <div className="relative h-[300px] md:h-[400px] w-full bg-muted animate-pulse" />
+  }
+
   return (
-    <div className="relative overflow-hidden">
-      {(user.headerImage || user.headerImageUrl) && (
+    <div className="relative overflow-hidden h-[300px] md:h-[400px] w-full">
+      {images.length > 0 ? (
         <div className="absolute inset-0">
-          <Image
-            src={user.headerImage || user.headerImageUrl || "/placeholder.svg"}
-            alt="ヘッダー画像"
-            fill
-            className="object-cover opacity-30"
-            priority
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-background/50 to-background" />
+          {images.map((image, index) => (
+            <div
+              key={index}
+              className={`absolute inset-0 transition-opacity duration-1000 ${
+                index === currentImageIndex ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              <Image
+                src={image || "/placeholder.svg"}
+                alt={`ヘッダー画像 ${index + 1}`}
+                fill
+                className="object-cover"
+                priority={index === 0}
+              />
+            </div>
+          ))}
+          <div className="absolute inset-0 bg-black/10" />
+        </div>
+      ) : (
+        <div className="absolute inset-0 bg-muted flex items-center justify-center">
+          <p className="text-muted-foreground">ヘッダー画像が設定されていません</p>
         </div>
       )}
-
-      {!user.headerImage && !user.headerImageUrl && <div className="absolute inset-0 bg-gradient-to-b from-primary/10 to-background" />}
-
-      <div className="relative py-8 md:py-16 px-4">
-        <div className="max-w-4xl mx-auto text-center">
-          <div className="mb-4 md:mb-6 inline-block">
-            <Image
-              src={user.profileImage || user.avatarUrl || "/placeholder.svg"}
-              alt={user.displayName}
-              width={80}
-              height={80}
-              className="rounded-full border-4 border-background shadow-xl md:w-[120px] md:h-[120px]"
-            />
-          </div>
-          <h1 className="text-2xl md:text-4xl lg:text-5xl font-bold mb-3 md:mb-4 text-balance">{user.displayName}</h1>
-          <p className="text-sm md:text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed mb-6">{user.bio}</p>
-
-          {user.socialLinks && <SocialLinks links={user.socialLinks} />}
-        </div>
-      </div>
     </div>
   )
 }
