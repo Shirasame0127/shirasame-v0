@@ -348,8 +348,81 @@ export const db = {
   // 画像アップロード管理
   images: {
     saveUpload: (key: string, url: string) => {
-      imageUploadStorage.update((uploads) => ({ ...uploads, [key]: url }))
-      console.log("[v0] DB: Saved image upload", key)
+      if (typeof window === "undefined") return
+
+      // Try to write the full uploads map; if quota exceeded, attempt to free space
+      const trySave = (uploads: Record<string, string>) => {
+        try {
+          localStorage.setItem(STORAGE_KEYS.IMAGE_UPLOADS, JSON.stringify(uploads))
+          return true
+        } catch (err: any) {
+          // Detect quota exceeded
+          const isQuota = err && (err.name === "QuotaExceededError" || err.code === 22 || err.code === 1014)
+          if (!isQuota) {
+            console.error("[v0] Failed to save image uploads:", err)
+            return false
+          }
+          return false
+        }
+      }
+
+      const uploads = imageUploadStorage.get({}) || {}
+      const merged = { ...uploads, [key]: url }
+
+      if (trySave(merged)) {
+        // success
+        console.log("[v0] DB: Saved image upload", key)
+        // keep LocalStorage wrapper in sync
+        imageUploadStorage.set(merged)
+        return
+      }
+
+      // If we reach here, quota was likely exceeded. Attempt to free oldest entries and retry.
+      const existingKeys = Object.keys(uploads)
+
+      // Helper: try to extract timestamp from key like prefix-<timestamp>-suffix
+      const extractTimestamp = (k: string) => {
+        const m = k.match(/-(\d{10,})/)
+        if (m) return parseInt(m[1], 10)
+        return null
+      }
+
+      // Sort keys by timestamp if possible, otherwise by insertion order
+      const sortedKeys = existingKeys.slice().sort((a, b) => {
+        const ta = extractTimestamp(a)
+        const tb = extractTimestamp(b)
+        if (ta && tb) return ta - tb
+        if (ta) return -1
+        if (tb) return 1
+        return 0
+      })
+
+      // Remove oldest entries progressively (cap iterations to avoid long loops)
+      const MAX_REMOVE_BATCH = 5
+      let removed = 0
+      let keysToRemove: string[] = []
+      while (sortedKeys.length > 0) {
+        // remove up to MAX_REMOVE_BATCH oldest keys and retry
+        keysToRemove = sortedKeys.splice(0, MAX_REMOVE_BATCH)
+        const candidate = { ...uploads }
+        for (const k of keysToRemove) delete candidate[k]
+
+        // add our new key
+        candidate[key] = url
+
+        if (trySave(candidate)) {
+          console.warn("[v0] DB: Quota exceeded — removed old image uploads to make room:", keysToRemove)
+          imageUploadStorage.set(candidate)
+          return
+        }
+
+        removed += keysToRemove.length
+        // continue loop to remove more
+        if (removed > 200) break
+      }
+
+      // As a last resort, do not store the image and warn
+      console.error("[v0] DB: Unable to save image upload due to storage quota. Upload not persisted.")
     },
     getUpload: (key: string) => imageUploadStorage.get({})[key],
   },

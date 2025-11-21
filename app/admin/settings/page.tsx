@@ -192,11 +192,23 @@ export default function AdminSettingsPage() {
   // 新しい画像を選択したら自動で追加するハンドラ（ユーザーの追加操作を簡単にする）
   const handleNewHeaderFile = async (file: File | null) => {
     if (!file) return
-    const imageKey = `header-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    const headerBase64 = await fileToBase64(file)
-    db.images.saveUpload(imageKey, headerBase64)
-    setHeaderImageKeys((prev) => [...prev, imageKey])
-    toast({ title: "追加完了", description: "ヘッダー画像を追加しました" })
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      const res = await fetch("/api/images/upload", { method: "POST", body: fd })
+      const json = await res.json()
+      const uploadedUrl = json?.result?.variants?.[0] || json?.result?.url
+      if (uploadedUrl) {
+        // store the direct URL in headerImageKeys for simplicity
+        setHeaderImageKeys((prev) => [...prev, uploadedUrl])
+        toast({ title: "追加完了", description: "ヘッダー画像を追加しました" })
+      } else {
+        toast({ variant: "destructive", title: "アップロード失敗", description: "画像アップロードに失敗しました" })
+      }
+    } catch (e) {
+      console.error(e)
+      toast({ variant: "destructive", title: "エラー", description: "画像アップロード中にエラーが発生しました" })
+    }
   }
 
   const handleReorder = (fromIndex: number, toIndex: number) => {
@@ -296,7 +308,7 @@ export default function AdminSettingsPage() {
         <button
           type="button"
           onClick={() => setEditingIndex(index)}
-          className="w-28 h-16 rounded overflow-hidden border bg-muted mr-2 flex-shrink-0"
+          className="w-28 h-16 rounded overflow-hidden border bg-muted mr-2 shrink-0"
         >
           <img src={imageUrl} alt={`header-thumb-${index + 1}`} className="w-full h-full object-cover" />
         </button>
@@ -385,7 +397,13 @@ export default function AdminSettingsPage() {
     })
   }
 
-  const headerImageUrls = headerImageKeys.map((key) => db.images.getUpload(key)).filter(Boolean)
+  const headerImageUrls = headerImageKeys
+    .map((key) => {
+      if (!key) return null
+      if (typeof key === "string" && (key.startsWith("http") || key.startsWith("/"))) return key
+      return db.images.getUpload(String(key))
+    })
+    .filter(Boolean) as string[]
   const profileImageUrl = user?.profileImageKey
     ? db.images.getUpload(user.profileImageKey)
     : user?.avatarUrl || user?.profileImage

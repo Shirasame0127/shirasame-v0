@@ -51,12 +51,29 @@ export function ImageUpload({
   const handleCropComplete = (croppedFile: File) => {
     const url = URL.createObjectURL(croppedFile)
     setPreviewUrl(url)
+    // keep onChange for backward compatibility
     onChange(croppedFile)
+
+    // Upload to server-side Cloudflare Images and call onUploadComplete with returned URL
+    ;(async () => {
+      try {
+        const fd = new FormData()
+        fd.append("file", croppedFile)
+        const res = await fetch("/api/images/upload", { method: "POST", body: fd })
+        const json = await res.json()
+        const uploadedUrl = json?.result?.variants?.[0] || json?.result?.url
+        if (uploadedUrl && onUploadComplete) {
+          onUploadComplete(uploadedUrl)
+        }
+      } catch (e) {
+        console.error("upload failed", e)
+      }
+    })()
+
     setShowCropper(false)
 
-    if (isDialogMode && onUploadComplete) {
-      onUploadComplete(url)
-      onOpenChange?.(false)
+    if (isDialogMode && onOpenChange) {
+      onOpenChange(false)
     }
   }
 

@@ -18,7 +18,13 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
     const loadImages = () => {
       const headerImageKeys = user.headerImageKeys || (user.headerImageKey ? [user.headerImageKey] : [])
 
-      const loadedImages = headerImageKeys.map((key) => db.images.getUpload(key)).filter((img): img is string => !!img)
+      const loadedImages = headerImageKeys
+        .map((key) => {
+          if (!key) return null
+          if (typeof key === "string" && (key.startsWith("http") || key.startsWith("/"))) return key
+          return db.images.getUpload(String(key))
+        })
+        .filter((img): img is string => !!img)
 
       const legacyImages = user.headerImages || (user.headerImage ? [user.headerImage] : [])
 
