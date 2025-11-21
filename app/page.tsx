@@ -270,14 +270,14 @@ export default function HomePage() {
           {/* コレクションセクション */}
           {collections.length > 0 && (
             <section id="collections" className="mb-16">
-              <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-8 text-center">Collection</h2>
+              <h2 className="font-heading text-2xl sm:text-3xl font-bold text-center mb-8">Collection</h2>
 
               <div className="space-y-12">
                 {collections.map((collection) => {
                   const collectionProducts = getProductsForCollection(collection.id)
                   return (
                     <div key={collection.id} id={`collection-${collection.id}`} className="mb-12 scroll-mt-20">
-                      <h3 className="font-heading text-lg sm:text-xl font-semibold mb-4 text-center">
+                      <h3 className="font-heading text-lg sm:text-xl font-semibold text-center mb-4">
                         {collection.title}
                       </h3>
                       {collection.description && (

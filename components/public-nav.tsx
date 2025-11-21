@@ -46,7 +46,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
                 alt={siteName}
                 width={180}
                 height={48}
-                className="h-10 w-auto object-contain"
+                className="m-l-3 h-10 w-auto object-contain mx-0 mx-3"
                 priority
               />
             </div>
