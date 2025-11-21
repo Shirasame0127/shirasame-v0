@@ -71,8 +71,10 @@ export default function AdminCollectionsPage() {
     if (isCreating) {
       const newCollection: Collection = {
         id: `col-${Date.now()}`,
+        userId: "user-shirasame",
         title: formData.title,
         description: formData.description,
+        productIds: [],
         visibility: formData.visibility,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

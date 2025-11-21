@@ -104,7 +104,6 @@ export interface DBRecipePin {
   tag_shadow_blur?: number
   tag_shadow_distance?: number
   tag_shadow_angle?: number
-  tag_text_align?: "left" | "center" | "right"
   tag_vertical_writing?: boolean
   tag_letter_spacing?: number
   tag_line_height?: number
@@ -112,7 +111,7 @@ export interface DBRecipePin {
   tag_italic?: boolean
   tag_underline?: boolean
   tag_text_transform?: "uppercase" | "lowercase" | "none"
-  tag_display_text?: string // 表示用テキスト
+  
 
   created_at: string
 }
@@ -213,11 +212,11 @@ export type Product = {
   body: string
   images: Array<{
     id: string
-    productId: string
+    productId?: string
     url: string
-    width: number
-    height: number
-    aspect: string
+    width?: number
+    height?: number
+    aspect?: string
     role: "thumbnail" | "main" | "secondary" | "attachment"
   }>
   affiliateLinks: Array<{
@@ -239,10 +238,15 @@ export type Recipe = {
   id: string
   userId: string
   title: string
-  imageDataUrl: string // Base64画像データ
-  imageWidth: number // 基準画像の幅（ピクセル）
-  imageHeight: number // 基準画像の高さ（ピクセル）
-  aspectRatio: string // アスペクト比情報
+  // 既存モックや旧コードとの互換性のためにいくつかのフィールドを許容
+  imageDataUrl?: string // Base64画像データ
+  imageWidth?: number // 基準画像の幅（ピクセル）
+  imageHeight?: number // 基準画像の高さ（ピクセル）
+  aspectRatio?: string // アスペクト比情報
+  // 旧実装では baseImageId/width/height を使っている箇所があるため互換性を残す
+  baseImageId?: string
+  width?: number
+  height?: number
   pins: Array<{
     id: string
     productId: string
@@ -304,7 +308,9 @@ export type Collection = {
   id: string
   userId: string
   title: string
-  description?: string
+  slug?: string
+  // description may be string or null in some mock data / DB exports
+  description?: string | null
   productIds: string[]
   visibility: "public" | "draft"
   createdAt: string
@@ -316,6 +322,11 @@ export type User = {
   username: string
   displayName: string
   bio: string
+  // backward-compatible aliases
+  avatarUrl?: string
+  email?: string
+  role?: "owner" | "editor" | "viewer"
+  headerImageUrl?: string
   profileImageKey?: string // base64直接保存からキー参照に変更
   profileImage?: string // 後方互換性のため残す
   headerImageKey?: string // 後方互換性のため残す
@@ -326,23 +337,22 @@ export type User = {
   backgroundColor?: string
   backgroundImageKey?: string // 背景画像もキー参照に
   backgroundImageUrl?: string // 後方互換性のため残す
-  socialLinks?: {
-    twitter?: string
-    tiktok?: string
-    youtube?: string
-    instagram?: string
-    twitch?: string
-    discord?: string
-    note?: string
-    email?: string
-    form?: string
-  }
+  socialLinks?: SocialLink[]
   amazonAccessKey?: string
   amazonSecretKey?: string
   amazonAssociateId?: string
+  // optional compatibility field for background image value
+  backgroundValue?: string
   favoriteFonts?: string[]
+  customFonts?: CustomFont[]
   createdAt: string
   updatedAt: string
+}
+
+export type SocialLink = {
+  platform: "x" | "tiktok" | "youtube" | "instagram" | "email" | "form" | "twitch" | "discord" | "note"
+  url: string
+  username?: string
 }
 
 export type Theme = {

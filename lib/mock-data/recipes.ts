@@ -1,13 +1,6 @@
-export interface Recipe {
-  id: string
-  userId: string
-  title: string
-  baseImageId: string
-  width: number
-  height: number
-  createdAt: string
-  updatedAt?: string
-}
+import type { Recipe as SchemaRecipe } from "@/lib/db/schema"
+
+export type Recipe = SchemaRecipe
 
 export interface AnnotationStyle {
   // 点のスタイル
@@ -43,20 +36,9 @@ export interface RecipeItem {
   style?: AnnotationStyle
 }
 
-export interface RecipeImage {
-  id: string
-  recipeId: string
-  url: string
-  width: number
-  height: number
-}
+export type RecipeImage = any
 
-export interface CustomFont {
-  id: string
-  name: string
-  url: string
-  addedAt: string
-}
+export type CustomFont = any
 
 export const mockRecipes: Recipe[] = [
   {
@@ -64,18 +46,28 @@ export const mockRecipes: Recipe[] = [
     userId: "user-shirasame",
     title: "私のデスクセットアップ 2025",
     baseImageId: "recipe-img-1",
-    width: 1920,
-    height: 1080,
+    imageDataUrl: "",
+    imageWidth: 1920,
+    imageHeight: 1080,
+    aspectRatio: "16:9",
+    pins: [],
     createdAt: "2025-01-10T12:00:00Z",
+    updatedAt: "2025-01-10T12:00:00Z",
+    published: false,
   },
   {
     id: "recipe-2",
     userId: "user-shirasame",
     title: "ゲーミング＆作業用デスク",
     baseImageId: "recipe-img-2",
-    width: 1920,
-    height: 1080,
+    imageDataUrl: "",
+    imageWidth: 1920,
+    imageHeight: 1080,
+    aspectRatio: "16:9",
+    pins: [],
     createdAt: "2025-01-08T15:30:00Z",
+    updatedAt: "2025-01-08T15:30:00Z",
+    published: false,
   },
 ]
 

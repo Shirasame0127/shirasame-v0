@@ -26,7 +26,7 @@ export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([])
   const [recipes, setRecipes] = useState<any[]>([])
   const [collections, setCollections] = useState<Collection[]>([])
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<User>(mockUser)
   const [theme, setTheme] = useState<any>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -262,7 +262,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen" style={appliedStyle}>
       <main className="min-h-screen pb-20 relative">
-        <PublicNav logoUrl={user.avatarUrl || user.profileImage} siteName={user.displayName} />
+        <PublicNav logoUrl={user?.avatarUrl || user?.profileImage} siteName={user?.displayName || ""} />
 
         {user && <ProfileHeader user={user} />}
 
@@ -492,14 +492,14 @@ export default function HomePage() {
 
           {/* プロフィールセクション */}
           <section id="profile" className="mb-16 scroll-mt-20">
-            <ProfileCard user={user} />
+            {user && <ProfileCard user={user} />}
           </section>
         </div>
       </main>
 
       <footer className="border-t mt-16 py-8">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs sm:text-sm text-muted-foreground">
-          <p>© 2025 {user.displayName}. All rights reserved.</p>
+          <p>© 2025 {user?.displayName || "User"}. All rights reserved.</p>
         </div>
       </footer>
 

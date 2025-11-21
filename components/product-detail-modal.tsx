@@ -307,8 +307,8 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
 
           {hasPrice ? (
             <div className="flex items-center gap-3">
-              <p className="text-2xl font-bold">
-                ¥{product.price.toLocaleString()}
+                <p className="text-2xl font-bold">
+                ¥{product.price?.toLocaleString()}
               </p>
               {isOnSale && (
                 <Badge variant="destructive" className="text-sm px-3 py-1.5 flex items-center gap-2">
@@ -382,7 +382,7 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
             <div>
               <h3 className="font-semibold mb-2 text-sm text-center">関連リンク</h3>
               <div className="space-y-4">
-                {product.relatedLinks.map((link, index) => (
+                {(product.relatedLinks || []).map((link, index) => (
                   <EmbeddedLink key={index} url={link} />
                 ))}
               </div>

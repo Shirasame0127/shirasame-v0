@@ -318,7 +318,7 @@ export default function RecipeEditPage() {
           tagTextTransform: "none",
           tagDisplayText: "",
         }))
-        setPins(convertedPins)
+        setPins(convertedPins as Pin[])
         setSelectedProductIds(convertedPins.map((p: any) => p.productId))
       }
     }
@@ -1038,9 +1038,9 @@ export default function RecipeEditPage() {
         handleImageElementLoad()
       })
       ro.observe(el)
-    } else {
+    } else if (typeof window !== "undefined") {
       // フォールバック
-      window.addEventListener("resize", handleImageElementLoad)
+      (globalThis as any).addEventListener("resize", handleImageElementLoad)
     }
 
     return () => {

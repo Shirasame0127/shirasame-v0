@@ -1,34 +1,8 @@
-export interface Product {
-  id: string
-  userId: string
-  title: string
-  slug: string
-  shortDescription: string
-  body: string
-  images: ProductImage[]
-  affiliateLinks: AffiliateLink[]
-  tags: string[]
-  price?: number
-  published: boolean
-  createdAt: string
-  updatedAt: string
-}
+import type { Product as SchemaProduct } from "@/lib/db/schema"
 
-export interface ProductImage {
-  id: string
-  productId: string
-  url: string
-  width: number
-  height: number
-  aspect: string
-  role: "thumbnail" | "main" | "secondary"
-}
-
-export interface AffiliateLink {
-  provider: string
-  url: string
-  label: string
-}
+export type Product = SchemaProduct
+export type ProductImage = any
+export type AffiliateLink = any
 
 export const mockProducts: Product[] = [
   {

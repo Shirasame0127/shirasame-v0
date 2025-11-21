@@ -89,7 +89,7 @@ export function SocialLinks({ links }: SocialLinksProps) {
   return (
     <div className="grid grid-cols-2 gap-2 justify-center max-w-md mx-auto">
       {links.map((link, index) => {
-        const config = platformConfig[link.platform]
+        const config = (platformConfig as any)[link.platform]
         if (!config) return null
 
         const isLastAndOdd = links.length % 2 !== 0 && index === links.length - 1

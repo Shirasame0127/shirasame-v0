@@ -1,7 +1,9 @@
-import type { Product, ProductImage, AffiliateLink } from "@/lib/mock-data/products"
-import type { Recipe, RecipeImage, RecipeItem, CustomFont } from "@/lib/mock-data/recipes"
-import type { Collection, CollectionItem } from "@/lib/mock-data/collections"
-import type { User } from "@/lib/mock-data/users"
+import type { Product, Recipe, Collection, User, CustomFont } from "@/lib/db/schema"
+
+// local loose types for item-level entities (schema uses inline shapes)
+type RecipeImage = any
+type RecipeItem = any
+type CollectionItem = any
 
 // ローカルストレージキー定義
 const STORAGE_KEYS = {
@@ -10,6 +12,8 @@ const STORAGE_KEYS = {
   AFFILIATE_LINKS: "mock_affiliate_links",
   RECIPES: "recipes_v2", // レシピ用のキーをシンプルに整理
   RECIPE_PINS: "recipe_pins_v2",
+  RECIPE_IMAGES: "recipe_images",
+  RECIPE_ITEMS: "recipe_items",
   COLLECTIONS: "mock_collections",
   COLLECTION_ITEMS: "mock_collection_items",
   USER: "mock_user",
@@ -52,13 +56,11 @@ class LocalStorage<T> {
 
 // ストレージインスタンス
 export const productStorage = new LocalStorage<Product[]>(STORAGE_KEYS.PRODUCTS)
-export const productImageStorage = new LocalStorage<ProductImage[]>(STORAGE_KEYS.PRODUCT_IMAGES)
-export const affiliateLinkStorage = new LocalStorage<AffiliateLink & { id: string; productId: string }[]>(
-  STORAGE_KEYS.AFFILIATE_LINKS,
-)
+export const productImageStorage = new LocalStorage<any[]>(STORAGE_KEYS.PRODUCT_IMAGES)
+export const affiliateLinkStorage = new LocalStorage<any[]>(STORAGE_KEYS.AFFILIATE_LINKS)
 export const recipeStorage = new LocalStorage<Recipe[]>(STORAGE_KEYS.RECIPES)
-export const recipeImageStorage = new LocalStorage<RecipeImage[]>(STORAGE_KEYS.RECIPE_IMAGES)
-export const recipeItemStorage = new LocalStorage<RecipeItem[]>(STORAGE_KEYS.RECIPE_ITEMS)
+export const recipeImageStorage = new LocalStorage<any[]>(STORAGE_KEYS.RECIPE_IMAGES)
+export const recipeItemStorage = new LocalStorage<any[]>(STORAGE_KEYS.RECIPE_ITEMS)
 export const collectionStorage = new LocalStorage<Collection[]>(STORAGE_KEYS.COLLECTIONS)
 export const collectionItemStorage = new LocalStorage<CollectionItem[]>(STORAGE_KEYS.COLLECTION_ITEMS)
 export const userStorage = new LocalStorage<User[]>(STORAGE_KEYS.USER)
@@ -109,11 +111,24 @@ export const db = {
       const pins = db.recipePins.getByRecipeId(id)
       return { ...recipe, pins }
     },
-    create: (recipe: Omit<Recipe, "pins">) => {
-      const newRecipe = { ...recipe, pins: [] }
-      recipeStorage.update((recipes) => [...recipes, newRecipe])
-      console.log("[v0] DB: Created recipe", recipe.id)
-      return newRecipe
+    create: (recipe: Partial<Omit<Recipe, "pins">>) => {
+      const now = new Date().toISOString()
+      const full: Recipe = {
+        id: recipe.id || `recipe-${Date.now()}`,
+        userId: recipe.userId || "user-shirasame",
+        title: recipe.title || "Untitled",
+        imageDataUrl: recipe.imageDataUrl || "",
+        imageWidth: recipe.imageWidth || 1920,
+        imageHeight: recipe.imageHeight || 1080,
+        aspectRatio: (recipe as any).aspectRatio || "16:9",
+        pins: [],
+        published: typeof recipe.published === "boolean" ? recipe.published : false,
+        createdAt: recipe.createdAt || now,
+        updatedAt: recipe.updatedAt || now,
+      }
+      recipeStorage.update((recipes) => [...recipes, full])
+      console.log("[v0] DB: Created recipe", full.id)
+      return full
     },
     update: (id: string, updates: Partial<Omit<Recipe, "pins">>) => {
       recipeStorage.update((recipes) =>
@@ -177,10 +192,22 @@ export const db = {
       return userId ? collections.filter((c) => c.userId === userId) : collections
     },
     getById: (id: string) => collectionStorage.get([]).find((c) => c.id === id),
-    create: (collection: Collection) => {
-      collectionStorage.update((collections) => [...collections, collection])
-      console.log("[v0] DB: Created collection", collection.id)
-      return collection
+    create: (collection: Partial<Collection>) => {
+      const now = new Date().toISOString()
+      const full: Collection = {
+        id: collection.id || `col-${Date.now()}`,
+        userId: collection.userId || "user-shirasame",
+        title: collection.title || "Untitled",
+        slug: collection.slug || "",
+        description: collection.description || null,
+        productIds: collection.productIds || [],
+        visibility: collection.visibility || "public",
+        createdAt: collection.createdAt || now,
+        updatedAt: collection.updatedAt || now,
+      }
+      collectionStorage.update((collections) => [...collections, full])
+      console.log("[v0] DB: Created collection", full.id)
+      return full
     },
     update: (id: string, updates: Partial<Collection>) => {
       collectionStorage.update((collections) =>
@@ -463,13 +490,13 @@ export const db = {
 
   // データ初期化（初回ロード時にモックデータをストレージに保存）
   initialize: (mockData: {
-    products?: Product[]
-    recipes?: Recipe[]
-    recipeImages?: RecipeImage[]
-    recipeItems?: RecipeItem[]
-    collections?: Collection[]
-    collectionItems?: CollectionItem[]
-    user?: User
+    products?: any[]
+    recipes?: any[]
+    recipeImages?: any[]
+    recipeItems?: any[]
+    collections?: any[]
+    collectionItems?: any[]
+    user?: any
   }) => {
     if (typeof window === "undefined") return
 

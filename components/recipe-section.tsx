@@ -153,6 +153,7 @@ export function RecipeSection() {
       {selectedProduct && (
         <ProductDetailModal
           product={selectedProduct}
+          isOpen={!!selectedProduct}
           onClose={() => setSelectedProduct(null)}
         />
       )}

@@ -66,6 +66,8 @@ export default function RecipeNewPage() {
       baseImageId: recipeId,
       width: 1920,
       height: 1080,
+      pins: [],
+      published: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }

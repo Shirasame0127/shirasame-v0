@@ -49,7 +49,7 @@ export class CollectionsService {
 
     const items = mockCollectionItems
       .filter((item) => item.collectionId === collectionId)
-      .sort((a, b) => a.position - b.position)
+      .sort((a, b) => a.order - b.order)
 
     const productIds = items.map((item) => item.productId)
     const allProducts = await ProductsService.getPublished()
@@ -71,14 +71,14 @@ export class CollectionsService {
     // return data
 
     const items = mockCollectionItems.filter((item) => item.collectionId === collectionId)
-    const position = items.length > 0 ? Math.max(...items.map((i) => i.position)) + 1 : 1
+    const position = items.length > 0 ? Math.max(...items.map((i) => i.order)) + 1 : 1
 
     const newItem: CollectionItem = {
       id: `ci-${Date.now()}`,
       collectionId,
       productId,
-      position,
-      addedAt: new Date().toISOString(),
+      order: position,
+      createdAt: new Date().toISOString(),
     }
 
     mockCollectionItems.push(newItem)
