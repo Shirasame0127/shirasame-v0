@@ -174,6 +174,24 @@ export default function AdminSettingsPage() {
     }
   }
 
+  // 新しい画像を選択したら自動で追加するハンドラ（ユーザーの追加操作を簡単にする）
+  const handleNewHeaderFile = async (file: File | null) => {
+    if (!file) return
+    const imageKey = `header-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const headerBase64 = await fileToBase64(file)
+    db.images.saveUpload(imageKey, headerBase64)
+    setHeaderImageKeys((prev) => [...prev, imageKey])
+    toast({ title: "追加完了", description: "ヘッダー画像を追加しました" })
+  }
+
+  const handleReorder = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return
+    const keys = [...headerImageKeys]
+    const [moved] = keys.splice(fromIndex, 1)
+    keys.splice(toIndex, 0, moved)
+    setHeaderImageKeys(keys)
+  }
+
   const removeHeaderImage = (index: number) => {
     setHeaderImageKeys(headerImageKeys.filter((_, i) => i !== index))
     toast({
@@ -435,7 +453,21 @@ export default function AdminSettingsPage() {
           <CardContent className="space-y-4">
             <div className="space-y-4">
                 {headerImageUrls.map((imageUrl, index) => (
-                  <div key={index} className="space-y-2">
+                  <div
+                    key={index}
+                    className="space-y-2"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer?.setData("text/plain", String(index))
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      const from = Number(e.dataTransfer?.getData("text/plain"))
+                      const to = index
+                      if (!Number.isNaN(from)) handleReorder(from, to)
+                    }}
+                  >
                     <Label>ヘッダー画像 {index + 1}</Label>
 
                     <div className="flex gap-3 items-center">
@@ -445,59 +477,15 @@ export default function AdminSettingsPage() {
 
                       <div className="flex-1">
                         <div className="flex gap-2 mb-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              // 左へ移動
-                              if (index > 0) {
-                                const keys = [...headerImageKeys]
-                                const tmp = keys[index - 1]
-                                keys[index - 1] = keys[index]
-                                keys[index] = tmp
-                                setHeaderImageKeys(keys)
-                              }
-                            }}
-                            title="左に移動"
-                          >
+                          <Button type="button" size="sm" variant="outline" onClick={() => handleReorder(index, Math.max(0, index - 1))} title="左に移動">
                             <ArrowLeft className="w-4 h-4" />
                           </Button>
 
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              // 右へ移動
-                              if (index < headerImageKeys.length - 1) {
-                                const keys = [...headerImageKeys]
-                                const tmp = keys[index + 1]
-                                keys[index + 1] = keys[index]
-                                keys[index] = tmp
-                                setHeaderImageKeys(keys)
-                              }
-                            }}
-                            title="右に移動"
-                          >
+                          <Button type="button" size="sm" variant="outline" onClick={() => handleReorder(index, Math.min(headerImageKeys.length - 1, index + 1))} title="右に移動">
                             <ArrowRight className="w-4 h-4" />
                           </Button>
 
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              // プライマリに設定（先頭へ移動）
-                              if (index !== 0) {
-                                const keys = [...headerImageKeys]
-                                const [item] = keys.splice(index, 1)
-                                keys.unshift(item)
-                                setHeaderImageKeys(keys)
-                              }
-                            }}
-                            title="先頭にする"
-                          >
+                          <Button type="button" size="sm" variant="outline" onClick={() => handleReorder(index, 0)} title="先頭にする">
                             <Star className="w-4 h-4" />
                           </Button>
                         </div>
@@ -506,21 +494,13 @@ export default function AdminSettingsPage() {
                           <div className="flex-1">
                             <ImageUpload
                               value={imageUrl || ""}
-                              onChange={(file) => {
+                              onChange={async (file) => {
                                 if (file) {
-                                  const replaceImage = async () => {
-                                    const imageKey = headerImageKeys[index]
-                                    const headerBase64 = await fileToBase64(file)
-                                    db.images.saveUpload(imageKey, headerBase64)
-                                    // 再描画させる目的でキー配列を更新（中身は同じ）
-                                    setHeaderImageKeys([...headerImageKeys])
-
-                                    toast({
-                                      title: "更新完了",
-                                      description: `ヘッダー画像 ${index + 1} を更新しました`,
-                                    })
-                                  }
-                                  replaceImage()
+                                  const imageKey = headerImageKeys[index]
+                                  const headerBase64 = await fileToBase64(file)
+                                  db.images.saveUpload(imageKey, headerBase64)
+                                  setHeaderImageKeys([...headerImageKeys])
+                                  toast({ title: "更新完了", description: `ヘッダー画像 ${index + 1} を更新しました` })
                                 }
                               }}
                               aspectRatioType="header"
@@ -544,33 +524,11 @@ export default function AdminSettingsPage() {
                   <ImageUpload
                     value=""
                     onChange={(file) => {
-                      // プレビュー用にファイルを保持しておく
-                      setNewHeaderImageFile(file || null)
+                      // 画像を選択したら自動で追加する
+                      handleNewHeaderFile(file || null)
                     }}
                     aspectRatioType="header"
                   />
-
-                  {newHeaderImageFile && (
-                    <div className="mt-3 flex items-center gap-3">
-                      <div className="w-40 h-24 overflow-hidden rounded border bg-muted">
-                        <img src={URL.createObjectURL(newHeaderImageFile)} className="w-full h-full object-cover" />
-                      </div>
-                      <div className="flex gap-2">
-                        <Button onClick={addHeaderImage} size="sm">
-                          <Plus className="w-4 h-4 mr-1" />追加
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setNewHeaderImageFile(null)
-                          }}
-                        >
-                          キャンセル
-                        </Button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
           </CardContent>
