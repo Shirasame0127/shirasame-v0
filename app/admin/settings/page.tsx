@@ -24,7 +24,7 @@ import {
   SortableContext,
   useSortable,
   arrayMove,
-  verticalListSortingStrategy,
+  horizontalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { useToast } from "@/hooks/use-toast"
@@ -282,6 +282,32 @@ export default function AdminSettingsPage() {
       </div>
     )
   }
+
+  // Compact thumbnail for horizontal list
+  function SortableThumb({ id, index, imageUrl }: { id: string; index: number; imageUrl: string }) {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id })
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+    }
+
+    return (
+      <div ref={setNodeRef as any} style={style} {...attributes} className="inline-block">
+        <button
+          type="button"
+          onClick={() => setEditingIndex(index)}
+          className="w-28 h-16 rounded overflow-hidden border bg-muted mr-2 flex-shrink-0"
+        >
+          <img src={imageUrl} alt={`header-thumb-${index + 1}`} className="w-full h-full object-cover" />
+        </button>
+        <div className="flex items-center justify-center mt-1 gap-1">
+          <button {...listeners} className="text-xs text-muted-foreground">ドラッグ</button>
+        </div>
+      </div>
+    )
+  }
+
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
 
   const removeHeaderImage = (index: number) => {
     setHeaderImageKeys(headerImageKeys.filter((_, i) => i !== index))
@@ -543,71 +569,54 @@ export default function AdminSettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-4">
-                {headerImageUrls.map((imageUrl, index) => (
-                  <div
-                    key={index}
-                    className="space-y-2"
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer?.setData("text/plain", String(index))
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault()
-                      const from = Number(e.dataTransfer?.getData("text/plain"))
-                      const to = index
-                      if (!Number.isNaN(from)) handleReorder(from, to)
-                    }}
-                  >
-                    <Label>ヘッダー画像 {index + 1}</Label>
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={headerImageKeys} strategy={horizontalListSortingStrategy}>
+                  <div className="flex gap-2 overflow-x-auto py-2">
+                    {headerImageKeys.map((key, index) => {
+                      const url = db.images.getUpload(key) || "/placeholder.svg"
+                      return <SortableThumb key={key} id={key} index={index} imageUrl={url} />
+                    })}
+                  </div>
+                </SortableContext>
+              </DndContext>
 
-                    <div className="flex gap-3 items-center">
-                      <div className="w-40 h-24 relative rounded overflow-hidden bg-muted border">
-                        <img src={imageUrl} alt={`header-${index + 1}`} className="w-full h-full object-cover" />
-                      </div>
+              {/* 編集パネル */}
+              {editingIndex !== null && headerImageKeys[editingIndex] ? (
+                <div className="p-4 border rounded-lg">
+                  <Label className="mb-2">編集: ヘッダー画像 {editingIndex + 1}</Label>
+                  <div className="flex gap-4 items-start">
+                    <div className="w-80 h-48 rounded overflow-hidden border bg-muted">
+                      <img src={db.images.getUpload(headerImageKeys[editingIndex]) || "/placeholder.svg"} className="w-full h-full object-cover" />
+                    </div>
 
-                      <div className="flex-1">
-                        <div className="flex gap-2 mb-2">
-                          <Button type="button" size="sm" variant="outline" onClick={() => handleReorder(index, Math.max(0, index - 1))} title="左に移動">
-                            <ArrowLeft className="w-4 h-4" />
-                          </Button>
+                    <div className="flex-1 space-y-3">
+                      <ImageUpload
+                        value={db.images.getUpload(headerImageKeys[editingIndex]) || ""}
+                        onChange={async (file) => {
+                          if (file) {
+                            const key = headerImageKeys[editingIndex]
+                            const headerBase64 = await fileToBase64(file)
+                            db.images.saveUpload(key, headerBase64)
+                            setHeaderImageKeys([...headerImageKeys])
+                            toast({ title: "更新完了", description: `ヘッダー画像 ${editingIndex + 1} を更新しました` })
+                          }
+                        }}
+                        aspectRatioType="header"
+                      />
 
-                          <Button type="button" size="sm" variant="outline" onClick={() => handleReorder(index, Math.min(headerImageKeys.length - 1, index + 1))} title="右に移動">
-                            <ArrowRight className="w-4 h-4" />
-                          </Button>
-
-                          <Button type="button" size="sm" variant="outline" onClick={() => handleReorder(index, 0)} title="先頭にする">
-                            <Star className="w-4 h-4" />
-                          </Button>
-                        </div>
-
-                        <div className="flex gap-2 items-start">
-                          <div className="flex-1">
-                            <ImageUpload
-                              value={imageUrl || ""}
-                              onChange={async (file) => {
-                                if (file) {
-                                  const imageKey = headerImageKeys[index]
-                                  const headerBase64 = await fileToBase64(file)
-                                  db.images.saveUpload(imageKey, headerBase64)
-                                  setHeaderImageKeys([...headerImageKeys])
-                                  toast({ title: "更新完了", description: `ヘッダー画像 ${index + 1} を更新しました` })
-                                }
-                              }}
-                              aspectRatioType="header"
-                            />
-                          </div>
-
-                          <div className="flex flex-col gap-2">
-                            <Button type="button" variant="destructive" size="icon" onClick={() => removeHeaderImage(index)}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
+                      <div className="flex gap-2">
+                        <Button onClick={() => handleReorder(editingIndex, Math.max(0, editingIndex - 1))} size="sm">移動左</Button>
+                        <Button onClick={() => handleReorder(editingIndex, Math.min(headerImageKeys.length - 1, editingIndex + 1))} size="sm">移動右</Button>
+                        <Button onClick={() => handleReorder(editingIndex, 0)} size="sm">先頭にする</Button>
+                        <Button variant="destructive" onClick={() => { removeHeaderImage(editingIndex); setEditingIndex(null) }} size="sm">削除</Button>
+                        <Button variant="ghost" onClick={() => setEditingIndex(null)} size="sm">閉じる</Button>
                       </div>
                     </div>
                   </div>
-                ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">サムネイルをクリックして編集します</p>
+              )}
             </div>
               <div className="space-y-2">
                 <Label>新しいヘッダー画像を追加</Label>
