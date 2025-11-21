@@ -12,6 +12,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { db } from "@/lib/db/storage"
 import type { SocialLink } from "@/lib/mock-data/users"
 import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2, ArrowLeft, ArrowRight, Star } from "lucide-react"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { useToast } from "@/hooks/use-toast"
 import { fileToBase64 } from "@/lib/utils/image-utils"
 
@@ -190,6 +205,82 @@ export default function AdminSettingsPage() {
     const [moved] = keys.splice(fromIndex, 1)
     keys.splice(toIndex, 0, moved)
     setHeaderImageKeys(keys)
+  }
+
+  // dnd-kit sensors
+  const sensors = useSensors(useSensor(PointerSensor))
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const from = headerImageKeys.indexOf(String(active.id))
+    const to = headerImageKeys.indexOf(String(over.id))
+    if (from >= 0 && to >= 0) {
+      const newKeys = arrayMove(headerImageKeys, from, to)
+      setHeaderImageKeys(newKeys)
+    }
+  }
+
+  function SortableItem({ id, index, imageUrl }: { id: string; index: number; imageUrl: string }) {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id })
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+    }
+
+    return (
+      <div ref={setNodeRef as any} style={style} {...attributes} className="space-y-2">
+        <Label>ヘッダー画像 {index + 1}</Label>
+        <div className="flex gap-3 items-center">
+          <div className="w-40 h-24 relative rounded overflow-hidden bg-muted border">
+            <img src={imageUrl} alt={`header-${index + 1}`} className="w-full h-full object-cover" />
+          </div>
+
+          <div className="flex-1">
+            <div className="flex gap-2 mb-2">
+              <div className="inline-flex items-center gap-2" {...listeners}>
+                <Button type="button" size="sm" variant="outline" title="ドラッグで並べ替え">
+                  移動
+                </Button>
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={() => handleReorder(index, Math.max(0, index - 1))} title="左に移動">
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => handleReorder(index, Math.min(headerImageKeys.length - 1, index + 1))} title="右に移動">
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => handleReorder(index, 0)} title="先頭にする">
+                <Star className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <div className="flex gap-2 items-start">
+              <div className="flex-1">
+                <ImageUpload
+                  value={imageUrl || ""}
+                  onChange={async (file) => {
+                    if (file) {
+                      const imageKey = headerImageKeys[index]
+                      const headerBase64 = await fileToBase64(file)
+                      db.images.saveUpload(imageKey, headerBase64)
+                      setHeaderImageKeys([...headerImageKeys])
+                      toast({ title: "更新完了", description: `ヘッダー画像 ${index + 1} を更新しました` })
+                    }
+                  }}
+                  aspectRatioType="header"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Button type="button" variant="destructive" size="icon" onClick={() => removeHeaderImage(index)}>
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const removeHeaderImage = (index: number) => {
