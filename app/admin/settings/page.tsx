@@ -11,7 +11,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { db } from "@/lib/db/storage"
 import type { SocialLink } from "@/lib/mock-data/users"
-import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2 } from "lucide-react"
+import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2, ArrowLeft, ArrowRight, Star } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { fileToBase64 } from "@/lib/utils/image-utils"
 
@@ -429,72 +429,150 @@ export default function AdminSettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>ヘッダー画像</CardTitle>
-            <CardDescription>プロフィールヘッダーに表示される画像（2枚以上でスライドショー表示）</CardDescription>
+              <CardTitle>ヘッダー画像</CardTitle>
+              <CardDescription>プロフィールヘッダーに表示される画像（順序を並べ替え、先頭が優先表示されます）</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-4">
-              {headerImageUrls.map((imageUrl, index) => (
-                <div key={index} className="space-y-2">
-                  <Label>ヘッダー画像 {index + 1}</Label>
-                  <div className="flex gap-2 items-start">
-                    <div className="flex-1 max-w-[600px]">
-                      <ImageUpload
-                        value={imageUrl || ""}
-                        onChange={(file) => {
-                          if (file) {
-                            // 既存の画像を置き換え
-                            const replaceImage = async () => {
-                              const imageKey = headerImageKeys[index]
-                              const headerBase64 = await fileToBase64(file)
-                              db.images.saveUpload(imageKey, headerBase64)
+                {headerImageUrls.map((imageUrl, index) => (
+                  <div key={index} className="space-y-2">
+                    <Label>ヘッダー画像 {index + 1}</Label>
 
-                              toast({
-                                title: "更新完了",
-                                description: `ヘッダー画像 ${index + 1} を更新しました`,
-                              })
+                    <div className="flex gap-3 items-center">
+                      <div className="w-40 h-24 relative rounded overflow-hidden bg-muted border">
+                        <img src={imageUrl} alt={`header-${index + 1}`} className="w-full h-full object-cover" />
+                      </div>
 
-                              // 状態を更新
-                              const updatedUrls = [...headerImageUrls]
-                              updatedUrls[index] = headerBase64
-                              setHeaderImageKeys([...headerImageKeys])
-                            }
-                            replaceImage()
-                          }
-                        }}
-                        aspectRatioType="header"
-                      />
+                      <div className="flex-1">
+                        <div className="flex gap-2 mb-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              // 左へ移動
+                              if (index > 0) {
+                                const keys = [...headerImageKeys]
+                                const tmp = keys[index - 1]
+                                keys[index - 1] = keys[index]
+                                keys[index] = tmp
+                                setHeaderImageKeys(keys)
+                              }
+                            }}
+                            title="左に移動"
+                          >
+                            <ArrowLeft className="w-4 h-4" />
+                          </Button>
+
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              // 右へ移動
+                              if (index < headerImageKeys.length - 1) {
+                                const keys = [...headerImageKeys]
+                                const tmp = keys[index + 1]
+                                keys[index + 1] = keys[index]
+                                keys[index] = tmp
+                                setHeaderImageKeys(keys)
+                              }
+                            }}
+                            title="右に移動"
+                          >
+                            <ArrowRight className="w-4 h-4" />
+                          </Button>
+
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              // プライマリに設定（先頭へ移動）
+                              if (index !== 0) {
+                                const keys = [...headerImageKeys]
+                                const [item] = keys.splice(index, 1)
+                                keys.unshift(item)
+                                setHeaderImageKeys(keys)
+                              }
+                            }}
+                            title="先頭にする"
+                          >
+                            <Star className="w-4 h-4" />
+                          </Button>
+                        </div>
+
+                        <div className="flex gap-2 items-start">
+                          <div className="flex-1">
+                            <ImageUpload
+                              value={imageUrl || ""}
+                              onChange={(file) => {
+                                if (file) {
+                                  const replaceImage = async () => {
+                                    const imageKey = headerImageKeys[index]
+                                    const headerBase64 = await fileToBase64(file)
+                                    db.images.saveUpload(imageKey, headerBase64)
+                                    // 再描画させる目的でキー配列を更新（中身は同じ）
+                                    setHeaderImageKeys([...headerImageKeys])
+
+                                    toast({
+                                      title: "更新完了",
+                                      description: `ヘッダー画像 ${index + 1} を更新しました`,
+                                    })
+                                  }
+                                  replaceImage()
+                                }
+                              }}
+                              aspectRatioType="header"
+                            />
+                          </div>
+
+                          <div className="flex flex-col gap-2">
+                            <Button type="button" variant="destructive" size="icon" onClick={() => removeHeaderImage(index)}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <Button type="button" variant="destructive" size="icon" onClick={() => removeHeaderImage(index)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
                   </div>
+                ))}
+            </div>
+              <div className="space-y-2">
+                <Label>新しいヘッダー画像を追加</Label>
+                <div className="max-w-[600px]">
+                  <ImageUpload
+                    value=""
+                    onChange={(file) => {
+                      // プレビュー用にファイルを保持しておく
+                      setNewHeaderImageFile(file || null)
+                    }}
+                    aspectRatioType="header"
+                  />
+
+                  {newHeaderImageFile && (
+                    <div className="mt-3 flex items-center gap-3">
+                      <div className="w-40 h-24 overflow-hidden rounded border bg-muted">
+                        <img src={URL.createObjectURL(newHeaderImageFile)} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button onClick={addHeaderImage} size="sm">
+                          <Plus className="w-4 h-4 mr-1" />追加
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setNewHeaderImageFile(null)
+                          }}
+                        >
+                          キャンセル
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <Label>新しいヘッダー画像を追加</Label>
-              <div className="max-w-[600px]">
-                <ImageUpload
-                  value=""
-                  onChange={async (file) => {
-                    if (file) {
-                      const imageKey = `header-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-                      const headerBase64 = await fileToBase64(file)
-                      db.images.saveUpload(imageKey, headerBase64)
-
-                      setHeaderImageKeys([...headerImageKeys, imageKey])
-                      toast({
-                        title: "追加完了",
-                        description: "ヘッダー画像を追加しました",
-                      })
-                    }
-                  }}
-                  aspectRatioType="header"
-                />
               </div>
-            </div>
           </CardContent>
         </Card>
 
