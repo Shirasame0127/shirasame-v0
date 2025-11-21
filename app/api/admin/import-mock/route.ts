@@ -65,22 +65,74 @@ export async function POST(req: NextRequest) {
     if (mu.profileImage) addImage(mu.profileImage)
     if (Array.isArray(mu.headerImages)) mu.headerImages.forEach((u: any) => addImage(u))
 
-    // products
+    // products - also collect images and affiliateLinks for separate tables
+    const productRows: any[] = []
+    const productImageRows: any[] = []
+    const affiliateRows: any[] = []
     ;(productsMock.mockProducts || []).forEach((p: any) => {
-      if (Array.isArray(p.images)) p.images.forEach((img: any) => addImage(img.url))
+      // map product fields to snake_case DB columns
+      productRows.push({
+        id: p.id,
+        user_id: p.userId,
+        title: p.title,
+        slug: p.slug,
+        short_description: p.shortDescription,
+        body: p.body,
+        tags: p.tags,
+        price: p.price,
+        published: p.published,
+        created_at: p.createdAt,
+        updated_at: p.updatedAt,
+      })
+      if (Array.isArray(p.images)) {
+        p.images.forEach((img: any) => {
+          if (!img) return
+          productImageRows.push({
+            id: img.id,
+            product_id: p.id,
+            url: img.url,
+            width: img.width,
+            height: img.height,
+            aspect: img.aspect,
+            role: img.role,
+          })
+          addImage(img)
+        })
+      }
+      if (Array.isArray(p.affiliateLinks)) {
+        p.affiliateLinks.forEach((al: any) => {
+          affiliateRows.push({ product_id: p.id, provider: al.provider, url: al.url, label: al.label })
+        })
+      }
     })
 
     // recipes
     ;(recipesMock.mockRecipeImages || []).forEach((ri: any) => addImage(ri.url))
 
+    // insert images (use url conflict where supported)
     report.images = await tryUpsert("images", imageRows, "url")
+
+    // insert products and their related rows
+    report.products = await tryUpsert("products", productRows, "id")
+    report.product_images = await tryUpsert("product_images", productImageRows, "id")
+    // affiliate_links has no id in mock data — insert and ignore errors
+    if (affiliateRows.length > 0) {
+      try {
+        const { error } = await supabaseAdmin.from("affiliate_links").insert(affiliateRows)
+        report.affiliate_links = error ? { inserted: 0, error: error.message } : { inserted: affiliateRows.length }
+      } catch (e: any) {
+        report.affiliate_links = { inserted: 0, error: String(e?.message || e) }
+      }
+    } else {
+      report.affiliate_links = { inserted: 0 }
+    }
   } catch (err) {
     report.images = { inserted: 0, error: String(err) }
   }
 
   // Try to insert products/collections/recipes if tables exist
   try {
-    report.products = await tryUpsert("products", productsMock.mockProducts || [], "id")
+    // (handled above)
   } catch (err) {
     report.products = { inserted: 0, error: String(err) }
   }
