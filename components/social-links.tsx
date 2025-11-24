@@ -1,7 +1,12 @@
 import Link from "next/link"
 import { Card } from "@/components/ui/card"
-import type { SocialLink } from "@/lib/mock-data/users"
 import { Mail, FileText } from "lucide-react"
+
+type SocialLink = {
+  platform: string
+  url: string
+  username?: string
+}
 
 interface SocialLinksProps {
   links: SocialLink[]

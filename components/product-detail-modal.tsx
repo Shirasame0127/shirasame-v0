@@ -8,6 +8,7 @@ import Image from "next/image"
 import type { Product } from "@/lib/db/schema"
 import { useEffect, useRef, useState } from "react"
 import { db } from "@/lib/db/storage"
+import { getPublicImageUrl } from "@/lib/image-url"
 
 interface ProductDetailModalProps {
   product: Product | null
@@ -163,7 +164,7 @@ function EmbeddedLink({ url }: { url: string }) {
   return (
     <Button asChild variant="outline" size="sm" className="w-full justify-start text-xs">
       <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-        <ExternalLink className="w-3 h-3 flex-shrink-0" />
+        <ExternalLink className="w-3 h-3 shrink-0" />
         <span className="truncate">{url}</span>
       </a>
     </Button>
@@ -217,8 +218,10 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
 
   const { isOnSale, saleName } = getActiveSaleInfo()
 
-  const mainImage = product.images.find((img) => img.role === "main") || product.images[0]
-  const attachmentImages = product.images.filter((img) => img.role === "attachment").slice(0, 4)
+  // Guard against product.images being undefined (some products may not have images)
+  const images = product.images || []
+  const mainImage = images.find((img) => img.role === "main") || images[0] || null
+  const attachmentImages = (images.filter ? images.filter((img) => img.role === "attachment") : []).slice(0, 4)
 
   const hasTags = product.tags && product.tags.length > 0
   const hasShortDescription = !!product.shortDescription
@@ -277,7 +280,7 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
         <div ref={leftImageRef} className={leftImageClassName}>
           <div className={innerImageClassName}>
             <Image
-              src={mainImage?.url || "/placeholder.svg"}
+              src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg"}
               alt={product.title}
               fill
               className="object-cover"
@@ -340,19 +343,31 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
           {hasAffiliateLinks && (
             <div className="space-y-2">
               <h3 className="font-semibold text-sm text-center">購入リンク</h3>
-              {product.affiliateLinks.map((link, index) => (
-                <Button key={index} asChild variant="default" size="lg" className="w-full">
-                  <a
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2"
-                  >
-                    {link.label}
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                </Button>
-              ))}
+              {product.affiliateLinks.map((link, index) => {
+                // If label is missing, fall back to hostname or generic text
+                let label = link.label
+                if (!label) {
+                  try {
+                    const u = new URL(link.url)
+                    label = u.hostname.replace('www.', '')
+                  } catch (e) {
+                    label = '購入リンク'
+                  }
+                }
+                return (
+                  <Button key={index} asChild variant="default" size="lg" className="w-full">
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2"
+                    >
+                      {label}
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  </Button>
+                )
+              })}
             </div>
           )}
 
@@ -371,7 +386,7 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
               <div className="grid grid-cols-2 gap-2">
                 {attachmentImages.map((img) => (
                   <div key={img.id} className="relative aspect-square rounded-md overflow-hidden bg-muted">
-                    <Image src={img.url || "/placeholder.svg"} alt="添付画像" fill className="object-cover" />
+                    <Image src={getPublicImageUrl(img.url) || "/placeholder.svg"} alt="添付画像" fill className="object-cover" />
                   </div>
                 ))}
               </div>

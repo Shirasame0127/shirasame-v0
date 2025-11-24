@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { ArrowLeft, Save, Eye } from 'lucide-react'
 import Link from "next/link"
-import { mockUser } from "@/lib/mock-data/users"
+// prefer persisted user profile; avoid using local mock data
+const _currentUser = db.user.get()
 import { ChromePicker } from "react-color"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ImageUpload } from "@/components/image-upload"
@@ -34,7 +35,7 @@ export default function ThemeCustomizerPage() {
   const { toast } = useToast()
   
   const [primaryColor, setPrimaryColor] = useState("#3b82f6")
-  const [backgroundColor, setBackgroundColor] = useState(mockUser.backgroundColor || "#ffffff")
+  const [backgroundColor, setBackgroundColor] = useState(_currentUser?.backgroundColor || "#ffffff")
   const [textColor, setTextColor] = useState("#000000")
   const [headingFont, setHeadingFont] = useState("sans-serif")
   const [bodyFont, setBodyFont] = useState("sans-serif")
@@ -214,16 +215,16 @@ export default function ThemeCustomizerPage() {
           <CardContent className="space-y-6">
             <div className="space-y-2">
               <Label>背景画像</Label>
-              <ImageUpload
-                value={mockUser.backgroundImageUrl}
-                onChange={setBackgroundImage}
-                aspectRatioType="background"
-              />
+                <ImageUpload
+                  value={_currentUser?.backgroundImageUrl || ""}
+                  onChange={setBackgroundImage}
+                  aspectRatioType="background"
+                />
             </div>
 
             <div className="space-y-2">
               <Label>ヘッダー画像</Label>
-              <ImageUpload value={mockUser.headerImageUrl} onChange={setHeaderImage} aspectRatioType="header" />
+              <ImageUpload value={_currentUser?.headerImageUrl || ""} onChange={setHeaderImage} aspectRatioType="header" />
             </div>
           </CardContent>
         </Card>

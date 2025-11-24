@@ -5,7 +5,8 @@ import Image from "next/image"
 import { Card, CardContent } from "@/components/ui/card"
 import { SocialLinks } from "@/components/social-links"
 import { db } from "@/lib/db/storage"
-import type { User } from "@/lib/mock-data/users"
+import { getPublicImageUrl } from "@/lib/image-url"
+import type { User } from "@/lib/db/schema"
 
 interface ProfileCardProps {
   user: User
@@ -17,8 +18,10 @@ export function ProfileCard({ user }: ProfileCardProps) {
   useEffect(() => {
     let mounted = true
 
-    const url = user.profileImageKey ? db.images.getUpload(user.profileImageKey) : user.avatarUrl || user.profileImage
-    if (mounted) setProfileImageUrl(url || null)
+    // Prefer direct `profile_image` URL when present, otherwise fall back to key mapping
+    const raw = user.profileImage || (user.profileImageKey ? db.images.getUpload(user.profileImageKey) : user.avatarUrl || user.profileImage)
+    const url = getPublicImageUrl(raw as string) || null
+    if (mounted) setProfileImageUrl(url)
 
     return () => {
       mounted = false
@@ -38,9 +41,9 @@ export function ProfileCard({ user }: ProfileCardProps) {
           />
         </div>
 
-        <h2 className="text-[5.5vw] md:text-[4vw] lg:text-2xl font-bold mb-[2%]">{user.displayName}</h2>
+        <h2 className="text-[5.5vw] md:text-xl lg:text-2xl font-bold mb-[2%]">{user.displayName}</h2>
 
-        <p className="text-[3.5vw] md:text-[2.5vw] lg:text-sm text-muted-foreground mb-[4%] leading-relaxed">
+        <p className="text-[3.5vw] md:text-sm lg:text-sm text-muted-foreground mb-[4%] leading-relaxed">
           {user.bio}
         </p>
 

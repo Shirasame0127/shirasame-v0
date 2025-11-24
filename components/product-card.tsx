@@ -1,13 +1,27 @@
 "use client"
 
-import type React from "react"
+import type { MouseEvent } from "react"
 
 import Image from "next/image"
 import Link from "next/link"
+import { getPublicImageUrl } from "@/lib/image-url"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ExternalLink, Sparkles } from 'lucide-react'
-import type { Product } from "@/lib/mock-data/products"
+interface ProductImage {
+  url?: string | null
+  role?: string | null
+}
+
+interface Product {
+  id: string
+  title: string
+  slug: string
+  shortDescription?: string
+  images?: ProductImage[]
+  tags?: string[]
+  price?: number
+}
 import { db } from "@/lib/db/storage"
 
 interface ProductCardProps {
@@ -18,7 +32,9 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product, size = "md", isAdminMode = false, onClick }: ProductCardProps) {
-  const mainImage = product.images.find((img) => img.role === "main") || product.images[0]
+  // Guard against missing images
+  const images: ProductImage[] = product.images || []
+  const mainImage = images.find((img: ProductImage) => img?.role === "main") || images[0] || null
 
   const getActiveSaleInfo = () => {
     const activeSchedules = db.amazonSaleSchedules?.getActiveSchedules() || []
@@ -34,19 +50,20 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
 
   const { isOnSale, saleName } = getActiveSaleInfo()
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = (e: MouseEvent) => {
     if (isAdminMode && onClick) {
       e.preventDefault()
+      e.stopPropagation()
       onClick()
     }
   }
 
-  if (size === "sm") {
+    if (size === "sm") {
     const content = (
       <>
         <CardHeader className="p-0 relative">
-          <div className="block relative aspect-square overflow-hidden bg-muted">
-            <Image src={mainImage?.url || "/placeholder.svg"} alt={product.title} fill className="object-cover" />
+          <div className="relative aspect-3/2 overflow-hidden bg-muted flex items-center justify-center">
+            <Image src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg"} alt={product.title} fill className="object-contain object-center" />
             {isOnSale && (
               <div className="absolute top-1 right-1 z-10">
                 <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 flex items-center gap-1">
@@ -84,12 +101,12 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
   const content = (
     <>
       <CardHeader className="p-0 relative">
-        <div className="block relative aspect-square overflow-hidden bg-muted">
+        <div className="relative aspect-3/2 overflow-hidden bg-muted flex items-center justify-center">
           <Image
-            src={mainImage?.url || "/placeholder.svg"}
+            src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg"}
             alt={product.title}
             fill
-            className="object-cover group-hover:scale-105 transition-transform duration-300"
+            className="object-contain object-center transition-transform duration-300"
           />
           {isOnSale && (
             <div className="absolute top-2 right-2 z-10">
@@ -105,7 +122,7 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
         <h3 className="font-semibold text-sm md:text-lg mb-1 md:mb-2 line-clamp-2">{product.title}</h3>
         <p className="text-xs md:text-sm text-muted-foreground mb-2 md:mb-3 line-clamp-2">{product.shortDescription}</p>
         <div className="flex flex-wrap gap-1 md:gap-1.5">
-          {product.tags.slice(0, 3).map((tag) => (
+          {(product.tags || []).slice(0, 3).map((tag: string) => (
             <Badge key={tag} variant="secondary" className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5">
               {tag}
             </Badge>

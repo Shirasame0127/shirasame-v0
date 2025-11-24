@@ -7,10 +7,9 @@ import { ProductCardSimple } from "@/components/product-card-simple"
 import { ProductDetailModal } from "@/components/product-detail-modal"
 import { RecipeDisplay } from "@/components/recipe-display"
 import { db } from "@/lib/db/storage"
-import type { Product } from "@/lib/mock-data/products"
-import type { Collection } from "@/lib/mock-data/collections"
-import type { User } from "@/lib/mock-data/users"
+import type { Product } from "@/lib/db/schema"
 import Image from "next/image"
+import { getPublicImageUrl } from "@/lib/image-url"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
@@ -19,14 +18,14 @@ import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Input } from "@/components/ui/input"
-import { mockUser } from "@/lib/mock-data/users"
+// Use persisted user record (cloud-first). Do not rely on local mock data.
 import { ProfileHeader } from "@/components/profile-header"
 
 export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([])
   const [recipes, setRecipes] = useState<any[]>([])
-  const [collections, setCollections] = useState<Collection[]>([])
-  const [user, setUser] = useState<User>(mockUser)
+  const [collections, setCollections] = useState<any[]>([])
+  const [user, setUser] = useState<any>(db.user.get() || null)
   const [theme, setTheme] = useState<any>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -41,39 +40,76 @@ export default function HomePage() {
   const [searchText, setSearchText] = useState("")
 
   useEffect(() => {
-    const loadedProducts = db.products.getAll()
-    const loadedRecipes = db.recipes.getAll()
-    const loadedCollections = db.collections.getAll()
-    const loadedUser = db.user.get()
-    const loadedTheme = db.theme.get()
+    ;(async () => {
+      try {
+        // 公開商品をAPIから取得
+        const prodRes = await fetch("/api/products?published=true")
+        const prodJson = await prodRes.json().catch(() => ({ data: [] }))
+        const apiProducts = Array.isArray(prodJson.data) ? prodJson.data : []
 
-    setProducts(loadedProducts.filter((p) => p.published))
-    setRecipes(loadedRecipes.filter((r: any) => r.published))
-    setCollections(loadedCollections.filter((c) => c.visibility === "public"))
-    setUser(loadedUser || mockUser)
-    setTheme(loadedTheme)
+        // 公開コレクション（所属商品つき）をAPIから取得
+        const colRes = await fetch("/api/collections")
+        const colJson = await colRes.json().catch(() => ({ data: [] }))
+        const apiCollections = Array.isArray(colJson.data) ? colJson.data : []
 
-    const allTags = db.tags.getAll()
-    const groups: Record<string, string[]> = {}
+        // レシピ・ユーザー・テーマは既存モックDBを継続利用
+        const loadedRecipes = db.recipes.getAll()
+        const loadedTheme = db.theme.get()
 
-    allTags.forEach((tag: any) => {
-      const groupName = tag.group || "未分類"
-      if (!groups[groupName]) {
-        groups[groupName] = []
+        // Profile: prefer server API (cloud-first). Fall back to in-memory cache if API not available yet.
+        let loadedUser: any = null
+        try {
+          const profileRes = await fetch('/api/profile')
+          if (profileRes.ok) {
+            const pj = await profileRes.json().catch(() => null)
+            loadedUser = pj?.data || pj || null
+          }
+        } catch (e) {
+          // ignore and fallback to cache
+        }
+
+        if (!loadedUser) {
+          loadedUser = db.user.get()
+        }
+
+        setProducts(apiProducts.filter((p: any) => p.published))
+        setRecipes(loadedRecipes.filter((r: any) => r.published))
+        setCollections(apiCollections)
+        setUser(loadedUser || null)
+        setTheme(loadedTheme)
+
+        // 公開されている商品の tags からタググループを動的に構築
+        const groups: Record<string, string[]> = {}
+        apiProducts
+          .filter((p: any) => p.published && Array.isArray(p.tags))
+          .forEach((p: any) => {
+            ;(p.tags as string[]).forEach((tag) => {
+              const isLinkTag =
+                tag === "Amazon" || tag === "楽天市場" || tag === "Yahoo!ショッピング" || tag === "公式サイト"
+              const groupName = isLinkTag ? "リンク先" : "その他"
+              if (!groups[groupName]) {
+                groups[groupName] = []
+              }
+              if (!groups[groupName].includes(tag)) {
+                groups[groupName].push(tag)
+              }
+            })
+          })
+
+        setTagGroups(groups)
+
+        console.log(
+          "[v0] Loaded public data from API - Products:",
+          apiProducts.length,
+          "Recipes:",
+          loadedRecipes.filter((r: any) => r.published).length,
+        )
+      } catch (e) {
+        console.error("[v0] Failed to load public data", e)
+      } finally {
+        setIsLoaded(true)
       }
-      groups[groupName].push(tag.name)
-    })
-
-    setTagGroups(groups)
-
-    console.log(
-      "[v0] Loaded public data - Products:",
-      loadedProducts.filter((p) => p.published).length,
-      "Recipes:",
-      loadedRecipes.filter((r: any) => r.published).length,
-    )
-
-    setIsLoaded(true)
+    })()
   }, [])
 
   const handleProductClick = (product: Product) => {
@@ -120,10 +156,8 @@ export default function HomePage() {
     : {}
 
   const getProductsForCollection = (collectionId: string) => {
-    const items = db.collectionItems.getByCollectionId(collectionId)
-    return items
-      .map((item) => products.find((p) => p.id === item.productId))
-      .filter((p): p is Product => p !== undefined)
+    const col = collections.find((c: any) => c.id === collectionId)
+    return (col?.products || []) as Product[]
   }
 
   const FilterContent = ({ isMobile = false }: { isMobile?: boolean }) => (
@@ -382,9 +416,9 @@ export default function HomePage() {
                       className="flex gap-4 p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer bg-card"
                       onClick={() => handleProductClick(product)}
                     >
-                      <div className="relative w-24 h-24 flex-shrink-0">
+                      <div className="relative w-24 h-24 shrink-0">
                         <Image
-                          src={product.images[0]?.url || "/placeholder.svg"}
+                          src={getPublicImageUrl(product.images[0]?.url) || "/placeholder.svg"}
                           alt={product.title}
                           fill
                           className="object-cover rounded"
@@ -438,7 +472,7 @@ export default function HomePage() {
                         shadow-md
                         rounded-t-md          /* 上だけ角丸 */
                         rounded-b-md        /* 下は角丸なし */
-                        bg-gradient-to-b      /* 上 → 下へグラデーション */
+                        bg-linear-to-b      /* 上 → 下へグラデーション */
                         from-card             /* 上は元の背景色 */
                         to-transparent        /* 下は透明 */
                       "
@@ -455,6 +489,7 @@ export default function HomePage() {
                             recipeId={recipe.id}
                             recipeTitle={recipe.title}
                             imageDataUrl={recipe.imageDataUrl}
+                            imageUrl={recipe.imageUrl}
                             imageWidth={recipe.imageWidth}
                             imageHeight={recipe.imageHeight}
                             pins={pins}

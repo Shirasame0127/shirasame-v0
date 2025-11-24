@@ -1,11 +1,11 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
+import { getCurrentUser } from '@/lib/auth'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ProductListItem } from "@/components/product-list-item"
-import { db } from "@/lib/db/storage"
-import type { Product } from "@/lib/mock-data/products"
+import type { Product } from "@/lib/db/schema"
 import { Plus, Search, Filter, SlidersHorizontal, X } from "lucide-react"
 import Link from "next/link"
 import {
@@ -27,8 +27,28 @@ export default function AdminProductsPage() {
   const [selectedTags, setSelectedTags] = useState<string[]>([])
 
   useEffect(() => {
-    // ストレージから商品データを読み込む
-    setProducts(db.products.getAll())
+    // APIから商品データを読み込む
+    const fetchProducts = async () => {
+      try {
+        // Only fetch products for the currently-logged-in user
+        const current = getCurrentUser()
+        if (!current || !current.id) {
+          setProducts([])
+          return
+        }
+        const res = await fetch(`/api/admin/products?userId=${encodeURIComponent(current.id)}`)
+        if (!res.ok) throw new Error('Failed to fetch products')
+        const data = await res.json()
+        // API returns { products: [...] } or just [...] depending on implementation.
+        // Let's assume the API returns the array directly or wrapped.
+        // Checking app/api/admin/products/route.ts would confirm, but let's handle both.
+        const list = Array.isArray(data) ? data : data.products || []
+        setProducts(list)
+      } catch (error) {
+        console.error(error)
+      }
+    }
+    fetchProducts()
   }, [])
 
   // 全タグを取得

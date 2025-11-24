@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { notFound, useParams } from "next/navigation"
 import Image from "next/image"
+import { getPublicImageUrl } from "@/lib/image-url"
 import Link from "next/link"
 import { db } from "@/lib/db/storage"
 import type { Product } from "@/lib/db/schema"
@@ -24,10 +25,25 @@ export default function ProductPage() {
       return
     }
 
-    const products = db.products.getAll()
-    const found = products.find((p) => p.slug === slug)
-    setProduct(found || null)
-    setLoading(false)
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/products?slug=${encodeURIComponent(slug)}`)
+        if (!res.ok) {
+          console.error('failed to fetch product', await res.text())
+          setProduct(null)
+          return
+        }
+        const json = await res.json().catch(() => ({ data: [] }))
+        const data = Array.isArray(json?.data) ? json.data : json?.data ? [json.data] : []
+        const found = data[0] || null
+        setProduct(found)
+      } catch (e) {
+        console.error('error fetching product', e)
+        setProduct(null)
+      } finally {
+        setLoading(false)
+      }
+    })()
   }, [slug])
 
   if (loading) {
@@ -58,7 +74,7 @@ export default function ProductPage() {
         <div className="grid md:grid-cols-2 gap-8">
           <div className="relative aspect-square rounded-xl overflow-hidden bg-muted">
             <Image
-              src={mainImage?.url || "/placeholder.svg?height=600&width=600"}
+              src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg?height=600&width=600"}
               alt={product.title}
               fill
               className="object-cover"

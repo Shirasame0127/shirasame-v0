@@ -24,7 +24,10 @@ export default function AdminLayout({
     if (!isLoginPage) {
       const user = auth.getCurrentUser()
       if (!user) {
-        router.push('/admin/login')
+        // Do not force client-side navigation to /admin/login here because
+        // middleware already redirects unauthenticated requests server-side.
+        // Forcing a push from the client can create redirect loops.
+        setIsAuthenticated(false)
       } else {
         setIsAuthenticated(true)
       }

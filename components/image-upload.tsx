@@ -54,20 +54,128 @@ export function ImageUpload({
     // keep onChange for backward compatibility
     onChange(croppedFile)
 
-    // Upload to server-side Cloudflare Images and call onUploadComplete with returned URL
+    // Try direct signed upload to Cloudflare Images; fallback to server proxy if needed
     ;(async () => {
-      try {
-        const fd = new FormData()
-        fd.append("file", croppedFile)
-        const res = await fetch("/api/images/upload", { method: "POST", body: fd })
-        const json = await res.json()
-        const uploadedUrl = json?.result?.variants?.[0] || json?.result?.url
-        if (uploadedUrl && onUploadComplete) {
-          onUploadComplete(uploadedUrl)
+      const trySignedUpload = async (file: File) => {
+        try {
+          const signRes = await fetch('/api/images/direct-upload', { method: 'POST' })
+          if (!signRes.ok) throw new Error('Failed to get direct upload URL')
+          const signJson = await signRes.json()
+          const uploadURL: string | undefined = signJson?.result?.uploadURL
+          const cfId: string | undefined = signJson?.result?.id
+          if (!uploadURL || !cfId) throw new Error('Invalid direct upload response')
+
+          // Attempt PUT with retries
+          const maxAttempts = 3
+          let attempt = 0
+          let lastErr: any = null
+          while (attempt < maxAttempts) {
+              try {
+                const putRes = await fetch(uploadURL, { method: 'PUT', body: file })
+                if (!putRes.ok) throw new Error(`PUT failed: ${putRes.status}`)
+                // Construct public URL (Cloudflare Image Delivery)
+                const account = (window as any).__env__?.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.CLOUDFLARE_ACCOUNT_ID || ''
+                const publicUrl = account ? `https://imagedelivery.net/${account}/${cfId}/public` : undefined
+                return { id: cfId, url: publicUrl }
+              } catch (err) {
+              lastErr = err
+              attempt++
+              const backoff = 200 * Math.pow(2, attempt)
+              await new Promise((r) => setTimeout(r, backoff))
+            }
+          }
+          throw lastErr
+        } catch (err) {
+          throw err
         }
-      } catch (e) {
-        console.error("upload failed", e)
       }
+
+        const fallbackProxyUpload = async (file: File) => {
+        const fd = new FormData()
+        fd.append('file', file)
+        // include target so server knows the intended purpose of the image
+        const target = aspectRatioType === 'profile'
+          ? 'profile'
+          : aspectRatioType === 'header'
+          ? 'header'
+          : aspectRatioType === 'background'
+          ? 'background'
+          : aspectRatioType === 'recipe'
+          ? 'recipe'
+          : aspectRatioType === 'product'
+          ? 'product'
+          : 'other'
+        fd.append('target', target)
+        const res = await fetch('/api/images/upload', { method: 'POST', body: fd })
+        if (!res.ok) {
+           // try to parse JSON, otherwise fall back to text for better diagnostics
+           let errData: any = null
+           try {
+             errData = await res.json()
+           } catch (e) {
+             try {
+               const txt = await res.text()
+               errData = { error: txt }
+             } catch (e2) {
+               errData = { error: 'unknown' }
+             }
+           }
+           console.error('Proxy upload failed:', res.status, errData)
+           throw new Error(errData?.error || `Proxy upload failed (status ${res.status})`)
+        }
+        const json = await res.json().catch(() => ({}))
+        const uploadedUrl = json?.result?.variants?.[0] || json?.result?.url || json?.result?.publicUrl || json?.result?.url
+        return { url: uploadedUrl }
+      }
+
+        try {
+          let result
+          const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+          const forceProxy = typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_FORCE_PROXY_UPLOAD === 'true')
+
+          if (isLocalhost || forceProxy) {
+            // In dev (localhost) some third-party signed upload endpoints block PUT via CORS.
+            // Use the server proxy upload to avoid CORS issues.
+            console.log('ImageUpload: using proxy upload due to localhost/force proxy setting')
+            result = await fallbackProxyUpload(croppedFile)
+          } else {
+            try {
+              result = await trySignedUpload(croppedFile)
+            } catch (err) {
+              console.warn('Signed upload failed, falling back to proxy upload', err)
+              result = await fallbackProxyUpload(croppedFile)
+            }
+          }
+
+          const uploadedUrl = result?.url
+          if ((result as any)?.id) {
+            // Notify server to persist metadata to Supabase
+            try {
+              const completeTarget = aspectRatioType === 'profile'
+                ? 'profile'
+                : aspectRatioType === 'header'
+                ? 'header'
+                : aspectRatioType === 'background'
+                ? 'background'
+                : aspectRatioType === 'recipe'
+                ? 'recipe'
+                : aspectRatioType === 'product'
+                ? 'product'
+                : 'other'
+              await fetch('/api/images/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cf_id: (result as any).id, url: uploadedUrl, filename: croppedFile.name, target: completeTarget }),
+              })
+            } catch (err) {
+              console.warn('images/complete failed', err)
+            }
+          }
+
+          if (uploadedUrl && onUploadComplete) onUploadComplete(uploadedUrl)
+        } catch (e) {
+          console.error('upload failed', e)
+        }
     })()
 
     setShowCropper(false)
@@ -123,7 +231,7 @@ export function ImageUpload({
         {previewUrl ? (
           <div className="relative rounded-lg overflow-hidden border bg-muted">
             <div
-              className={`relative ${aspectRatioType === "header" ? "aspect-[3/1]" : aspectRatioType === "recipe" || aspectRatioType === "background" ? "aspect-video" : "aspect-square"}`}
+              className={`relative ${aspectRatioType === "header" ? "aspect-3/1" : aspectRatioType === "recipe" || aspectRatioType === "background" ? "aspect-video" : "aspect-square"}`}
             >
               <Image src={previewUrl || "/placeholder.svg"} alt="プレビュー" fill className="object-cover" />
             </div>

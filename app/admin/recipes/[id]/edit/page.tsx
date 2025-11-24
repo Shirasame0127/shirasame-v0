@@ -24,6 +24,7 @@ import {
   Underline,
   Search,
   CheckCircle2,
+  Trash,
 } from "lucide-react"
 import { ImageCropper } from "@/components/image-cropper"
 import { Slider } from "@/components/ui/slider"
@@ -34,6 +35,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
 import { WEB_FONTS, getFontsByCategory } from "@/lib/fonts/web-fonts"
 import { getCurrentUser } from "@/lib/auth"
+import { getPublicImageUrl } from "@/lib/image-url"
 import { Label } from "@/components/ui/label"
 
 const DEFAULT_STAGE_ASPECT_RATIO = 3 / 2 // 画像がまだ無いときのフォールバック比率
@@ -52,6 +54,7 @@ const LAYOUT_RATIOS = {
 type Pin = {
   id: string // 一意のID
   productId: string // 紐づいている商品のID
+  userId?: string
   tagDisplayText?: string // タグに表示するカスタムテキスト
 
   // 位置（画像サイズに対するパーセント、0-100）
@@ -128,7 +131,7 @@ export default function RecipeEditPage() {
   // ステート変数: レシピの基本情報
   // ===========================
   const [title, setTitle] = useState("") // レシピタイトル
-  const [imageDataUrl, setImageDataUrl] = useState("") // 画像のBase64 DataURL
+  const [imageDataUrl, setImageDataUrl] = useState("") // 画像のBase64 DataURL or public URL
   const [imageWidth, setImageWidth] = useState(1920) // 画像の元の幅
   const [imageHeight, setImageHeight] = useState(1080) // 画像の元の高さ
   const [pins, setPins] = useState<Pin[]>([]) // ピンの配列
@@ -180,6 +183,7 @@ export default function RecipeEditPage() {
   const [customFonts, setCustomFonts] = useState<any[]>([])
   const [favoriteFonts, setFavoriteFonts] = useState<string[]>([])
   const [currentUserId, setCurrentUserId] = useState<string>("")
+  const [published, setPublished] = useState<boolean>(false)
   const [isUploadingFont, setIsUploadingFont] = useState(false)
 
   const [fontCategory, setFontCategory] = useState<"japanese" | "english" | "all" | "favorite" | "custom">("all")
@@ -221,17 +225,39 @@ export default function RecipeEditPage() {
 
   // ===========================
   // 関数: データベースからレシピデータを読み込む
+  // - 非同期化して、キャッシュに存在しない場合はサーバからリフレッシュする
   // ===========================
-  function loadData() {
+  async function loadData() {
     console.log("[v0] Loading recipe data:", recipeId)
 
-    // レシピ本体を取得
-    const recipe = db.recipes.getById(recipeId)
+    // Try to read from cache first
+    let recipe: any = db.recipes.getById(recipeId)
+
+    // If not found in cache, refresh recipes from server once and re-check
+    if (!recipe) {
+      try {
+        await db.recipes.refresh()
+        recipe = db.recipes.getById(recipeId)
+      } catch (e) {
+        console.warn('[v0] recipes.refresh failed in loadData', e)
+      }
+    }
+
     if (recipe) {
       setTitle(recipe.title || "")
-      setImageDataUrl(recipe.imageDataUrl || "")
+      setPublished(Boolean(recipe.published))
+      // Prefer inline data URL, then explicit imageUrl, otherwise fall back to the first mapped image's url
+      const fallbackImageUrl = (recipe.images && recipe.images.length > 0 && recipe.images[0].url) || null
+      setImageDataUrl(recipe.imageDataUrl || recipe.imageUrl || fallbackImageUrl || "")
       setImageWidth(recipe.imageWidth || 1920)
       setImageHeight(recipe.imageHeight || 1080)
+
+      // Ensure recipe pins cache for this recipe is fresh (avoid warmCache race)
+      try {
+        await db.recipePins.refresh(recipeId)
+      } catch (e) {
+        /* best-effort */
+      }
 
       // ピンデータを取得（新スキーマ優先、古いスキーマもフォールバック）
       const recipePins = db.recipePins.getByRecipeId(recipeId)
@@ -326,6 +352,17 @@ export default function RecipeEditPage() {
     // すべての商品を取得
     const productsData = db.products.getAll()
     setProducts(productsData)
+    // If cached products are empty (warmCache may still be in-flight), try a direct refresh
+    if (!productsData || productsData.length === 0) {
+      ;(async () => {
+        try {
+          const fresh = await db.products.refresh()
+          if (fresh && fresh.length > 0) setProducts(fresh)
+        } catch (e) {
+          console.warn("[v0] products refresh failed in loadData", e)
+        }
+      })()
+    }
   }
 
   // ===========================
@@ -380,9 +417,15 @@ export default function RecipeEditPage() {
       } else {
         const product = products.find((p) => p.id === productId)
         if (product) {
+          const uid = currentUserId || (getCurrentUser && getCurrentUser()?.id) || "user-shirasame"
+          const generatedId =
+            typeof crypto !== "undefined" && (crypto as any).randomUUID
+              ? `pin-${(crypto as any).randomUUID()}`
+              : `pin-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
           const newPin: Pin = {
-            id: `pin-${Date.now()}-${productId}`,
+            id: generatedId,
             productId,
+            userId: uid,
             // 位置（パーセント値）
             dotXPercent: 20,
             dotYPercent: 50 + (Math.random() - 0.5) * 40,
@@ -431,7 +474,11 @@ export default function RecipeEditPage() {
             tagTextTransform: "none",
             tagDisplayText: "",
           }
-          setPins((currentPins) => [...currentPins, newPin])
+          setPins((currentPins) => {
+            // Prevent duplicate pins for the same productId
+            if (currentPins.some((p) => p.productId === productId)) return currentPins
+            return [...currentPins, newPin]
+          })
           console.log("[v0] Added new pin:", newPin.id)
         }
         return [...prev, productId]
@@ -815,80 +862,211 @@ export default function RecipeEditPage() {
   function saveRecipe(recipeTitle: string) {
     console.log("[v0] Saving recipe:", recipeId)
 
-    const recipe = db.recipes.getById(recipeId)
-    if (recipe) {
-      db.recipes.update(recipeId, {
+    ;(async () => {
+      // If imageDataUrl is a data URL, upload it to the server so we can store a public R2 URL
+      let finalImageUrl: string | undefined = undefined
+
+      try {
+        if (imageDataUrl && imageDataUrl.startsWith("data:")) {
+          // Convert data URL to blob and upload via existing upload endpoint
+          const res = await fetch(imageDataUrl)
+          const blob = await res.blob()
+          const fileName = `recipe-${Date.now()}.png`
+          const form = new FormData()
+          form.append("file", new File([blob], fileName, { type: blob.type || "image/png" }))
+          form.append("target", "recipe")
+
+          const uploadResp = await fetch("/api/images/upload", { method: "POST", body: form })
+          const uploadJson = await uploadResp.json().catch(() => null)
+          if (uploadJson && uploadJson.ok && uploadJson.result) {
+            // R2 path returns result: { url: publicUrl, key }
+            if (typeof uploadJson.result === "object") {
+              finalImageUrl = uploadJson.result.url || (Array.isArray(uploadJson.result.variants) ? uploadJson.result.variants[0] : undefined)
+            } else if (typeof uploadJson.result === "string") {
+              finalImageUrl = uploadJson.result
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[v0] recipe image upload failed, falling back to inline data url", e)
+      }
+
+      const recipe = db.recipes.getById(recipeId)
+      const currentUser = (getCurrentUser && getCurrentUser()) || null
+      const uid = currentUser?.id || currentUserId || "user-shirasame"
+      const payload: any = {
         title: recipeTitle,
-        imageDataUrl,
         imageWidth,
         imageHeight,
-      })
-    } else {
-      db.recipes.create({
-        id: recipeId,
-        userId: "user-shirasame",
-        title: recipeTitle,
-        imageDataUrl,
-        imageWidth,
-        imageHeight,
-        published: false,
-        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        published,
+      }
+
+      // If the image was already a public URL (edited from existing), normalize to pub-domain when possible
+      if (imageDataUrl && imageDataUrl.startsWith("http")) {
+        payload.imageUrl = getPublicImageUrl(imageDataUrl) || imageDataUrl
+        payload.imageDataUrl = undefined
+      } else if (finalImageUrl) {
+        // finalImageUrl may be a path or account URL — normalize to public pub-domain
+        payload.imageUrl = getPublicImageUrl(finalImageUrl) || finalImageUrl
+        payload.imageDataUrl = undefined
+      } else {
+        // fallback: persist inline data URL if upload failed
+        payload.imageDataUrl = imageDataUrl
+      }
+
+      // Ensure images[] jsonb is populated on the recipe. Prefer normalized public URL, else inline data URL.
+      try {
+        const existingImages = (recipe && Array.isArray((recipe as any).images) ? [...(recipe as any).images] : [])
+        const primary = payload.imageUrl || payload.imageDataUrl || undefined
+        if (primary) {
+          const exists = existingImages.find((img: any) => {
+            const u = img?.url || img?.imageUrl || img?.src || null
+            return u === primary
+          })
+          if (!exists) {
+            existingImages.unshift({ id: `image-${Date.now()}`, url: primary, uploadedAt: new Date().toISOString() })
+          }
+        }
+        // assign images array to payload
+        payload.images = existingImages
+      } catch (e) {
+        // ignore errors and continue
+      }
+
+      if (recipe) {
+        db.recipes.update(recipeId, payload)
+      } else {
+        db.recipes.create({
+          id: recipeId,
+          userId: uid,
+          published: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          ...payload,
+        })
+      }
+
+      // Persist images to server-side recipes.images via admin upsert endpoint.
+      // Ensure that uploaded R2 URLs are saved in the DB (best-effort, non-blocking).
+      try {
+        const imgsToPersist = Array.isArray(payload.images) ? payload.images : []
+        for (const img of imgsToPersist) {
+          try {
+            await fetch('/api/admin/recipe-images/upsert', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ recipeId, id: img.id, url: img.url, width: img.width || null, height: img.height || null }),
+            })
+          } catch (innerErr) {
+            console.warn('[v0] failed to persist recipe image to server', innerErr)
+          }
+        }
+      } catch (e) {
+        console.warn('[v0] failed to persist images list', e)
+      }
+
+      // save pins (ensure pins are linked to current user)
+      const pinsToSave = pins.map((pin) => ({ ...pin, recipeId, userId: (pin as any).userId || uid, createdAt: new Date().toISOString() }))
+      db.recipePins.updateAll(recipeId, pinsToSave)
+
+      toast({ title: "保存完了", description: "レシピを保存しました" })
+      setTimeout(() => router.push("/admin/recipes"), 500)
+    })()
+  }
+
+  // 公開/非公開トグルを即時適用する
+  async function handleTogglePublished() {
+    const next = !published
+    setPublished(next)
+    try {
+      const res = await fetch('/api/admin/recipes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: recipeId, published: next }),
       })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.error || 'update failed')
+      toast({ title: '更新完了', description: next ? '公開にしました' : '非公開にしました' })
+    } catch (e) {
+      setPublished(!next)
+      console.error('[v0] toggle publish failed', e)
+      toast({ title: 'エラー', description: '公開状態の更新に失敗しました', variant: 'destructive' })
     }
+  }
 
-    // パーセント値をそのまま保存（スケール計算不要）
-    const pinsToSave = pins.map((pin) => ({
-      ...pin,
-      recipeId,
-      createdAt: new Date().toISOString(),
-    }))
-
-    console.log("[v0] [編集ページ] 保存:", {
-      例: {
-        値: {
-          点のサイズ: `${pins[0]?.dotSizePercent}%`,
-          フォント: `${pins[0]?.tagFontSizePercent}%`,
-          位置: `${pins[0]?.dotXPercent}%, ${pins[0]?.dotYPercent}%`,
-        },
-      },
-    })
-
-    db.recipePins.updateAll(recipeId, pinsToSave)
-
-    toast({
-      title: "保存完了",
-      description: "レシピを保存しました",
-    })
-
-    setTimeout(() => {
-      router.push("/admin/recipes")
-    }, 500)
+  // レシピ削除
+  async function handleDelete() {
+    const confirmed = window.confirm('このレシピを完全に削除しますか？この操作は取り消せません。')
+    if (!confirmed) return
+    try {
+      const res = await fetch('/api/admin/recipes', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: recipeId }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.error || 'delete failed')
+      toast({ title: '削除しました', description: 'レシピを削除しました' })
+      router.push('/admin/recipes')
+    } catch (e) {
+      console.error('[v0] delete recipe failed', e)
+      toast({ title: 'エラー', description: 'レシピの削除に失敗しました', variant: 'destructive' })
+    }
   }
 
   // ===========================
   // 関数: タグの接続点（8方向）を計算
   // ===========================
   // タグの4隅と上下左右の中点の座標を返す（線の接続用）
-  function getConnectionPoints(tagXPercent: number, tagYPercent: number, tagWidth: number, tagHeight: number) {
+  // Compute connection points for a pin by measuring the actual DOM tag element when available.
+  function getConnectionPointsForPin(
+    pinId: string,
+    tagXPercent: number,
+    tagYPercent: number,
+    fallbackTagWidthPx: number,
+    fallbackTagHeightPx: number,
+  ) {
     if (!pinAreaRef.current) return []
 
     const rect = pinAreaRef.current.getBoundingClientRect()
     if (rect.width === 0 || rect.height === 0) return []
 
-    const offsetX = (tagWidth / rect.width) * 100
-    const offsetY = (tagHeight / rect.height) * 100
+    const INSET_FACTOR = 0.75
 
-    return [
-      { x: tagXPercent, y: tagYPercent - offsetY / 2 }, // 上中
-      { x: tagXPercent + offsetX / 2, y: tagYPercent - offsetY / 2 }, // 右上
-      { x: tagXPercent + offsetX / 2, y: tagYPercent }, // 右中
-      { x: tagXPercent + offsetX / 2, y: tagYPercent + offsetY / 2 }, // 右下
-      { x: tagXPercent, y: tagYPercent + offsetY / 2 }, // 下中
-      { x: tagXPercent - offsetX / 2, y: tagYPercent + offsetY / 2 }, // 左下
-      { x: tagXPercent - offsetX / 2, y: tagYPercent }, // 左中
-      { x: tagXPercent - offsetX / 2, y: tagYPercent - offsetY / 2 }, // 左上
+    // Default center based on percent
+    let tagCenterPx = { x: (tagXPercent / 100) * rect.width, y: (tagYPercent / 100) * rect.height }
+    let halfWidthPx = fallbackTagWidthPx / 2
+    let halfHeightPx = fallbackTagHeightPx / 2
+
+    try {
+      // Find the actual tag text element inside the pin area and measure it
+      const tagEl = pinAreaRef.current.querySelector(`[data-pin-id="${pinId}"] .__pin-tag-text`) as HTMLElement | null
+      if (tagEl) {
+        const tagRect = tagEl.getBoundingClientRect()
+        tagCenterPx = { x: (tagRect.left - rect.left) + tagRect.width / 2, y: (tagRect.top - rect.top) + tagRect.height / 2 }
+        halfWidthPx = tagRect.width / 2
+        halfHeightPx = tagRect.height / 2
+      }
+    } catch (e) {
+      // ignore and fall back to computed values
+    }
+
+    const insetHalfWidthPx = halfWidthPx * INSET_FACTOR
+    const insetHalfHeightPx = halfHeightPx * INSET_FACTOR
+
+    const pointsPx = [
+      { x: tagCenterPx.x, y: tagCenterPx.y - insetHalfHeightPx }, // 上中
+      { x: tagCenterPx.x + insetHalfWidthPx, y: tagCenterPx.y - insetHalfHeightPx }, // 右上
+      { x: tagCenterPx.x + insetHalfWidthPx, y: tagCenterPx.y }, // 右中
+      { x: tagCenterPx.x + insetHalfWidthPx, y: tagCenterPx.y + insetHalfHeightPx }, // 右下
+      { x: tagCenterPx.x, y: tagCenterPx.y + insetHalfHeightPx }, // 下中
+      { x: tagCenterPx.x - insetHalfWidthPx, y: tagCenterPx.y + insetHalfHeightPx }, // 左下
+      { x: tagCenterPx.x - insetHalfWidthPx, y: tagCenterPx.y }, // 左中
+      { x: tagCenterPx.x - insetHalfWidthPx, y: tagCenterPx.y - insetHalfHeightPx }, // 左上
     ]
+
+    return pointsPx.map((p) => ({ x: (p.x / rect.width) * 100, y: (p.y / rect.height) * 100 }))
   }
 
   // ===========================
@@ -1053,7 +1231,7 @@ export default function RecipeEditPage() {
       {/* ===========================
           ヘッダー: 戻る・商品選択・完了ボタン
           ========================== */}
-      <div className="border-b border-zinc-800 bg-zinc-900 flex-shrink-0">
+      <div className="border-b border-zinc-800 bg-zinc-900 shrink-0">
         <div className="flex items-center justify-between px-4 py-3">
           {/* 戻るボタン */}
           <Button
@@ -1068,7 +1246,7 @@ export default function RecipeEditPage() {
 
           <span className="text-white text-sm font-medium">{title || "レシピ編集"}</span>
 
-          {/* 商品選択・完了ボタン */}
+          {/* 商品選択・公開切替・完了・削除 */}
           <div className="flex gap-2">
             <Button
               variant="outline"
@@ -1079,6 +1257,15 @@ export default function RecipeEditPage() {
               <Package className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">商品選択</span>
             </Button>
+
+            <Button
+              size="sm"
+              onClick={handleTogglePublished}
+              className={`text-white transition-all duration-200 ${published ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-zinc-700 hover:bg-zinc-600'}`}
+            >
+              <span className="hidden sm:inline">{published ? '公開中' : '非公開'}</span>
+            </Button>
+
             <Button
               size="sm"
               onClick={handleSave}
@@ -1086,6 +1273,15 @@ export default function RecipeEditPage() {
             >
               <Check className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">完了</span>
+            </Button>
+
+            <Button
+              size="sm"
+              onClick={handleDelete}
+              className="bg-red-600 hover:bg-red-700 text-white transition-all duration-200"
+            >
+              <Trash className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">削除</span>
             </Button>
           </div>
         </div>
@@ -1097,12 +1293,8 @@ export default function RecipeEditPage() {
           スマホ: 縦分割（画像 | プロパティ）、プロパティパネルは下部固定ではなく並列配置
           ========================== */}
       <div
-        className="flex-1 grid sm:flex sm:flex-row overflow-hidden"
-        style={{
-          gridTemplateRows: isMobileView
-            ? `${LAYOUT_RATIOS.mobile.imageRow}fr 0fr` // モバイル時はパネルをオーバーレイするため 0fr にする
-            : `${LAYOUT_RATIOS.mobile.imageRow}fr ${LAYOUT_RATIOS.mobile.panelRow}fr`,
-        }}
+        className={isMobileView ? "flex-1 grid overflow-hidden" : "flex-1 flex flex-row overflow-hidden"}
+        style={isMobileView ? { gridTemplateRows: `${LAYOUT_RATIOS.mobile.imageRow}fr 0fr` } : undefined}
       >
         {/* ===========================
           画像エリア
@@ -1140,28 +1332,31 @@ export default function RecipeEditPage() {
           ) : (
             /* 画像選択済み: キャンバスとピン表示 */
             <div
-              className="relative flex w-full h-full px-3 sm:px-6 items-start justify-center"
+              className={`relative flex w-full h-full px-3 sm:px-6 ${isMobileView ? "items-start" : "items-center"} justify-center`}
               ref={imageRef}
-              style={
-                isMobileView
-                  ? {
-                      flexGrow: LAYOUT_RATIOS.desktop.imageFlex,
-                      flexShrink: 1,
-                      flexBasis: 0,
-                      minWidth: 0,
-                    }
-                  : {
-                      flex: `0 0 ${desktopImagePercent}%`,
-                      maxWidth: `${desktopImagePercent}%`,
-                      minWidth: 0,
-                    }
-              }
+                style={
+                  isMobileView
+                    ? {
+                        flexGrow: LAYOUT_RATIOS.desktop.imageFlex,
+                        flexShrink: 1,
+                        flexBasis: 0,
+                        minWidth: 0,
+                      }
+                    : {
+                        /* Desktop: allow the image area to grow when space is available
+                           (use flex-grow so it doesn't get squeezed to a tiny fixed width). */
+                        flex: `1 1 ${desktopImagePercent}%`,
+                        minWidth: 0,
+                      }
+                }
             >
               <div
                 className="relative bg-zinc-800 rounded-lg overflow-hidden shadow-2xl mx-auto"
                 style={{
-                  aspectRatio: imageAspectRatio ?? DEFAULT_STAGE_ASPECT_RATIO,
-                  maxWidth: "100%",
+                    width: "100%",
+                    // Desktop: allow the container to expand, but cap to a reasonable max width
+                    // so the image doesn't become excessively large on very wide screens.
+                    maxWidth: "1200px",
                   maxHeight: "100%",
                   display: "flex",
                   justifyContent: "center",
@@ -1172,14 +1367,19 @@ export default function RecipeEditPage() {
                 <img
                   ref={imageElRef}
                   onLoad={handleImageElementLoad}
-                  src={imageDataUrl || "/placeholder.svg"}
+                  // If imageDataUrl is an http URL, normalize to public R2 pub domain when possible
+                  src={
+                    imageDataUrl
+                      ? imageDataUrl.startsWith("http")
+                        ? getPublicImageUrl(imageDataUrl) || imageDataUrl
+                        : imageDataUrl
+                      : "/placeholder.svg"
+                  }
                   alt={title}
-                  className="pointer-events-none select-none block"
+                  className="pointer-events-none select-none block w-full h-full"
                   style={{
-                    maxWidth: "100%",
-                    maxHeight: "100%",
-                    width: "auto",
-                    height: "auto",
+                    width: "100%",
+                    height: "100%",
                     objectFit: "contain",
                   }}
                 />
@@ -1261,11 +1461,16 @@ export default function RecipeEditPage() {
                     const estimatedTagWidth = Math.max(100, charCount * fontSizePx * 0.6 + paddingXPx * 2)
                     const estimatedTagHeight = fontSizePx + paddingYPx * 2
 
-                    const connectionPoints = getConnectionPoints(
+                    // Prefer explicit background size when available, otherwise use estimated text width/height
+                    const actualTagWidth = bgWidthPx ?? estimatedTagWidth
+                    const actualTagHeight = bgHeightPx ?? estimatedTagHeight
+
+                    const connectionPoints = getConnectionPointsForPin(
+                      pin.id,
                       pin.tagXPercent,
                       pin.tagYPercent,
-                      estimatedTagWidth,
-                      estimatedTagHeight,
+                      actualTagWidth,
+                      actualTagHeight,
                     )
 
                     const nearestPoint =
@@ -1327,6 +1532,7 @@ export default function RecipeEditPage() {
 
                         {/* タグ */}
                         <div
+                          data-pin-id={pin.id}
                           className="absolute cursor-move z-10"
                           style={{
                             left: `${pin.tagXPercent}%`,
@@ -1361,6 +1567,7 @@ export default function RecipeEditPage() {
 
                           {/* テキストレイヤー */}
                           <div
+                            className="__pin-tag-text"
                             style={{
                               fontSize: fontSizePx,
                               fontFamily: pin.tagFontFamily || "system-ui",
@@ -1434,7 +1641,7 @@ export default function RecipeEditPage() {
 
             {selectedPin ? (
               <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-300">
-                <div className="flex-shrink-0 p-2 border-b border-zinc-800 bg-zinc-900 flex items-center justify-between gap-2">
+                <div className="shrink-0 p-2 border-b border-zinc-800 bg-zinc-900 flex items-center justify-between gap-2">
                   {isMobileView && (
                     <div className="flex items-center gap-2">
                       <Button
@@ -1485,43 +1692,43 @@ export default function RecipeEditPage() {
                         <TabsList className="w-full bg-transparent p-0 h-auto flex gap-4 overflow-x-auto no-scrollbar">
                           <TabsTrigger
                             value="theme"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto flex-shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             テーマ
                           </TabsTrigger>
                           <TabsTrigger
                             value="stroke"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto flex-shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             ストローク
                           </TabsTrigger>
                           <TabsTrigger
                             value="background"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto flex-shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             背景
                           </TabsTrigger>
                           <TabsTrigger
                             value="shadow"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto flex-shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             シャドウ
                           </TabsTrigger>
                           <TabsTrigger
                             value="space"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto flex-shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             スペース
                           </TabsTrigger>
                           <TabsTrigger
                             value="typography"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto flex-shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             書体
                           </TabsTrigger>
                           <TabsTrigger
                             value="case"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto flex-shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             大/小文字
                           </TabsTrigger>
@@ -1639,10 +1846,19 @@ export default function RecipeEditPage() {
                                 style={{ backgroundColor: color }}
                               />
                             ))}
+                            {/* Transparent button */}
+                            <button
+                              onClick={() => updatePin(selectedPin.id, { tagBackgroundColor: "transparent", tagBackgroundOpacity: 0 })}
+                              title="透明"
+                              className="w-6 h-6 rounded-full border border-zinc-700 flex items-center justify-center text-xs text-zinc-300"
+                              style={{ background: "repeating-linear-gradient(45deg,#0000 0 6px,#00000010 6px 12px)" }}
+                            >
+                              透
+                            </button>
                             <input
                               type="color"
-                              value={selectedPin.tagBackgroundColor}
-                              onChange={(e) => updatePin(selectedPin.id, { tagBackgroundColor: e.target.value })}
+                              value={selectedPin.tagBackgroundColor === "transparent" ? "#000000" : selectedPin.tagBackgroundColor}
+                              onChange={(e) => updatePin(selectedPin.id, { tagBackgroundColor: e.target.value, tagBackgroundOpacity: selectedPin.tagBackgroundOpacity ?? 1 })}
                               className="w-6 h-6 rounded-full border border-zinc-700 cursor-pointer"
                             />
                           </div>
@@ -1928,7 +2144,7 @@ export default function RecipeEditPage() {
                     className="flex-1 overflow-hidden p-3 mt-0 flex flex-col data-[state=inactive]:hidden"
                   >
                     {/* フィルターUI */}
-                    <div className="space-y-2 mb-3 flex-shrink-0">
+                    <div className="space-y-2 mb-3 shrink-0">
                       <div className="flex gap-1 overflow-x-auto whitespace-nowrap pb-1 no-scrollbar">
                         <button
                           onClick={() => setFontCategory("all")}
@@ -2123,7 +2339,7 @@ export default function RecipeEditPage() {
                                 </button>
                                 <button
                                   onClick={() => toggleFavoriteFont(font.family)}
-                                  className={`text-xs transition-colors flex-shrink-0 ${
+                                  className={`text-xs transition-colors shrink-0 ${
                                     favoriteFonts.includes(font.family)
                                       ? "text-red-400 hover:text-red-500"
                                       : "text-zinc-500 hover:text-red-400"
@@ -2154,7 +2370,11 @@ export default function RecipeEditPage() {
                           <div className="flex gap-2">
                             <Input
                               value={tagDisplayText}
-                              onChange={(e) => setTagDisplayText(e.target.value)}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                setTagDisplayText(v)
+                                if (selectedPinId) updatePin(selectedPinId, { tagDisplayText: v })
+                              }}
                               placeholder="商品名の代わりに表示"
                             />
                             <Button size="icon" onClick={applyTagDisplayText} title="適用">
@@ -2257,18 +2477,19 @@ export default function RecipeEditPage() {
           <ScrollArea className="h-[60vh] pr-4">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
               {products.map((product) => (
-                <div
-                  key={product.id}
-                  className="relative cursor-pointer"
-                  onClick={() => toggleProductSelection(product.id)}
-                >
+                <div key={product.id} className="relative">
                   {/* 選択チェックマーク */}
                   {selectedProductIds.includes(product.id) && (
                     <div className="absolute top-2 right-2 z-10 w-6 h-6 bg-primary rounded-full flex items-center justify-center">
                       <Check className="w-4 h-4 text-primary-foreground" />
                     </div>
                   )}
-                  <ProductCard product={product} size="sm" isAdminMode={true} />
+                  <ProductCard
+                    product={product}
+                    size="sm"
+                    isAdminMode={true}
+                    onClick={() => toggleProductSelection(product.id)}
+                  />
                 </div>
               ))}
             </div>

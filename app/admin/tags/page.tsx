@@ -21,7 +21,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast"
 
 export default function AdminTagsPage() {
+  const SPECIAL_LINK_GROUP_NAME = "リンク先"
   const [tags, setTags] = useState<Array<{ id: string; name: string; group?: string; linkUrl?: string; linkLabel?: string }>>([])
+  const [serverGroups, setServerGroups] = useState<string[]>([])
   const [newTagName, setNewTagName] = useState("")
   const [newTagGroup, setNewTagGroup] = useState("")
   const [newTagLinkUrl, setNewTagLinkUrl] = useState("")
@@ -35,8 +37,58 @@ export default function AdminTagsPage() {
   const { toast } = useToast()
 
   useEffect(() => {
-    const storedTags = db.tags.getAllWithPlaceholders()
-    setTags(storedTags)
+    ;(async () => {
+      try {
+        const [tagsRes, groupsRes] = await Promise.all([
+          fetch("/api/tags"),
+          fetch("/api/tag-groups"),
+        ])
+
+        const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
+        const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
+
+        const serverTags = Array.isArray(tagsJson) ? tagsJson : tagsJson.data || []
+        const tagGroups = Array.isArray(groupsJson) ? groupsJson : groupsJson.data || []
+
+        const storedTags = db.tags.getAllWithPlaceholders()
+        // prefer non-empty server response; otherwise fall back to local cache
+        if (tagsRes.ok && Array.isArray(serverTags) && serverTags.length > 0) {
+          setTags(serverTags)
+        } else if (storedTags && storedTags.length > 0) {
+          setTags(storedTags)
+        } else {
+          // last resort: set whatever server returned (possibly empty)
+          setTags(serverTags)
+        }
+
+        if (groupsRes.ok) {
+          const groupNames = tagGroups.map((g: any) => g.name).filter(Boolean)
+          // Ensure the special LINK group exists in server-side groups. If missing, try to create it.
+          if (!groupNames.includes(SPECIAL_LINK_GROUP_NAME)) {
+            try {
+              await fetch('/api/admin/tag-groups', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: SPECIAL_LINK_GROUP_NAME, label: SPECIAL_LINK_GROUP_NAME }),
+              })
+              // add to the local list so UI shows it immediately
+              groupNames.push(SPECIAL_LINK_GROUP_NAME)
+            } catch (e) {
+              console.warn('failed to ensure special link group exists', e)
+            }
+          }
+          setServerGroups(groupNames)
+        } else {
+          // try to infer groups from local tags
+          const localGroups = Array.from(new Set((storedTags || []).map((t: any) => t.group).filter(Boolean)))
+          setServerGroups(localGroups as string[])
+        }
+      } catch (e) {
+        const storedTags = db.tags.getAllWithPlaceholders()
+        setTags(storedTags)
+        console.warn("failed to load tags from server, falling back to cache", e)
+      }
+    })()
   }, [])
 
   const usedTags = useMemo(() => {
@@ -71,8 +123,86 @@ export default function AdminTagsPage() {
         names.add(tag.group)
       }
     })
+    // include server-side groups even if they have no tags yet
+    serverGroups.forEach((g) => names.add(g))
     return Array.from(names).sort()
   }, [tags])
+
+  // move group up/down (index-based)
+  const moveGroup = async (groupName: string, direction: "up" | "down") => {
+    const arr = Array.from(allGroupNames)
+    const idx = arr.indexOf(groupName)
+    if (idx === -1) return
+    const target = direction === "up" ? idx - 1 : idx + 1
+    if (target < 0 || target >= arr.length) return
+    const newArr = arr.slice()
+    const tmp = newArr[target]
+    newArr[target] = newArr[idx]
+    newArr[idx] = tmp
+
+    // persist order to server
+    try {
+      const groupsPayload = newArr.map((name, i) => ({ name, order: i }))
+      const res = await fetch('/api/admin/tag-groups/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groups: groupsPayload }),
+      })
+      if (!res.ok) throw new Error('reorder failed')
+      setServerGroups(newArr)
+    } catch (e) {
+      console.error('moveGroup failed', e)
+      toast({ variant: 'destructive', title: '並び替え失敗' })
+    }
+  }
+
+  // move tag up/down within its group
+  const moveTag = async (tagId: string, groupName: string, direction: "up" | "down") => {
+    const groupTags = tags.filter((t) => (t.group || '未分類') === groupName && !t.name?.startsWith('__GROUP_PLACEHOLDER__'))
+    const idx = groupTags.findIndex((t) => t.id === tagId)
+    if (idx === -1) return
+    const target = direction === 'up' ? idx - 1 : idx + 1
+    if (target < 0 || target >= groupTags.length) return
+
+    // construct new tags ordering for this group
+    const newOrder = groupTags.slice()
+    const tmp = newOrder[target]
+    newOrder[target] = newOrder[idx]
+    newOrder[idx] = tmp
+
+    // update local tags array ordering by adjusting sort_order and persisting
+    const updatedTags = tags.map((t) => {
+      const found = newOrder.findIndex((nt) => nt.id === t.id)
+      if (found !== -1) {
+        return { ...t, sortOrder: found }
+      }
+      return t
+    })
+
+    try {
+      const tagsPayload = newOrder.map((t, i) => ({ id: t.id, order: i, group: groupName }))
+      const res = await fetch('/api/admin/tags/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: tagsPayload }),
+      })
+      if (!res.ok) throw new Error('tags reorder failed')
+
+      // refresh authoritative tags from server
+      const fresh = await fetch('/api/tags')
+      if (!fresh.ok) throw new Error('failed to fetch tags')
+      const freshJson = await fresh.json().catch(() => ({ data: [] }))
+      const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+      setTags(freshTags)
+      db.tags.saveAll(freshTags)
+    } catch (e) {
+      console.error('moveTag failed', e)
+      // fallback: apply ordering locally so UI remains responsive
+      setTags(updatedTags)
+      db.tags.saveAll(updatedTags)
+      toast({ variant: 'destructive', title: '並び替えはローカル保存されました（サーバ同期失敗）' })
+    }
+  }
 
   const addTag = () => {
     const trimmedName = newTagName.trim()
@@ -103,23 +233,61 @@ export default function AdminTagsPage() {
       return
     }
 
+    // If adding a tag into the special link group, require a link label
+    if (newTagGroup === SPECIAL_LINK_GROUP_NAME && !newTagLinkLabel.trim()) {
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "リンク先グループに追加する場合は、リンクボタンのテキストを必ず入力してください"
+      })
+      return
+    }
+
     const newTag = {
-      id: `tag-${Date.now()}`,
+      id: `tag-${Date.now()}-${Math.floor(Math.random()*1000)}`,
       name: trimmedName,
       group: newTagGroup.trim() && newTagGroup !== "__uncategorized__" ? newTagGroup : undefined,
       linkUrl: newTagLinkUrl.trim() || undefined,
       linkLabel: newTagLinkLabel.trim() || undefined,
     }
 
-    const updated = [...tags, newTag]
-    setTags(updated)
-    db.tags.saveAll(updated)
-    
-    setNewTagName("")
-    setNewTagGroup("")
-    setNewTagLinkUrl("")
-    setNewTagLinkLabel("")
-    setIsAddDialogOpen(false)
+    ;(async () => {
+      try {
+        const updated = [...tags, newTag]
+        const res = await fetch('/api/admin/tags/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tags: updated }),
+        })
+        if (!res.ok) throw new Error('save failed')
+
+        // fetch authoritative tags
+        const fresh = await fetch('/api/tags')
+        const freshJson = await fresh.json().catch(() => ({ data: [] }))
+        const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+        setTags(freshTags)
+        db.tags.saveAll(freshTags)
+
+        setNewTagName("")
+        setNewTagGroup("")
+        setNewTagLinkUrl("")
+        setNewTagLinkLabel("")
+        setIsAddDialogOpen(false)
+        toast({ title: '追加完了', description: `タグ「${trimmedName}」を追加しました` })
+      } catch (e) {
+        console.error('addTag failed', e)
+        // fallback: save locally so user can continue
+        const updated = [...tags, newTag]
+        setTags(updated)
+        db.tags.saveAll(updated)
+        setNewTagName("")
+        setNewTagGroup("")
+        setNewTagLinkUrl("")
+        setNewTagLinkLabel("")
+        setIsAddDialogOpen(false)
+        toast({ variant: 'destructive', title: 'サーバ同期失敗', description: 'タグはローカルに保存されました。サーバ同期が復旧後に反映されます' })
+      }
+    })()
   }
 
   const updateTag = () => {
@@ -130,7 +298,7 @@ export default function AdminTagsPage() {
       toast({
         variant: "destructive",
         title: "エラー",
-        description: "タグ名を入力してください"
+        description: "タグ名を入力してください",
       })
       return
     }
@@ -139,13 +307,23 @@ export default function AdminTagsPage() {
       toast({
         variant: "destructive",
         title: "エラー",
-        description: "リンク先URLを指定する場合は、リンクボタンのテキストも入力してください"
+        description: "リンク先URLを指定する場合は、リンクボタンのテキストも入力してください",
       })
       return
     }
 
-    const updated = tags.map(t => 
-      t.id === editingTag.id 
+    // If updating a tag in the special link group, ensure link label is present
+    if (editingTag.group === SPECIAL_LINK_GROUP_NAME && !editingTag.linkLabel?.trim()) {
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "リンク先グループのタグはリンクボタンのテキストが必須です",
+      })
+      return
+    }
+
+    const updated = tags.map((t) =>
+      t.id === editingTag.id
         ? {
             ...editingTag,
             name: trimmedName,
@@ -153,12 +331,37 @@ export default function AdminTagsPage() {
             linkUrl: editingTag.linkUrl?.trim() || undefined,
             linkLabel: editingTag.linkLabel?.trim() || undefined,
           }
-        : t
+        : t,
     )
-    setTags(updated)
-    db.tags.saveAll(updated)
-    setIsEditDialogOpen(false)
-    setEditingTag(null)
+
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/tags/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tags: updated }),
+        })
+        if (!res.ok) throw new Error('save failed')
+
+        const fresh = await fetch('/api/tags')
+        const freshJson = await fresh.json().catch(() => ({ data: [] }))
+        const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+        setTags(freshTags)
+        db.tags.saveAll(freshTags)
+
+        setIsEditDialogOpen(false)
+        setEditingTag(null)
+        toast({ title: '保存完了', description: 'タグ情報を更新しました' })
+      } catch (e) {
+        console.error('updateTag failed', e)
+        // fallback: persist locally
+        setTags(updated)
+        db.tags.saveAll(updated)
+        setIsEditDialogOpen(false)
+        setEditingTag(null)
+        toast({ variant: 'destructive', title: 'サーバ同期失敗', description: '編集内容はローカルに保存されました' })
+      }
+    })()
   }
 
   const removeTag = (tagId: string) => {
@@ -169,14 +372,33 @@ export default function AdminTagsPage() {
         <Button
           variant="destructive"
           size="sm"
-          onClick={() => {
+            onClick={async () => {
             const updated = tags.filter((t) => t.id !== tagId)
-            setTags(updated)
-            db.tags.saveAll(updated)
-            toast({
-              title: "削除完了",
-              description: "タグを削除しました"
-            })
+            try {
+              const res = await fetch('/api/admin/tags/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tags: updated }),
+              })
+              if (!res.ok) throw new Error('delete failed')
+
+              const fresh = await fetch('/api/tags')
+              const freshJson = await fresh.json().catch(() => ({ data: [] }))
+              const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+              setTags(freshTags)
+              db.tags.saveAll(freshTags)
+
+              toast({
+                title: "削除完了",
+                description: "タグを削除しました"
+              })
+            } catch (e) {
+              console.error('removeTag failed', e)
+              // fallback: remove locally
+              setTags(updated)
+              db.tags.saveAll(updated)
+              toast({ variant: 'destructive', title: 'サーバ同期失敗', description: 'タグはローカルで削除されました' })
+            }
           }}
         >
           削除
@@ -187,17 +409,28 @@ export default function AdminTagsPage() {
 
   const renameGroup = () => {
     if (!newGroupName.trim() || !editingGroupName) return
-    
-    const updated = tags.map(t => 
-      t.group === editingGroupName 
-        ? { ...t, group: newGroupName.trim() } 
-        : t
-    )
-    setTags(updated)
-    db.tags.saveAll(updated)
-    setIsGroupDialogOpen(false)
-    setEditingGroupName("")
-    setNewGroupName("")
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/tag-groups', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: editingGroupName, newName: newGroupName.trim(), label: newGroupName.trim() }),
+        })
+        if (!res.ok) throw new Error('rename group failed')
+
+        const updated = tags.map(t =>
+          t.group === editingGroupName ? { ...t, group: newGroupName.trim() } : t
+        )
+        setTags(updated)
+        db.tags.saveAll(updated)
+        setIsGroupDialogOpen(false)
+        setEditingGroupName("")
+        setNewGroupName("")
+      } catch (e) {
+        console.error('rename group failed', e)
+        toast({ variant: 'destructive', title: '変更失敗', description: 'グループ名の変更に失敗しました' })
+      }
+    })()
   }
 
   const addNewGroup = () => {
@@ -220,25 +453,23 @@ export default function AdminTagsPage() {
       return
     }
     
-    console.log("[v0] TagsPage: Creating new group:", trimmedGroupName)
-    
-    const groupPlaceholder = {
-      id: `group-placeholder-${Date.now()}`,
-      name: `__GROUP_PLACEHOLDER__${trimmedGroupName}`,
-      group: trimmedGroupName,
-    }
-    
-    const updated = [...tags, groupPlaceholder]
-    setTags(updated)
-    db.tags.saveAll(updated)
-    
-    console.log("[v0] TagsPage: Group created:", trimmedGroupName)
-    toast({
-      title: "作成完了",
-      description: `グループ「${trimmedGroupName}」を作成しました`
-    })
-    setNewGroupName("")
-    setIsGroupDialogOpen(false)
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/tag-groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmedGroupName, label: trimmedGroupName }),
+        })
+        if (!res.ok) throw new Error('create group failed')
+        setServerGroups(s => Array.from(new Set([...(s || []), trimmedGroupName])))
+        toast({ title: '作成完了', description: `グループ「${trimmedGroupName}」を作成しました` })
+        setNewGroupName("")
+        setIsGroupDialogOpen(false)
+      } catch (e) {
+        console.error('create group failed', e)
+        toast({ variant: 'destructive', title: '作成失敗' })
+      }
+    })()
   }
 
   return (
@@ -391,24 +622,64 @@ export default function AdminTagsPage() {
             <div className="bg-background rounded-md border-2 border-dashed p-3 flex items-center justify-center">
               <span className="text-sm text-muted-foreground">未分類</span>
             </div>
-            {allGroupNames.map((groupName) => (
+                  {allGroupNames.map((groupName) => (
               <div 
                 key={groupName}
                 className="bg-background rounded-md border p-3 flex items-center justify-between"
               >
                 <span className="text-sm font-medium truncate">{groupName}</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 shrink-0"
-                  onClick={() => {
-                    setEditingGroupName(groupName)
-                    setNewGroupName(groupName)
-                    setIsGroupDialogOpen(true)
-                  }}
-                >
-                  <Edit className="w-3 h-3" />
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => moveGroup(groupName, 'up')}>
+                    ↑
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => moveGroup(groupName, 'down')}>
+                    ↓
+                  </Button>
+                  {/* Special handling: protect the special link group from rename/delete */}
+                  {groupName !== SPECIAL_LINK_GROUP_NAME && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => {
+                          setEditingGroupName(groupName)
+                          setNewGroupName(groupName)
+                          setIsGroupDialogOpen(true)
+                        }}
+                      >
+                        <Edit className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-destructive"
+                        onClick={async () => {
+                          if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
+                          try {
+                            const res = await fetch('/api/admin/tag-groups', {
+                              method: 'DELETE',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ name: groupName }),
+                            })
+                            if (!res.ok) throw new Error('delete failed')
+                            // unset group locally
+                            const updatedTags = tags.map((t) => (t.group === groupName ? { ...t, group: undefined } : t))
+                            setTags(updatedTags)
+                            db.tags.saveAll(updatedTags)
+                            setServerGroups((s) => s.filter((g) => g !== groupName))
+                            toast({ title: '削除完了', description: `グループ「${groupName}」を削除しました` })
+                          } catch (e) {
+                            console.error('delete group failed', e)
+                            toast({ variant: 'destructive', title: '削除失敗' })
+                          }
+                        }}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -458,7 +729,7 @@ export default function AdminTagsPage() {
                     <CardTitle>{groupName}</CardTitle>
                     <CardDescription>{groupTags.length}個のタグ</CardDescription>
                   </div>
-                  {groupName !== "未分類" && (
+                  {groupName !== "未分類" && groupName !== SPECIAL_LINK_GROUP_NAME && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -476,34 +747,42 @@ export default function AdminTagsPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
-                  {groupTags.map((tag) => (
-                    <div key={tag.id} className="flex items-center gap-1 bg-muted px-3 py-2 rounded-md">
-                      <Badge variant="outline" className="gap-1">
+                  {groupTags.map((tag, gIdx) => (
+                      <div key={tag.id} className="flex items-center gap-1 bg-muted px-3 py-2 rounded-md">
+                      <Badge variant="outline" className="gap-1 flex-1">
                         {tag.linkUrl && <LinkIcon className="w-3 h-3" />}
                         {tag.name}
                         {usedTags.has(tag.name) && (
                           <span className="text-xs bg-primary/10 px-1.5 py-0.5 rounded">{usedTags.get(tag.name)}</span>
                         )}
                       </Badge>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => {
-                          setEditingTag(tag)
-                          setIsEditDialogOpen(true)
-                        }}
-                      >
-                        <Edit className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => removeTag(tag.id)}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => moveTag(tag.id, groupName, 'up')}>
+                          ↑
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => moveTag(tag.id, groupName, 'down')}>
+                          ↓
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => {
+                            setEditingTag(tag)
+                            setIsEditDialogOpen(true)
+                          }}
+                        >
+                          <Edit className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => removeTag(tag.id)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

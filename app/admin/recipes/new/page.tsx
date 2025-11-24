@@ -59,6 +59,32 @@ export default function RecipeNewPage() {
     }
 
     const recipeId = `recipe-${Date.now()}`
+
+    // If imageUrl is a data URL, upload to server (R2 preferred) and use returned public URL
+    let finalUrl = imageUrl
+    try {
+      if (imageUrl && imageUrl.startsWith('data:')) {
+        const res = await fetch(imageUrl)
+        const blob = await res.blob()
+        const fileName = `recipe-${Date.now()}.png`
+        const form = new FormData()
+        form.append('file', new File([blob], fileName, { type: blob.type || 'image/png' }))
+        form.append('target', 'recipe')
+
+        const uploadResp = await fetch('/api/images/upload', { method: 'POST', body: form })
+        const uploadJson = await uploadResp.json().catch(() => null)
+        if (uploadJson && uploadJson.ok && uploadJson.result) {
+          if (typeof uploadJson.result === 'object') {
+            finalUrl = uploadJson.result.url || (Array.isArray(uploadJson.result.variants) ? uploadJson.result.variants[0] : finalUrl)
+          } else if (typeof uploadJson.result === 'string') {
+            finalUrl = uploadJson.result
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[v0] new recipe image upload failed, keeping inline image', e)
+    }
+
     const recipe: Recipe = {
       id: recipeId,
       userId: currentUser.id, // ユーザーIDを設定
@@ -67,21 +93,26 @@ export default function RecipeNewPage() {
       width: 1920,
       height: 1080,
       pins: [],
+      images: [
+        { id: recipeId, url: finalUrl, width: 1920, height: 1080, uploadedAt: new Date().toISOString() },
+      ],
       published: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
 
-    const recipeImage: RecipeImage = {
-      id: recipeId,
-      recipeId,
-      url: imageUrl,
-      width: 1920,
-      height: 1080,
-    }
+    const created = db.recipes.create(recipe)
 
-    db.recipes.create(recipe)
-    db.recipeImages.upsert(recipeImage)
+    // Ensure server-side recipes.images is updated (best-effort)
+    try {
+      await fetch('/api/admin/recipe-images/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipeId, id: recipeId, url: finalUrl, width: 1920, height: 1080 }),
+      })
+    } catch (e) {
+      console.warn('[v0] failed to persist new recipe image to server', e)
+    }
 
     toast({
       title: "作成完了",

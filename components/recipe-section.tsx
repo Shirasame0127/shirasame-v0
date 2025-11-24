@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { db } from "@/lib/db/storage"
 import { Card, CardContent } from "@/components/ui/card"
 import Image from "next/image"
+import { getPublicImageUrl } from "@/lib/image-url"
 import { ProductDetailModal } from "./product-detail-modal"
 
 /**
@@ -65,7 +66,7 @@ export function RecipeSection() {
                 <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
                   {recipe.imageUrl && (
                     <Image
-                      src={recipe.imageUrl || "/placeholder.svg"}
+                      src={getPublicImageUrl(recipe.imageUrl) || "/placeholder.svg"}
                       alt={recipe.title}
                       fill
                       className="object-contain"

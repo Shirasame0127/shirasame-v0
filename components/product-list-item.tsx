@@ -1,13 +1,13 @@
 "use client"
 
 import Image from "next/image"
+import { getPublicImageUrl } from "@/lib/image-url"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Edit, Trash2 } from "lucide-react"
-import type { Product } from "@/lib/mock-data/products"
-import { db } from "@/lib/db/storage"
+import type { Product } from "@/lib/db/schema"
 
 interface ProductListItemProps {
   product: Product
@@ -17,20 +17,33 @@ interface ProductListItemProps {
 export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
   const mainImage = product.images?.find((img) => img.role === "main") || product.images?.[0]
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
+    if (!product?.id) {
+      alert('削除対象のIDが見つかりません。しばらくしてから再度お試しください。')
+      return
+    }
+
     if (!confirm(`「${product.title}」を削除してもよろしいですか？`)) return
-    db.products.delete(product.id)
-    if (onUpdate) onUpdate()
-    window.location.reload()
+    
+    try {
+      const res = await fetch(`/api/admin/products/${product.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to delete')
+      
+      if (onUpdate) onUpdate()
+      window.location.reload()
+    } catch (error) {
+      console.error(error)
+      alert('削除に失敗しました')
+    }
   }
 
   return (
     <Card>
       <CardContent className="p-4">
         <div className="flex gap-4">
-          <div className="relative w-24 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
+          <div className="relative w-24 h-24 shrink-0 rounded-lg overflow-hidden bg-muted">
             <Image
-              src={mainImage?.url || "/placeholder.svg?height=200&width=200"}
+              src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg?height=200&width=200"}
               alt={product.title}
               fill
               className="object-cover"
@@ -60,12 +73,19 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
             </div>
 
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" asChild>
-                <Link href={`/admin/products/${product.id}/edit`}>
+              {product?.id ? (
+                <Button size="sm" variant="outline" asChild>
+                  <Link href={`/admin/products/${product.id}/edit`}>
+                    <Edit className="w-4 h-4 mr-1" />
+                    編集
+                  </Link>
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" disabled>
                   <Edit className="w-4 h-4 mr-1" />
-                  編集
-                </Link>
-              </Button>
+                  編集不可
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"

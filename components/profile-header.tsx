@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react"
 import Image from "next/image"
 import { db } from "@/lib/db/storage"
-import type { User } from "@/lib/mock-data/users"
+import { getPublicImageUrl } from "@/lib/image-url"
+import type { User } from "@/lib/db/schema"
 
 interface ProfileHeaderProps {
   user: User
@@ -21,8 +22,9 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
       const loadedImages = headerImageKeys
         .map((key) => {
           if (!key) return null
-          if (typeof key === "string" && (key.startsWith("http") || key.startsWith("/"))) return key
-          return db.images.getUpload(String(key))
+          // If key is already an absolute URL/path, keep it; otherwise try cache lookup first
+          const candidate = typeof key === "string" && (key.startsWith("http") || key.startsWith("/")) ? key : db.images.getUpload(String(key)) || String(key)
+          return getPublicImageUrl(candidate)
         })
         .filter((img): img is string => !!img)
 

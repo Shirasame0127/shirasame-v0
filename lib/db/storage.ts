@@ -1,629 +1,490 @@
 import type { Product, Recipe, Collection, User, CustomFont } from "@/lib/db/schema"
+import { getPublicImageUrl } from "@/lib/image-url"
 
-// local loose types for item-level entities (schema uses inline shapes)
-type RecipeImage = any
-type RecipeItem = any
-type CollectionItem = any
-
-// ローカルストレージキー定義
-const STORAGE_KEYS = {
-  PRODUCTS: "mock_products",
-  PRODUCT_IMAGES: "mock_product_images",
-  AFFILIATE_LINKS: "mock_affiliate_links",
-  RECIPES: "recipes_v2", // レシピ用のキーをシンプルに整理
-  RECIPE_PINS: "recipe_pins_v2",
-  RECIPE_IMAGES: "recipe_images",
-  RECIPE_ITEMS: "recipe_items",
-  COLLECTIONS: "mock_collections",
-  COLLECTION_ITEMS: "mock_collection_items",
-  USER: "mock_user",
-  THEME: "mock_theme",
-  TAGS: "mock_tags",
-  CUSTOM_FONTS: "mock_custom_fonts",
-  IMAGE_UPLOADS: "mock_image_uploads",
-  AMAZON_SALE_SCHEDULES: "amazon_sale_schedules", // Amazonセールスケジュール用
-} as const
-
-// 型安全なストレージヘルパー
-class LocalStorage<T> {
-  constructor(private key: string) {}
-
-  get(defaultValue: T): T {
-    if (typeof window === "undefined") return defaultValue
-    try {
-      const item = localStorage.getItem(this.key)
-      return item ? JSON.parse(item) : defaultValue
-    } catch {
-      return defaultValue
+// Generic fetch helper to our server API
+async function apiFetch(method: string, path: string, body?: any) {
+  try {
+    const res = await fetch(path, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: "include",
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => "")
+      throw new Error(`${method} ${path} failed: ${res.status} ${res.statusText} ${text}`)
     }
-  }
-
-  set(value: T): void {
-    if (typeof window === "undefined") return
-    try {
-      localStorage.setItem(this.key, JSON.stringify(value))
-    } catch (error) {
-      console.error(`[v0] Failed to save ${this.key}:`, error)
-    }
-  }
-
-  update(updater: (current: T) => T): void {
-    const current = this.get([] as any)
-    const updated = updater(current)
-    this.set(updated)
+    const data = await res.json().catch(() => null)
+    return data
+  } catch (err) {
+    console.error("[v0] apiFetch error", method, path, err)
+    return null
   }
 }
 
-// ストレージインスタンス
-export const productStorage = new LocalStorage<Product[]>(STORAGE_KEYS.PRODUCTS)
-export const productImageStorage = new LocalStorage<any[]>(STORAGE_KEYS.PRODUCT_IMAGES)
-export const affiliateLinkStorage = new LocalStorage<any[]>(STORAGE_KEYS.AFFILIATE_LINKS)
-export const recipeStorage = new LocalStorage<Recipe[]>(STORAGE_KEYS.RECIPES)
-export const recipeImageStorage = new LocalStorage<any[]>(STORAGE_KEYS.RECIPE_IMAGES)
-export const recipeItemStorage = new LocalStorage<any[]>(STORAGE_KEYS.RECIPE_ITEMS)
-export const collectionStorage = new LocalStorage<Collection[]>(STORAGE_KEYS.COLLECTIONS)
-export const collectionItemStorage = new LocalStorage<CollectionItem[]>(STORAGE_KEYS.COLLECTION_ITEMS)
-export const userStorage = new LocalStorage<User[]>(STORAGE_KEYS.USER)
-export const themeStorage = new LocalStorage<any>(STORAGE_KEYS.THEME)
-export const tagStorage = new LocalStorage<any[]>(STORAGE_KEYS.TAGS)
-export const customFontStorage = new LocalStorage<CustomFont[]>(STORAGE_KEYS.CUSTOM_FONTS)
-export const imageUploadStorage = new LocalStorage<Record<string, string>>(STORAGE_KEYS.IMAGE_UPLOADS)
-export const recipePinStorage = new LocalStorage<any[]>(STORAGE_KEYS.RECIPE_PINS) // 新しいストレージインスタンス追加
-export const amazonSaleScheduleStorage = new LocalStorage<any[]>(STORAGE_KEYS.AMAZON_SALE_SCHEDULES) // Amazonセールスケジュール用のストレージインスタンスを追加
+// In-memory caches. These are NOT persisted to localStorage—volatile only.
+const caches: Record<string, any> = {
+  products: [] as Product[],
+  recipes: [] as Recipe[],
+  recipeImages: [] as any[],
+  recipeItems: [] as any[],
+  collections: [] as Collection[],
+  collectionItems: [] as any[],
+  users: [] as User[],
+  theme: null as any,
+  tags: [] as any[],
+  tagGroups: [] as any[],
+  customFonts: [] as CustomFont[],
+  imageUploads: {} as Record<string, string>,
+  recipePins: [] as any[],
+  amazonSaleSchedules: [] as any[],
+}
 
-// データベース操作API
-export const db = {
-  // 商品操作
-  products: {
-    getAll: (userId?: string) => {
-      const products = productStorage.get([])
-      return userId ? products.filter((p) => p.userId === userId) : products
-    },
-    getById: (id: string) => productStorage.get([]).find((p) => p.id === id),
-    create: (product: Product) => {
-      productStorage.update((products) => [...products, product])
-      console.log("[v0] DB: Created product", product.id)
-      return product
-    },
-    update: (id: string, updates: Partial<Product>) => {
-      productStorage.update((products) =>
-        products.map((p) => (p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p)),
-      )
-      console.log("[v0] DB: Updated product", id)
-    },
-    delete: (id: string) => {
-      productStorage.update((products) => products.filter((p) => p.id !== id))
-      console.log("[v0] DB: Deleted product", id)
-    },
-  },
+// On-load: warm caches by fetching from server endpoints (best-effort).
+async function warmCache(key: string, path: string) {
+  try {
+    const data = await apiFetch("GET", path)
+    // Many server endpoints return a wrapper like { data: [...] }.
+    // Unwrap common shapes so caches store the actual arrays/objects expected by callers.
+      if (data != null) {
+        let value: any = data
+        // Unwrap common wrapper shapes like { data: [...] } or { data: {...} }
+        if (typeof data === "object" && data !== null && ("data" in data)) {
+          // @ts-ignore
+          value = data.data
+        }
 
-  // レシピ操作
-  recipes: {
-    getAll: (userId?: string) => {
-      const recipes = recipeStorage.get([])
-      return userId ? recipes.filter((r) => r.userId === userId) : recipes
-    },
-    getById: (id: string) => {
-      const recipe = recipeStorage.get([]).find((r) => r.id === id)
-      if (!recipe) return null
-
-      // ピン情報を取得して結合
-      const pins = db.recipePins.getByRecipeId(id)
-      return { ...recipe, pins }
-    },
-    create: (recipe: Partial<Omit<Recipe, "pins">>) => {
-      const now = new Date().toISOString()
-      const full: Recipe = {
-        id: recipe.id || `recipe-${Date.now()}`,
-        userId: recipe.userId || "user-shirasame",
-        title: recipe.title || "Untitled",
-        imageDataUrl: recipe.imageDataUrl || "",
-        imageWidth: recipe.imageWidth || 1920,
-        imageHeight: recipe.imageHeight || 1080,
-        aspectRatio: (recipe as any).aspectRatio || "16:9",
-        pins: [],
-        published: typeof recipe.published === "boolean" ? recipe.published : false,
-        createdAt: recipe.createdAt || now,
-        updatedAt: recipe.updatedAt || now,
-      }
-      recipeStorage.update((recipes) => [...recipes, full])
-      console.log("[v0] DB: Created recipe", full.id)
-      return full
-    },
-    update: (id: string, updates: Partial<Omit<Recipe, "pins">>) => {
-      recipeStorage.update((recipes) =>
-        recipes.map((r) => (r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r)),
-      )
-      console.log("[v0] DB: Updated recipe", id)
-    },
-    delete: (id: string) => {
-      recipeStorage.update((recipes) => recipes.filter((r) => r.id !== id))
-      // 関連するピンも削除
-      db.recipePins.deleteByRecipeId(id)
-      console.log("[v0] DB: Deleted recipe", id)
-    },
-    togglePublish: (id: string) => {
-      recipeStorage.update((recipes) => recipes.map((r) => (r.id === id ? { ...r, published: !r.published } : r)))
-      console.log("[v0] DB: Toggled recipe publish status", id)
-    },
-  },
-
-  // レシピ画像操作
-  recipeImages: {
-    getByRecipeId: (recipeId: string) => recipeImageStorage.get([]).find((img) => img.recipeId === recipeId),
-    upsert: (image: RecipeImage) => {
-      const images = recipeImageStorage.get([])
-      const existing = images.find((img) => img.recipeId === image.recipeId)
-      if (existing) {
-        recipeImageStorage.set(images.map((img) => (img.recipeId === image.recipeId ? image : img)))
-      } else {
-        recipeImageStorage.set([...images, image])
-      }
-      console.log("[v0] DB: Upserted recipe image", image.recipeId)
-    },
-  },
-
-  // レシピアイテム操作
-  recipeItems: {
-    getByRecipeId: (recipeId: string) => recipeItemStorage.get([]).filter((item) => item.recipeId === recipeId),
-    create: (item: RecipeItem) => {
-      recipeItemStorage.update((items) => [...items, item])
-      console.log("[v0] DB: Created recipe item", item.id)
-      return item
-    },
-    update: (id: string, updates: Partial<RecipeItem>) => {
-      recipeItemStorage.update((items) => items.map((item) => (item.id === id ? { ...item, ...updates } : item)))
-      console.log("[v0] DB: Updated recipe item", id)
-    },
-    delete: (id: string) => {
-      recipeItemStorage.update((items) => items.filter((item) => item.id !== id))
-      console.log("[v0] DB: Deleted recipe item", id)
-    },
-    bulkUpdate: (items: RecipeItem[]) => {
-      recipeItemStorage.set(items)
-      console.log("[v0] DB: Bulk updated recipe items")
-    },
-  },
-
-  // コレクション操作
-  collections: {
-    getAll: (userId?: string) => {
-      const collections = collectionStorage.get([])
-      return userId ? collections.filter((c) => c.userId === userId) : collections
-    },
-    getById: (id: string) => collectionStorage.get([]).find((c) => c.id === id),
-    create: (collection: Partial<Collection>) => {
-      const now = new Date().toISOString()
-      const full: Collection = {
-        id: collection.id || `col-${Date.now()}`,
-        userId: collection.userId || "user-shirasame",
-        title: collection.title || "Untitled",
-        slug: collection.slug || "",
-        description: collection.description || null,
-        productIds: collection.productIds || [],
-        visibility: collection.visibility || "public",
-        createdAt: collection.createdAt || now,
-        updatedAt: collection.updatedAt || now,
-      }
-      collectionStorage.update((collections) => [...collections, full])
-      console.log("[v0] DB: Created collection", full.id)
-      return full
-    },
-    update: (id: string, updates: Partial<Collection>) => {
-      collectionStorage.update((collections) =>
-        collections.map((c) => (c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c)),
-      )
-      console.log("[v0] DB: Updated collection", id)
-    },
-    delete: (id: string) => {
-      collectionStorage.update((collections) => collections.filter((c) => c.id !== id))
-      console.log("[v0] DB: Deleted collection", id)
-    },
-  },
-
-  // コレクションアイテム操作
-  collectionItems: {
-    getByCollectionId: (collectionId: string) =>
-      collectionItemStorage.get([]).filter((item) => item.collectionId === collectionId),
-    addProduct: (collectionId: string, productId: string) => {
-      const items = collectionItemStorage.get([])
-      const maxOrder = Math.max(0, ...items.filter((i) => i.collectionId === collectionId).map((i) => i.order))
-      const newItem: CollectionItem = {
-        id: `col-item-${Date.now()}`,
-        collectionId,
-        productId,
-        order: maxOrder + 1,
-        addedAt: new Date().toISOString(),
-      }
-      collectionItemStorage.set([...items, newItem])
-      console.log("[v0] DB: Added product to collection", collectionId, productId)
-    },
-    removeProduct: (collectionId: string, productId: string) => {
-      collectionItemStorage.update((items) =>
-        items.filter((item) => !(item.collectionId === collectionId && item.productId === productId)),
-      )
-      console.log("[v0] DB: Removed product from collection", collectionId, productId)
-    },
-  },
-
-  // ユーザー操作
-  user: {
-    get: (userId?: string) => {
-      let users = userStorage.get([])
-
-      if (!Array.isArray(users)) {
-        console.warn("[v0] DB: userStorage returned non-array, converting to array format")
-        if (users && typeof users === "object" && (users as any).id) {
-          // 単一オブジェクトを配列に変換
-          users = [users as any]
-          userStorage.set(users)
+        // Normalize `users` to always be an array (server may return single object or wrapped object)
+        if (key === "users") {
+          if (!Array.isArray(value) && value) {
+            caches[key] = [value]
+          } else {
+            caches[key] = value || []
+          }
         } else {
-          console.error("[v0] DB: userStorage data is invalid, returning empty array")
-          users = []
+          caches[key] = value
         }
       }
+  } catch (err) {
+    // ignore — we'll serve empty/previous cache
+  }
+}
 
-      if (userId) {
-        return users.find((u: any) => u.id === userId) || null
+// Start warming common caches (non-blocking)
+if (typeof window !== "undefined") {
+  ;(async () => {
+    warmCache("products", "/api/products")
+    warmCache("recipes", "/api/recipes")
+    warmCache("collections", "/api/collections")
+    warmCache("tags", "/api/tags")
+    warmCache("tagGroups", "/api/tag-groups")
+    warmCache("users", "/api/profile")
+    warmCache("customFonts", "/api/custom-fonts")
+    warmCache("recipePins", "/api/recipe-pins")
+    warmCache("amazonSaleSchedules", "/api/amazon-sale-schedules")
+  })()
+}
+
+function nowISO() {
+  return new Date().toISOString()
+}
+
+export const db = {
+  // products
+  products: {
+    getAll: (userId?: string) => {
+      const items: Product[] = caches.products || []
+      return userId ? items.filter((p: any) => p.userId === userId) : items
+    },
+    // Refresh products from server and update cache. Returns the fresh list.
+    refresh: async (userId?: string) => {
+      try {
+        const data = await apiFetch("GET", "/api/products")
+        let items: any = []
+        if (data != null) {
+          if (typeof data === "object" && data !== null && "data" in data) {
+            items = data.data
+          } else {
+            items = data
+          }
+        }
+        // Normalize to array
+        if (!Array.isArray(items)) items = items ? [items] : []
+        caches.products = items
+        return userId ? items.filter((p: any) => p.userId === userId) : items
+      } catch (e) {
+        console.error("[v0] products.refresh failed", e)
+        return (caches.products || []).filter((p: any) => (userId ? p.userId === userId : true))
       }
+    },
+    getById: (id: string) => {
+      return (caches.products || []).find((p: any) => p.id === id) || null
+    },
+    create: (product: Product) => {
+      const obj = { ...product, createdAt: product.createdAt || nowISO(), updatedAt: product.updatedAt || nowISO() }
+      caches.products = [...(caches.products || []), obj]
+      // best-effort send to server (fire-and-log)
+      apiFetch("POST", "/api/admin/products", obj).then((r) => {
+        if (!r) console.warn("[v0] Failed to persist product to server")
+      })
+      return obj
+    },
+    update: (id: string, updates: Partial<Product>) => {
+      caches.products = (caches.products || []).map((p: any) => (p.id === id ? { ...p, ...updates, updatedAt: nowISO() } : p))
+      apiFetch("PUT", `/api/admin/products/${encodeURIComponent(id)}`, updates)
+        .then((r) => r)
+        .catch((e) => console.error(e))
+    },
+    delete: (id: string) => {
+      caches.products = (caches.products || []).filter((p: any) => p.id !== id)
+      apiFetch("DELETE", `/api/admin/products/${encodeURIComponent(id)}`)
+    },
+  },
+
+  // recipes
+  recipes: {
+    getAll: (userId?: string) => {
+      const items = caches.recipes || []
+      if (userId) return items.filter((r: any) => r.userId === userId)
+      // If no userId provided, prefer to show only the configured public profile owner's recipes
+      const owner = (caches.users || [])[0]
+      if (owner && owner.id) return items.filter((r: any) => r.userId === owner.id)
+      return items
+    },
+    // Refresh recipes from server and update cache. Returns the fresh list.
+    refresh: async (userId?: string) => {
+      try {
+        const data = await apiFetch("GET", "/api/recipes")
+        let items: any = []
+        if (data != null) {
+          if (typeof data === "object" && data !== null && "data" in data) {
+            items = data.data
+          } else {
+            items = data
+          }
+        }
+        if (!Array.isArray(items)) items = items ? [items] : []
+        caches.recipes = items
+        if (userId) return items.filter((r: any) => r.userId === userId)
+        const owner = (caches.users || [])[0]
+        if (owner && owner.id) return items.filter((r: any) => r.userId === owner.id)
+        return items
+      } catch (e) {
+        console.error('[v0] recipes.refresh failed', e)
+        return (caches.recipes || [])
+      }
+    },
+    getById: (id: string) => {
+      const r = (caches.recipes || []).find((r: any) => r.id === id) || null
+      if (!r) return null
+      // Prefer pins embedded on the recipe row (server-provided), else fall back to cached recipePins
+      const pinsFromRow = Array.isArray((r as any).pins) ? (r as any).pins : null
+      const pins = pinsFromRow || (caches.recipePins || []).filter((p: any) => p.recipeId === id)
+      return { ...r, pins }
+    },
+    create: (recipe: any) => {
+      const owner = (caches.users || [])[0]
+      const resolvedUserId = recipe.userId || recipe.userId || owner?.id || "user-shirasame"
+      const full = { id: recipe.id || `recipe-${Date.now()}`, userId: resolvedUserId, pins: [], createdAt: nowISO(), updatedAt: nowISO(), ...recipe }
+      caches.recipes = [...(caches.recipes || []), full]
+      // best-effort persist (server endpoint may not exist); include userId so server can enforce owner
+      apiFetch("POST", "/api/admin/recipes", full)
+      return full
+    },
+    update: (id: string, updates: any) => {
+      // Prevent clients from reassigning recipes to other users — force owner if available
+      const owner = (caches.users || [])[0]
+      const safeUpdates = { ...updates }
+      if (owner && owner.id) safeUpdates.userId = owner.id
+      caches.recipes = (caches.recipes || []).map((r: any) => (r.id === id ? { ...r, ...safeUpdates, updatedAt: nowISO() } : r))
+      apiFetch("PUT", `/api/admin/recipes/${encodeURIComponent(id)}`, safeUpdates)
+    },
+    delete: (id: string) => {
+      // Restrict delete to owner's recipes by default (client-side best-effort)
+      const owner = (caches.users || [])[0]
+      const existing = (caches.recipes || []).find((r: any) => r.id === id)
+      if (existing && owner && owner.id && existing.userId !== owner.id) {
+        console.warn('[v0] attempt to delete recipe not owned by PUBLIC_PROFILE_EMAIL — ignored')
+        return
+      }
+      caches.recipes = (caches.recipes || []).filter((r: any) => r.id !== id)
+      // remove pins
+      caches.recipePins = (caches.recipePins || []).filter((p: any) => p.recipeId !== id)
+      apiFetch("DELETE", `/api/admin/recipes/${encodeURIComponent(id)}`)
+    },
+    togglePublish: (id: string) => {
+      caches.recipes = (caches.recipes || []).map((r: any) => (r.id === id ? { ...r, published: !r.published } : r))
+      // push update
+      const rec = (caches.recipes || []).find((r: any) => r.id === id)
+      apiFetch("PUT", `/api/admin/recipes/${encodeURIComponent(id)}`, { published: rec?.published })
+    },
+  },
+
+  // recipeImages (best-effort cache + server)
+  recipeImages: {
+    getByRecipeId: (recipeId: string) => (caches.recipeImages || []).find((img: any) => img.recipeId === recipeId) || null,
+    upsert: (image: any) => {
+      const existing = (caches.recipeImages || []).find((i: any) => i.recipeId === image.recipeId)
+      if (existing) {
+        caches.recipeImages = (caches.recipeImages || []).map((i: any) => (i.recipeId === image.recipeId ? image : i))
+      } else {
+        caches.recipeImages = [...(caches.recipeImages || []), image]
+      }
+      apiFetch("POST", "/api/admin/recipe-images/upsert", image)
+    },
+  },
+
+  // recipeItems
+  recipeItems: {
+    getByRecipeId: (recipeId: string) => (caches.recipeItems || []).filter((it: any) => it.recipeId === recipeId),
+    create: (item: any) => {
+      caches.recipeItems = [...(caches.recipeItems || []), item]
+      apiFetch("POST", "/api/admin/recipe-items", item)
+      return item
+    },
+    update: (id: string, updates: any) => {
+      caches.recipeItems = (caches.recipeItems || []).map((it: any) => (it.id === id ? { ...it, ...updates } : it))
+      apiFetch("PUT", `/api/admin/recipe-items/${encodeURIComponent(id)}`, updates)
+    },
+    delete: (id: string) => {
+      caches.recipeItems = (caches.recipeItems || []).filter((it: any) => it.id !== id)
+      apiFetch("DELETE", `/api/admin/recipe-items/${encodeURIComponent(id)}`)
+    },
+    bulkUpdate: (items: any[]) => {
+      caches.recipeItems = items
+      apiFetch("POST", "/api/admin/recipe-items/bulk", { items })
+    },
+  },
+
+  // collections
+  collections: {
+    getAll: (userId?: string) => {
+      const items = caches.collections || []
+      return userId ? items.filter((c: any) => c.userId === userId) : items
+    },
+    getById: (id: string) => (caches.collections || []).find((c: any) => c.id === id) || null,
+    create: (collection: any) => {
+      const full = { id: collection.id || `col-${Date.now()}`, createdAt: nowISO(), updatedAt: nowISO(), ...collection }
+      caches.collections = [...(caches.collections || []), full]
+      apiFetch("POST", "/api/admin/collections", full)
+      return full
+    },
+    update: (id: string, updates: any) => {
+      caches.collections = (caches.collections || []).map((c: any) => (c.id === id ? { ...c, ...updates, updatedAt: nowISO() } : c))
+      apiFetch("PUT", `/api/admin/collections/${encodeURIComponent(id)}`, updates)
+    },
+    delete: (id: string) => {
+      caches.collections = (caches.collections || []).filter((c: any) => c.id !== id)
+      apiFetch("DELETE", `/api/admin/collections/${encodeURIComponent(id)}`)
+    },
+  },
+
+  // collectionItems
+  collectionItems: {
+    getByCollectionId: (collectionId: string) => (caches.collectionItems || []).filter((it: any) => it.collectionId === collectionId),
+    addProduct: (collectionId: string, productId: string) => {
+      const items = caches.collectionItems || []
+      const maxOrder = Math.max(0, ...items.filter((i: any) => i.collectionId === collectionId).map((i: any) => i.order || 0))
+      const newItem = { id: `col-item-${Date.now()}`, collectionId, productId, order: maxOrder + 1, addedAt: nowISO() }
+      caches.collectionItems = [...items, newItem]
+      apiFetch("POST", "/api/admin/collection-items", newItem)
+    },
+    removeProduct: (collectionId: string, productId: string) => {
+      caches.collectionItems = (caches.collectionItems || []).filter((it: any) => !(it.collectionId === collectionId && it.productId === productId))
+      apiFetch("DELETE", "/api/admin/collection-items", { collectionId, productId })
+    },
+  },
+
+  // user
+  user: {
+    get: (userId?: string) => {
+      const users = caches.users || []
+      if (userId) return users.find((u: any) => u.id === userId) || null
       return users.length > 0 ? users[0] : null
     },
     create: (user: User) => {
-      let users = userStorage.get([])
-      if (!Array.isArray(users)) {
-        users = []
-      }
-      userStorage.set([...users, user])
-      console.log("[v0] DB: Created user", user.id)
+      caches.users = [...(caches.users || []), user]
+      apiFetch("POST", "/api/admin/users", user)
     },
     update: (userId: string, updates: Partial<User>) => {
-      const users = userStorage.get([])
-      if (!Array.isArray(users)) {
-        console.error("[v0] DB: Cannot update user, storage is not an array")
-        return
-      }
-      const updatedUsers = users.map((u: any) => (u.id === userId ? { ...u, ...updates } : u))
-      userStorage.set(updatedUsers)
-      console.log("[v0] DB: Updated user", userId)
+      caches.users = (caches.users || []).map((u: any) => (u.id === userId ? { ...u, ...updates } : u))
+      apiFetch("PUT", `/api/admin/users/${encodeURIComponent(userId)}`, updates)
     },
     addFavoriteFont: (userId: string, fontFamily: string) => {
-      const users = userStorage.get([])
-      if (!Array.isArray(users)) {
-        console.error("[v0] DB: Cannot add favorite font, storage is not an array")
-        return
-      }
-      const updatedUsers = users.map((u: any) => {
-        if (u.id === userId) {
-          const favorites = u.favoriteFonts || []
-          if (!favorites.includes(fontFamily)) {
-            return { ...u, favoriteFonts: [...favorites, fontFamily] }
-          }
-        }
-        return u
-      })
-      userStorage.set(updatedUsers)
-      console.log("[v0] DB: Added favorite font", fontFamily)
+      caches.users = (caches.users || []).map((u: any) => (u.id === userId ? { ...u, favoriteFonts: Array.from(new Set([...(u.favoriteFonts || []), fontFamily])) } : u))
+      apiFetch("POST", `/api/admin/users/${encodeURIComponent(userId)}/favorite-fonts`, { fontFamily })
     },
     removeFavoriteFont: (userId: string, fontFamily: string) => {
-      const users = userStorage.get([])
-      if (!Array.isArray(users)) {
-        console.error("[v0] DB: Cannot remove favorite font, storage is not an array")
-        return
-      }
-      const updatedUsers = users.map((u: any) => {
-        if (u.id === userId) {
-          const favorites = u.favoriteFonts || []
-          return { ...u, favoriteFonts: favorites.filter((f: string) => f !== fontFamily) }
-        }
-        return u
-      })
-      userStorage.set(updatedUsers)
-      console.log("[v0] DB: Removed favorite font", fontFamily)
+      caches.users = (caches.users || []).map((u: any) => (u.id === userId ? { ...u, favoriteFonts: (u.favoriteFonts || []).filter((f: string) => f !== fontFamily) } : u))
+      apiFetch("DELETE", `/api/admin/users/${encodeURIComponent(userId)}/favorite-fonts`, { fontFamily })
     },
     getFavoriteFonts: (userId: string) => {
-      let users = userStorage.get([])
-      if (!Array.isArray(users)) {
-        console.warn("[v0] DB: userStorage.get([]) did not return an array, attempting to convert")
-        if (users && typeof users === "object" && (users as any).id) {
-          users = [users as any]
-          userStorage.set(users)
-        } else {
-          return []
-        }
-      }
-      const user = users.find((u: any) => u.id === userId)
-      return user?.favoriteFonts || []
+      const usersRaw = caches.users
+      const usersArr = Array.isArray(usersRaw) ? usersRaw : usersRaw ? [usersRaw] : []
+      const user = usersArr.find((u: any) => u && u.id === userId)
+      return (user && Array.isArray(user.favoriteFonts) ? user.favoriteFonts : [])
     },
   },
 
-  // テーマ操作
+  // theme
   theme: {
-    get: () => themeStorage.get(null),
+    get: () => caches.theme,
     set: (theme: any) => {
-      themeStorage.set(theme)
-      console.log("[v0] DB: Set theme")
+      caches.theme = theme
+      apiFetch("POST", "/api/admin/theme", { theme })
     },
   },
 
-  // 画像アップロード管理
+  // images: no localStorage — use server to persist metadata. getUpload returns in-memory cache URL if present
   images: {
     saveUpload: (key: string, url: string) => {
-      if (typeof window === "undefined") return
-
-      // Try to write the full uploads map; if quota exceeded, attempt to free space
-      const trySave = (uploads: Record<string, string>) => {
-        try {
-          localStorage.setItem(STORAGE_KEYS.IMAGE_UPLOADS, JSON.stringify(uploads))
-          return true
-        } catch (err: any) {
-          // Detect quota exceeded
-          const isQuota = err && (err.name === "QuotaExceededError" || err.code === 22 || err.code === 1014)
-          if (!isQuota) {
-            console.error("[v0] Failed to save image uploads:", err)
-            return false
-          }
-          return false
-        }
-      }
-
-      const uploads = imageUploadStorage.get({}) || {}
-      const merged = { ...uploads, [key]: url }
-
-      if (trySave(merged)) {
-        // success
-        console.log("[v0] DB: Saved image upload", key)
-        // keep LocalStorage wrapper in sync
-        imageUploadStorage.set(merged)
-        return
-      }
-
-      // If we reach here, quota was likely exceeded. Attempt to free oldest entries and retry.
-      const existingKeys = Object.keys(uploads)
-
-      // Helper: try to extract timestamp from key like prefix-<timestamp>-suffix
-      const extractTimestamp = (k: string) => {
-        const m = k.match(/-(\d{10,})/)
-        if (m) return parseInt(m[1], 10)
-        return null
-      }
-
-      // Sort keys by timestamp if possible, otherwise by insertion order
-      const sortedKeys = existingKeys.slice().sort((a, b) => {
-        const ta = extractTimestamp(a)
-        const tb = extractTimestamp(b)
-        if (ta && tb) return ta - tb
-        if (ta) return -1
-        if (tb) return 1
-        return 0
+      caches.imageUploads = { ...(caches.imageUploads || {}), [key]: url }
+      apiFetch("POST", "/api/images/save", { key, url }).then((r) => {
+        if (!r) console.warn("[v0] images.saveUpload: server save failed")
       })
-
-      // Remove oldest entries progressively (cap iterations to avoid long loops)
-      const MAX_REMOVE_BATCH = 5
-      let removed = 0
-      let keysToRemove: string[] = []
-      while (sortedKeys.length > 0) {
-        // remove up to MAX_REMOVE_BATCH oldest keys and retry
-        keysToRemove = sortedKeys.splice(0, MAX_REMOVE_BATCH)
-        const candidate = { ...uploads }
-        for (const k of keysToRemove) delete candidate[k]
-
-        // add our new key
-        candidate[key] = url
-
-        if (trySave(candidate)) {
-          console.warn("[v0] DB: Quota exceeded — removed old image uploads to make room:", keysToRemove)
-          imageUploadStorage.set(candidate)
-          return
-        }
-
-        removed += keysToRemove.length
-        // continue loop to remove more
-        if (removed > 200) break
-      }
-
-      // As a last resort, do not store the image and warn
-      console.error("[v0] DB: Unable to save image upload due to storage quota. Upload not persisted.")
     },
-    getUpload: (key: string) => imageUploadStorage.get({})[key],
+    getUpload: (key: string) => {
+      const raw = (caches.imageUploads || {})[key]
+      if (!raw) return raw
+      try {
+        // Normalize to public pub-domain URL when possible
+        const normalized = getPublicImageUrl(raw)
+        return normalized || raw
+      } catch (e) {
+        return raw
+      }
+    },
   },
 
+  // tags
   tags: {
-    getAll: () => {
-      const allTags = tagStorage.get([])
-      return allTags.filter((t: any) => !t.name?.startsWith("__GROUP_PLACEHOLDER__"))
-    },
-
-    getAllWithPlaceholders: () => {
-      return tagStorage.get([])
-    },
-
+    getAll: () => caches.tags || [],
+    getAllWithPlaceholders: () => caches.tags || [],
     saveAll: (tags: any[]) => {
-      tagStorage.set(tags)
-      console.log("[v0] DB: Saved all tags", tags.length)
+      caches.tags = tags
+      apiFetch("POST", "/api/admin/tags/save", { tags })
     },
-
-    getCustomTags: () => {
-      const tags = tagStorage.get([])
-      return tags.filter((t: any) => t.category === "カスタム").map((t: any) => t.name)
-    },
+    getCustomTags: () => (caches.tags || []).filter((t: any) => t.category === "カスタム").map((t: any) => t.name),
     saveCustomTags: (tags: string[]) => {
-      const existing = tagStorage.get([])
-      const customTags = tags.map((name) => ({
-        id: `tag-${Date.now()}-${Math.random()}`,
-        name,
-        category: "カスタム" as const,
-        userId: "user-shirasame",
-        createdAt: new Date().toISOString(),
-      }))
-      const nonCustom = existing.filter((t: any) => t.category !== "カスタム")
-      tagStorage.set([...nonCustom, ...customTags])
-      console.log("[v0] DB: Saved custom tags")
+      apiFetch("POST", "/api/admin/tags/custom", { tags })
+      // update cache best-effort
+      const existing = caches.tags || []
+      const customTags = tags.map((name) => ({ id: `tag-${Date.now()}-${Math.random()}`, name, category: "カスタム", userId: "user-shirasame", createdAt: nowISO() }))
+      caches.tags = [...existing.filter((t: any) => t.category !== "カスタム"), ...customTags]
     },
     saveCategoryTags: (category: string, tags: string[]) => {
-      const existing = tagStorage.get([])
-      const categoryTags = tags.map((name) => ({
-        id: `tag-${Date.now()}-${Math.random()}`,
-        name,
-        category: category as any,
-        userId: null,
-        createdAt: new Date().toISOString(),
-      }))
-      const otherCategories = existing.filter((t: any) => t.category !== category)
-      tagStorage.set([...otherCategories, ...categoryTags])
-      console.log("[v0] DB: Saved category tags", category)
+      apiFetch("POST", "/api/admin/tags/category", { category, tags })
+      // update cache
+      const existing = caches.tags || []
+      const categoryTags = tags.map((name) => ({ id: `tag-${Date.now()}-${Math.random()}`, name, category, userId: null, createdAt: nowISO() }))
+      caches.tags = [...existing.filter((t: any) => t.category !== category), ...categoryTags]
     },
   },
 
-  // レシピピン操作
+  // recipePins
   recipePins: {
-    getByRecipeId: (recipeId: string) => recipePinStorage.get([]).filter((p: any) => p.recipeId === recipeId),
+    getByRecipeId: (recipeId: string) => (caches.recipePins || []).filter((p: any) => p.recipeId === recipeId),
+    // Refresh recipePins cache from server. If recipeId provided, fetch only that recipe's pins.
+    refresh: async (recipeId?: string) => {
+      try {
+        const path = recipeId ? `/api/recipe-pins?recipeId=${encodeURIComponent(recipeId)}` : '/api/recipe-pins'
+        const data = await apiFetch('GET', path)
+        let items: any = []
+        if (data != null) {
+          if (typeof data === 'object' && data !== null && 'data' in data) items = data.data
+          else items = data
+        }
+        if (!Array.isArray(items)) items = items ? [items] : []
+        // Merge: keep other recipePins for other recipes and update fetched ones
+        if (recipeId) {
+          const other = (caches.recipePins || []).filter((p: any) => p.recipeId !== recipeId)
+          caches.recipePins = [...other, ...items]
+        } else {
+          caches.recipePins = items
+        }
+        return caches.recipePins
+      } catch (e) {
+        console.error('[v0] recipePins.refresh failed', e)
+        return caches.recipePins || []
+      }
+    },
     create: (pin: any) => {
-      recipePinStorage.update((pins) => [...pins, pin])
-      console.log("[v0] DB: Created recipe pin", pin.id)
+      caches.recipePins = [...(caches.recipePins || []), pin]
+      apiFetch("POST", "/api/admin/recipe-pins", pin)
       return pin
     },
     updateAll: (recipeId: string, pins: any[]) => {
-      recipePinStorage.update((allPins) => [...allPins.filter((p: any) => p.recipeId !== recipeId), ...pins])
-      console.log("[v0] DB: Updated all pins for recipe", recipeId)
+      caches.recipePins = [...(caches.recipePins || []).filter((p: any) => p.recipeId !== recipeId), ...pins]
+      // Persist and then refresh cache for that recipe to pick up any DB-side transforms/ids
+      apiFetch("POST", "/api/admin/recipe-pins/bulk", { recipeId, pins })
+        .then(() => {
+          // best-effort refresh; do not block caller
+          db.recipePins.refresh(recipeId).catch(() => {})
+        })
+        .catch(() => {})
     },
     deleteById: (id: string) => {
-      recipePinStorage.update((pins) => pins.filter((p: any) => p.id !== id))
-      console.log("[v0] DB: Deleted pin", id)
+      caches.recipePins = (caches.recipePins || []).filter((p: any) => p.id !== id)
+      apiFetch("DELETE", `/api/admin/recipe-pins/${encodeURIComponent(id)}`)
     },
     deleteByRecipeId: (recipeId: string) => {
-      recipePinStorage.update((pins) => pins.filter((p: any) => p.recipeId !== recipeId))
-      console.log("[v0] DB: Deleted all pins for recipe", recipeId)
+      caches.recipePins = (caches.recipePins || []).filter((p: any) => p.recipeId === recipeId)
+      apiFetch("DELETE", "/api/admin/recipe-pins", { recipeId })
     },
   },
 
-  // Amazonセールスケジュール操作
+  // amazonSaleSchedules
   amazonSaleSchedules: {
-    getAll: (userId?: string) => {
-      const schedules = amazonSaleScheduleStorage.get([])
-      return userId ? schedules.filter((s: any) => s.userId === userId) : schedules
-    },
-    getById: (id: string) => amazonSaleScheduleStorage.get([]).find((s: any) => s.id === id),
+    getAll: (userId?: string) => (userId ? (caches.amazonSaleSchedules || []).filter((s: any) => s.userId === userId) : caches.amazonSaleSchedules || []),
+    getById: (id: string) => (caches.amazonSaleSchedules || []).find((s: any) => s.id === id) || null,
     create: (schedule: any) => {
-      const newSchedule = {
-        id: `sale-${Date.now()}`,
-        ...schedule,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
-      amazonSaleScheduleStorage.update((schedules) => [...schedules, newSchedule])
-      console.log("[v0] DB: Created Amazon sale schedule", newSchedule.id)
+      const newSchedule = { id: `sale-${Date.now()}`, ...schedule, createdAt: nowISO(), updatedAt: nowISO() }
+      caches.amazonSaleSchedules = [...(caches.amazonSaleSchedules || []), newSchedule]
+      apiFetch("POST", "/api/admin/amazon-sale-schedules", newSchedule)
       return newSchedule
     },
     update: (id: string, updates: any) => {
-      amazonSaleScheduleStorage.update((schedules) =>
-        schedules.map((s: any) => (s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s)),
-      )
-      console.log("[v0] DB: Updated Amazon sale schedule", id)
+      caches.amazonSaleSchedules = (caches.amazonSaleSchedules || []).map((s: any) => (s.id === id ? { ...s, ...updates, updatedAt: nowISO() } : s))
+      apiFetch("PUT", `/api/admin/amazon-sale-schedules/${encodeURIComponent(id)}`, updates)
     },
     delete: (id: string) => {
-      amazonSaleScheduleStorage.update((schedules) => schedules.filter((s: any) => s.id !== id))
-      console.log("[v0] DB: Deleted Amazon sale schedule", id)
+      caches.amazonSaleSchedules = (caches.amazonSaleSchedules || []).filter((s: any) => s.id !== id)
+      apiFetch("DELETE", `/api/admin/amazon-sale-schedules/${encodeURIComponent(id)}`)
     },
     getActiveSchedules: (userId?: string) => {
       const now = new Date()
-      const schedules = amazonSaleScheduleStorage.get([])
-      const activeSchedules = schedules.filter((s: any) => {
-        const startDate = new Date(s.startDate)
-        const endDate = new Date(s.endDate)
-        return now >= startDate && now <= endDate
-      })
-      return userId ? activeSchedules.filter((s: any) => s.userId === userId) : activeSchedules
+      const schedules = caches.amazonSaleSchedules || []
+      const active = schedules.filter((s: any) => new Date(s.startDate) <= now && now <= new Date(s.endDate))
+      return userId ? active.filter((s: any) => s.userId === userId) : active
     },
   },
 
-  // カスタムフォント操作
+  // customFonts
   customFonts: {
-    getAll: (userId: string) => {
-      const fonts = customFontStorage.get([])
-      return fonts.filter((f: any) => f.userId === userId)
-    },
-    getById: (id: string) => {
-      return customFontStorage.get([]).find((f: any) => f.id === id)
-    },
-    create: (font: Omit<CustomFont, "id" | "createdAt">) => {
-      const newFont: CustomFont = {
-        id: `custom-font-${Date.now()}`,
-        ...font,
-        createdAt: new Date().toISOString(),
-      }
-      customFontStorage.update((fonts) => [...fonts, newFont])
-      console.log("[v0] DB: Created custom font", newFont.id)
+    getAll: (userId: string) => (caches.customFonts || []).filter((f: any) => f.userId === userId),
+    getById: (id: string) => (caches.customFonts || []).find((f: any) => f.id === id) || null,
+    create: (font: any) => {
+      const newFont = { id: `custom-font-${Date.now()}`, ...font, createdAt: nowISO() }
+      caches.customFonts = [...(caches.customFonts || []), newFont]
+      apiFetch("POST", "/api/admin/custom-fonts", newFont)
       return newFont
     },
     delete: (id: string) => {
-      customFontStorage.update((fonts) => fonts.filter((f: any) => f.id !== id))
-      console.log("[v0] DB: Deleted custom font", id)
+      caches.customFonts = (caches.customFonts || []).filter((f: any) => f.id !== id)
+      apiFetch("DELETE", `/api/admin/custom-fonts/${encodeURIComponent(id)}`)
     },
   },
 
-  // データ初期化（初回ロード時にモックデータをストレージに保存）
-  initialize: (mockData: {
-    products?: any[]
-    recipes?: any[]
-    recipeImages?: any[]
-    recipeItems?: any[]
-    collections?: any[]
-    collectionItems?: any[]
-    user?: any
-  }) => {
-    if (typeof window === "undefined") return
-
-    // 初回ロード時のみ初期化
-    if (!localStorage.getItem("mock_initialized")) {
-      if (mockData.products) productStorage.set(mockData.products)
-      if (mockData.recipes) recipeStorage.set(mockData.recipes)
-      if (mockData.recipeImages) recipeImageStorage.set(mockData.recipeImages)
-      if (mockData.recipeItems) recipeItemStorage.set(mockData.recipeItems)
-      if (mockData.collections) collectionStorage.set(mockData.collections)
-      if (mockData.collectionItems) collectionItemStorage.set(mockData.collectionItems)
-      if (mockData.user) {
-        const existingUsers = userStorage.get([])
-        if (!Array.isArray(existingUsers) || existingUsers.length === 0) {
-          userStorage.set([mockData.user])
-        }
-      }
-
-      localStorage.setItem("mock_initialized", "true")
-      console.log("[v0] DB: Initialized with mock data")
-    } else {
-      if (mockData.user) {
-        const existingUsers = userStorage.get([])
-        if (Array.isArray(existingUsers) && existingUsers.length > 0) {
-          const existingUser = existingUsers[0]
-          // headerImageKeys, profileImageKey, customFonts など、ユーザーが設定したデータは保持
-          const mergedUser = {
-            ...mockData.user,
-            headerImageKeys: existingUser.headerImageKeys || mockData.user.headerImageKeys || [],
-            profileImageKey: existingUser.profileImageKey || mockData.user.profileImageKey,
-            backgroundImageKey: existingUser.backgroundImageKey || mockData.user.backgroundImageKey,
-            customFonts: existingUser.customFonts || mockData.user.customFonts || [],
-            favoriteFonts: existingUser.favoriteFonts || mockData.user.favoriteFonts || [],
-            avatarUrl: existingUser.avatarUrl || mockData.user.avatarUrl,
-            headerImage: existingUser.headerImage || mockData.user.headerImage,
-            backgroundValue: existingUser.backgroundValue || mockData.user.backgroundValue,
-            socialLinks: existingUser.socialLinks || mockData.user.socialLinks,
-            amazonAccessKey: existingUser.amazonAccessKey || mockData.user.amazonAccessKey,
-            amazonSecretKey: existingUser.amazonSecretKey || mockData.user.amazonSecretKey,
-            amazonAssociateId: existingUser.amazonAssociateId || mockData.user.amazonAssociateId,
-          }
-          userStorage.set([mergedUser])
-          console.log("[v0] DB: Merged existing user data with mock defaults")
-        }
-      }
-    }
+  // initialize/reset: no-op for persistence, but we can optionally warm caches
+  initialize: (_mockData: any) => {
+    // do not write to localStorage. Optionally kick off a cache warm if provided.
+    if (_mockData?.products) caches.products = _mockData.products
   },
-
-  // データリセット
   reset: () => {
-    Object.values(STORAGE_KEYS).forEach((key) => {
-      localStorage.removeItem(key)
-    })
-    localStorage.removeItem("mock_initialized")
-    console.log("[v0] DB: Reset all data")
+    // clear in-memory caches only
+    Object.keys(caches).forEach((k) => (caches[k] = Array.isArray(caches[k]) ? [] : null))
+    console.log("[v0] DB: Reset in-memory caches (no local storage used)")
   },
 }
+
+export default db

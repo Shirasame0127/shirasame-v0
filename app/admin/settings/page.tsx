@@ -10,7 +10,8 @@ import { ImageUpload } from "@/components/image-upload"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { db } from "@/lib/db/storage"
-import type { SocialLink } from "@/lib/mock-data/users"
+import { getPublicImageUrl } from "@/lib/image-url"
+import type { SocialLink } from "@/lib/db/schema"
 import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2, ArrowLeft, ArrowRight, Star } from "lucide-react"
 import {
   DndContext,
@@ -69,11 +70,12 @@ const checkAccountExists = async (url: string): Promise<boolean> => {
 }
 
 export default function AdminSettingsPage() {
-  const [user, setUser] = useState(db.user.get())
+  const [user, setUser] = useState<any | null>(null)
   const [displayName, setDisplayName] = useState("")
   const [bio, setBio] = useState("")
   const [email, setEmail] = useState("")
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarUploadedUrl, setAvatarUploadedUrl] = useState<string | null>(null)
   const [headerImageKeys, setHeaderImageKeys] = useState<string[]>([]) // キー配列で管理
   const [newHeaderImageFile, setNewHeaderImageFile] = useState<File | null>(null)
   const [backgroundType, setBackgroundType] = useState<"color" | "image">("color")
@@ -89,21 +91,72 @@ export default function AdminSettingsPage() {
   const { toast } = useToast()
 
   useEffect(() => {
-    const currentUser = db.user.get()
-    if (currentUser) {
-      setUser(currentUser)
-      setDisplayName(currentUser.displayName)
-      setBio(currentUser.bio || "")
-      setEmail(currentUser.email || "")
-      setBackgroundType(currentUser.backgroundType || "color")
-      setBackgroundColor(currentUser.backgroundValue || "#ffffff")
-      setSocialLinks(currentUser.socialLinks || [])
-      setAmazonAccessKey(currentUser.amazonAccessKey || "")
-      setAmazonSecretKey(currentUser.amazonSecretKey || "")
-      setAmazonAssociateId(currentUser.amazonAssociateId || "")
-      setHeaderImageKeys(
-        currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []),
-      )
+    let mounted = true
+    async function load() {
+      try {
+        const res = await fetch('/api/admin/settings')
+        const json = await res.json().catch(() => null)
+        const serverUser = json?.data
+        if (serverUser && mounted) {
+          setUser(serverUser)
+          setDisplayName(serverUser.displayName || "")
+          setBio(serverUser.bio || "")
+          setEmail(serverUser.email || "")
+          setBackgroundType(serverUser.backgroundType || "color")
+          setBackgroundColor(serverUser.backgroundValue || "#ffffff")
+          setSocialLinks(serverUser.socialLinks || [])
+          setAmazonAccessKey(serverUser.amazonAccessKey || "")
+          setAmazonSecretKey(serverUser.amazonSecretKey || "")
+          setAmazonAssociateId(serverUser.amazonAssociateId || "")
+          setHeaderImageKeys(
+            serverUser.headerImageKeys || serverUser.headerImages || (serverUser.headerImage ? [serverUser.headerImage] : []) || (serverUser.headerImageKey ? [serverUser.headerImageKey] : []),
+          )
+          // If server provides direct profile image URL, prefer it
+          if (serverUser.profileImage) setAvatarUploadedUrl(serverUser.profileImage)
+          return
+        }
+
+        // fallback to local cache if server has no data or call failed
+        const currentUser = db.user.get()
+        if (currentUser && mounted) {
+          setUser(currentUser)
+          setDisplayName(currentUser.displayName)
+          setBio(currentUser.bio || "")
+          setEmail(currentUser.email || "")
+          setBackgroundType(currentUser.backgroundType || "color")
+          setBackgroundColor(currentUser.backgroundValue || "#ffffff")
+          setSocialLinks(currentUser.socialLinks || [])
+          setAmazonAccessKey(currentUser.amazonAccessKey || "")
+          setAmazonSecretKey(currentUser.amazonSecretKey || "")
+          setAmazonAssociateId(currentUser.amazonAssociateId || "")
+          setHeaderImageKeys(
+            currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []),
+          )
+          if (currentUser.profileImage) setAvatarUploadedUrl(currentUser.profileImage)
+        }
+      } catch (e) {
+        const currentUser = db.user.get()
+        if (currentUser && mounted) {
+          setUser(currentUser)
+          setDisplayName(currentUser.displayName)
+          setBio(currentUser.bio || "")
+          setEmail(currentUser.email || "")
+          setBackgroundType(currentUser.backgroundType || "color")
+          setBackgroundColor(currentUser.backgroundValue || "#ffffff")
+          setSocialLinks(currentUser.socialLinks || [])
+          setAmazonAccessKey(currentUser.amazonAccessKey || "")
+          setAmazonSecretKey(currentUser.amazonSecretKey || "")
+          setAmazonAssociateId(currentUser.amazonAssociateId || "")
+          setHeaderImageKeys(
+            currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []),
+          )
+        }
+      }
+    }
+
+    load()
+    return () => {
+      mounted = false
     }
   }, [])
 
@@ -200,8 +253,31 @@ export default function AdminSettingsPage() {
       const uploadedUrl = json?.result?.variants?.[0] || json?.result?.url
       if (uploadedUrl) {
         // store the direct URL in headerImageKeys for simplicity
-        setHeaderImageKeys((prev) => [...prev, uploadedUrl])
-        toast({ title: "追加完了", description: "ヘッダー画像を追加しました" })
+        const newKeys = [...headerImageKeys, uploadedUrl]
+        setHeaderImageKeys(newKeys)
+
+        // Persist immediately to server so refresh retains images
+        try {
+          const payload: any = { headerImageKeys: newKeys }
+          const saveRes = await fetch('/api/admin/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          if (saveRes.ok) {
+            const saved = await saveRes.json().catch(() => null)
+            if (saved?.data) {
+              setUser(saved.data)
+              try { db.user.update(saved.data.id || user?.id || 'local', saved.data) } catch (e) {}
+            }
+          } else {
+            console.warn('[settings] failed to persist header images to server')
+          }
+        } catch (e) {
+          console.error('[settings] error persisting header images', e)
+        }
+
+        toast({ title: '追加完了', description: 'ヘッダー画像を追加しました' })
       } else {
         toast({ variant: "destructive", title: "アップロード失敗", description: "画像アップロードに失敗しました" })
       }
@@ -217,6 +293,27 @@ export default function AdminSettingsPage() {
     const [moved] = keys.splice(fromIndex, 1)
     keys.splice(toIndex, 0, moved)
     setHeaderImageKeys(keys)
+
+    // Persist order immediately
+    ;(async () => {
+      try {
+        const payload: any = { headerImageKeys: keys }
+        const res = await fetch('/api/admin/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (res.ok) {
+          const json = await res.json().catch(() => null)
+          if (json?.data) {
+            setUser(json.data)
+            try { db.user.update(json.data.id || user?.id || 'local', json.data) } catch (e) {}
+          }
+        }
+      } catch (e) {
+        console.error('[settings] reorder persist failed', e)
+      }
+    })()
   }
 
   // dnd-kit sensors
@@ -225,12 +322,12 @@ export default function AdminSettingsPage() {
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
     if (!over || active.id === over.id) return
-    const from = headerImageKeys.indexOf(String(active.id))
-    const to = headerImageKeys.indexOf(String(over.id))
-    if (from >= 0 && to >= 0) {
-      const newKeys = arrayMove(headerImageKeys, from, to)
-      setHeaderImageKeys(newKeys)
-    }
+    // active.id / over.id are numeric string indices (we render items by index)
+    const from = Number(String(active.id))
+    const to = Number(String(over.id))
+    if (Number.isNaN(from) || Number.isNaN(to)) return
+    const newKeys = arrayMove(headerImageKeys, from, to)
+    setHeaderImageKeys(newKeys)
   }
 
   function SortableItem({ id, index, imageUrl }: { id: string; index: number; imageUrl: string }) {
@@ -322,10 +419,33 @@ export default function AdminSettingsPage() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
 
   const removeHeaderImage = (index: number) => {
-    setHeaderImageKeys(headerImageKeys.filter((_, i) => i !== index))
+    const newKeys = headerImageKeys.filter((_, i) => i !== index)
+    setHeaderImageKeys(newKeys)
+
+    // Persist deletion immediately
+    ;(async () => {
+      try {
+        const payload: any = { headerImageKeys: newKeys }
+        const res = await fetch('/api/admin/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (res.ok) {
+          const json = await res.json().catch(() => null)
+          if (json?.data) {
+            setUser(json.data)
+            try { db.user.update(json.data.id || user?.id || 'local', json.data) } catch (e) {}
+          }
+        }
+      } catch (e) {
+        console.error('[settings] remove persist failed', e)
+      }
+    })()
+
     toast({
-      title: "削除完了",
-      description: "ヘッダー画像を削除しました",
+      title: '削除完了',
+      description: 'ヘッダー画像を削除しました',
     })
   }
 
@@ -339,15 +459,17 @@ export default function AdminSettingsPage() {
       return
     }
 
+    // Clean social links: trim and drop entries without a URL
+    const cleanedSocialLinks: SocialLink[] = socialLinks
+      .map((l) => ({ ...l, url: (l.url || "").toString().trim(), username: (l.username || "").toString().trim() }))
+      .filter((l) => l.url && l.url.length > 0)
+
     const updates: any = {
       displayName,
       bio,
       email,
       backgroundType,
-      socialLinks: socialLinks.filter((link) => link.url),
-      amazonAccessKey,
-      amazonSecretKey,
-      amazonAssociateId,
+      socialLinks: cleanedSocialLinks,
       headerImageKeys, // キー配列を保存
     }
 
@@ -362,14 +484,93 @@ export default function AdminSettingsPage() {
     }
 
     if (avatarFile) {
-      const avatarKey = `avatar-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      const avatarBase64 = await fileToBase64(avatarFile)
-      db.images.saveUpload(avatarKey, avatarBase64)
-      updates.profileImageKey = avatarKey
+      // If the image was uploaded via ImageUpload and returned a URL, prefer that direct URL.
+      if (avatarUploadedUrl) {
+        updates.profileImage = avatarUploadedUrl
+      } else {
+        const avatarKey = `avatar-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        const avatarBase64 = await fileToBase64(avatarFile)
+        db.images.saveUpload(avatarKey, avatarBase64)
+        updates.profileImageKey = avatarKey
+      }
     }
 
-    db.user.update(user.id, updates)
-    console.log("[v0] Saved settings:", updates)
+    // Save user-visible settings to the server via API
+    try {
+      const payload: any = { id: user?.id, ...updates }
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        // fallback to local cache if server write fails
+        db.user.update(user?.id || 'local', updates)
+        console.warn('[v0] server save failed, saved to local cache instead')
+      } else {
+        const json = await res.json().catch(() => null)
+        const saved = json?.data
+        if (saved) {
+          setUser(saved)
+          // also update local cache so UI that still reads db.user stays in sync
+          try {
+            db.user.update(saved.id || user?.id || 'local', saved)
+          } catch (e) {
+            // ignore local cache update errors
+          }
+        }
+        console.log('[v0] Saved settings to server:', saved || updates)
+      }
+    } catch (e) {
+      console.error('Error saving settings to server', e)
+      db.user.update(user?.id || 'local', updates)
+    }
+
+    // Save Amazon credentials securely via server-side API (do not store secret in client-accessible user record)
+    try {
+      // If all credential fields are empty, skip saving — user intentionally left blank
+      const hasAnyCred = (amazonAccessKey || amazonSecretKey || amazonAssociateId)?.toString().trim().length > 0
+      if (hasAnyCred) {
+        const credRes = await fetch('/api/admin/amazon/credentials', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: user.id || 'default',
+            accessKey: amazonAccessKey,
+            secretKey: amazonSecretKey,
+            associateId: amazonAssociateId,
+          }),
+        })
+
+        if (!credRes.ok) {
+          let errJson: any = null
+          let errText: string | null = null
+          try {
+            errJson = await credRes.json()
+          } catch (e) {
+            // ignore json parse error
+          }
+          try {
+            // attempt to get raw text too (some errors may return empty json)
+            errText = await credRes.text()
+          } catch (e) {
+            // ignore
+          }
+          console.error('Failed to save Amazon credentials', { status: credRes.status, json: errJson, text: errText })
+          const message = errJson?.error || errJson?.message || (errText && errText.length > 0 ? errText : `HTTP ${credRes.status}`)
+          toast({ variant: 'destructive', title: 'エラー', description: `Amazon認証情報の保存に失敗しました: ${message}` })
+        } else {
+          toast({ title: 'Amazon認証情報を保存しました' })
+        }
+      } else {
+        // Nothing to save — skip without error
+        console.log('[settings] Amazon credentials empty, skipping save')
+      }
+    } catch (e) {
+      console.error('Error saving creds', e)
+      toast({ variant: 'destructive', title: 'エラー', description: 'Amazon認証情報の保存中にエラーが発生しました' })
+    }
 
     const updatedUser = db.user.get()
     if (updatedUser) {
@@ -400,13 +601,14 @@ export default function AdminSettingsPage() {
   const headerImageUrls = headerImageKeys
     .map((key) => {
       if (!key) return null
-      if (typeof key === "string" && (key.startsWith("http") || key.startsWith("/"))) return key
-      return db.images.getUpload(String(key))
+      const candidate = typeof key === "string" && (key.startsWith("http") || key.startsWith("/")) ? key : db.images.getUpload(String(key)) || String(key)
+      return getPublicImageUrl(candidate)
     })
     .filter(Boolean) as string[]
-  const profileImageUrl = user?.profileImageKey
-    ? db.images.getUpload(user.profileImageKey)
-    : user?.avatarUrl || user?.profileImage
+  const profileImageUrl =
+    getPublicImageUrl(
+      avatarUploadedUrl || (user?.profileImage ? user.profileImage : user?.profileImageKey ? db.images.getUpload(user.profileImageKey) : user?.avatarUrl || user?.profileImage) || null,
+    )
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -431,7 +633,7 @@ export default function AdminSettingsPage() {
             <div className="space-y-2">
               <Label>プロフィール画像</Label>
               <div className="max-w-[200px]">
-                <ImageUpload value={profileImageUrl || ""} onChange={setAvatarFile} aspectRatioType="profile" />
+                <ImageUpload value={profileImageUrl || ""} onChange={setAvatarFile} aspectRatioType="profile" onUploadComplete={(url) => setAvatarUploadedUrl(url)} />
               </div>
             </div>
 
@@ -588,11 +790,13 @@ export default function AdminSettingsPage() {
           <CardContent className="space-y-4">
             <div className="space-y-4">
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={headerImageKeys} strategy={horizontalListSortingStrategy}>
+                <SortableContext items={headerImageKeys.map((_, i) => String(i))} strategy={horizontalListSortingStrategy}>
                   <div className="flex gap-2 overflow-x-auto py-2">
                     {headerImageKeys.map((key, index) => {
-                      const url = db.images.getUpload(key) || "/placeholder.svg"
-                      return <SortableThumb key={key} id={key} index={index} imageUrl={url} />
+                      const candidate = db.images.getUpload(key) || String(key)
+                      const url = getPublicImageUrl(candidate) || "/placeholder.svg"
+                      // Use an index-based id for dnd-kit and make React key stable by suffixing the index
+                      return <SortableThumb key={`${String(key)}-${index}`} id={String(index)} index={index} imageUrl={url} />
                     })}
                   </div>
                 </SortableContext>
@@ -604,12 +808,12 @@ export default function AdminSettingsPage() {
                   <Label className="mb-2">編集: ヘッダー画像 {editingIndex + 1}</Label>
                   <div className="flex gap-4 items-start">
                     <div className="w-80 h-48 rounded overflow-hidden border bg-muted">
-                      <img src={db.images.getUpload(headerImageKeys[editingIndex]) || "/placeholder.svg"} className="w-full h-full object-cover" />
+                      <img src={getPublicImageUrl(db.images.getUpload(headerImageKeys[editingIndex]) || String(headerImageKeys[editingIndex])) || "/placeholder.svg"} className="w-full h-full object-cover" />
                     </div>
 
                     <div className="flex-1 space-y-3">
                       <ImageUpload
-                        value={db.images.getUpload(headerImageKeys[editingIndex]) || ""}
+                        value={getPublicImageUrl(db.images.getUpload(headerImageKeys[editingIndex]) || String(headerImageKeys[editingIndex])) || ""}
                         onChange={async (file) => {
                           if (file) {
                             const key = headerImageKeys[editingIndex]

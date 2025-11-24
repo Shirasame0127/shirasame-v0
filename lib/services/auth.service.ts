@@ -1,4 +1,4 @@
-import { mockUser, type User } from "@/lib/mock-data/users"
+import type { User } from "@/lib/db/schema"
 
 /**
  * 認証サービス層
@@ -10,16 +10,15 @@ export class AuthService {
    * 現在のユーザーを取得
    */
   static async getCurrentUser(): Promise<User | null> {
-    // TODO: 認証実装時
-    // const { data: { user } } = await supabase.auth.getUser()
-    // if (!user) return null
-    // const { data } = await supabase.from('users').select('*').eq('id', user.id).single()
-    // return data
-
-    // モック: 常にしらさめユーザーを返す
-    return new Promise((resolve) => {
-      setTimeout(() => resolve(mockUser), 100)
-    })
+    try {
+      const res = await fetch('/api/profile')
+      if (!res.ok) return null
+      const json = await res.json().catch(() => null)
+      return json || null
+    } catch (e) {
+      console.error('[AuthService] getCurrentUser error', e)
+      return null
+    }
   }
 
   /**

@@ -13,7 +13,8 @@
 "use client"
 
 import Image from "next/image"
-import type { Product } from "@/lib/mock-data/products"
+import { getPublicImageUrl } from "@/lib/image-url"
+import type { Product } from "@/lib/db/schema"
 
 interface ProductCardSimpleProps {
   product: Product
@@ -21,7 +22,8 @@ interface ProductCardSimpleProps {
 }
 
 export function ProductCardSimple({ product, onClick }: ProductCardSimpleProps) {
-  const mainImage = product.images.find((img) => img.role === "main") || product.images[0]
+  const images = Array.isArray(product.images) ? product.images : []
+  const mainImage = images.find((img) => img?.role === "main") || images[0] || null
 
   return (
     // カード全体をボタンとして機能させる
@@ -32,7 +34,7 @@ export function ProductCardSimple({ product, onClick }: ProductCardSimpleProps) 
       {/* hover:shadow-md: ホバー時の影の大きさ */}
       <div className="relative aspect-square overflow-hidden rounded-md bg-muted hover:shadow-md transition-all duration-300">
         <Image
-          src={mainImage?.url || "/placeholder.svg"}
+          src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg"}
           alt={product.title}
           fill
           // group-hover:scale-105: ホバー時に1.05倍に拡大

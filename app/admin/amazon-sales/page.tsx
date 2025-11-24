@@ -36,11 +36,22 @@ export default function AdminAmazonSalesPage() {
   }, [])
 
   const loadSchedules = () => {
-    const allSchedules = db.amazonSaleSchedules?.getAll() || []
-    setSchedules(allSchedules)
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/amazon-sale-schedules')
+        if (!res.ok) throw new Error('failed')
+        const json = await res.json().catch(() => ({ data: [] }))
+        const list = Array.isArray(json.data) ? json.data : json.data || []
+        setSchedules(list)
+      } catch (e) {
+        // fallback to local cache if API fails
+        const allSchedules = db.amazonSaleSchedules?.getAll() || []
+        setSchedules(allSchedules)
+      }
+    })()
   }
 
-  const handleAddSchedule = () => {
+  const handleAddSchedule = async () => {
     if (!newSaleName || !newStartDate || !newEndDate) {
       toast({
         variant: "destructive",
@@ -62,30 +73,37 @@ export default function AdminAmazonSalesPage() {
       return
     }
 
-    const collection = db.collections.create({
-      title: newSaleName,
-      description: `${newSaleName}期間中のセール商品`,
-      productIds: [],
-      visibility: "public"
-    })
-
-    // スケジュールを作成
-    db.amazonSaleSchedules?.create({
+    const payload = {
       saleName: newSaleName,
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
-      collectionId: collection.id
-    })
+    }
 
-    console.log("[v0] Created Amazon sale schedule:", {
-      saleName: newSaleName,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      collectionId: collection.id
+    let created: any = null
+    const res = await fetch('/api/admin/amazon-sale-schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     })
+    let json: any = {}
+    try { json = await res.json() } catch { json = {} }
+
+    if (!res.ok) {
+      console.error('failed to create sale schedule', json)
+      const msg = json?.error || 'スケジュールの作成に失敗しました'
+      toast({ variant: 'destructive', title: '作成失敗', description: msg })
+      return
+    }
+
+    created = json.data || json
+    console.log('[v0] Created Amazon sale schedule:', created)
 
     // モック：Amazonリンクのある商品をチェックしてセール価格かどうか判定
-    checkAmazonProducts(collection.id, newSaleName, startDate, endDate)
+    // 作成 API のレスポンスから collectionId を取り出して渡す
+    if (created?.collectionId) {
+      // セールコレクションに商品を仮追加（モック）
+      checkAmazonProducts(created.collectionId, newSaleName, startDate, endDate)
+    }
 
     loadSchedules()
     setNewSaleName("")
@@ -147,17 +165,19 @@ export default function AdminAmazonSalesPage() {
     })
   }
 
-  const handleDeleteSchedule = (scheduleId: string) => {
+  const handleDeleteSchedule = async (scheduleId: string) => {
     const schedule = schedules.find(s => s.id === scheduleId)
     if (!schedule) return
 
-    if (schedule.collectionId) {
-      db.collections.delete(schedule.collectionId)
-      console.log("[v0] Deleted sale collection:", schedule.collectionId)
+    try {
+      const res = await fetch(`/api/admin/amazon-sale-schedules/${encodeURIComponent(scheduleId)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('delete failed')
+      console.log('[v0] Deleted sale schedule:', scheduleId)
+      loadSchedules()
+    } catch (e) {
+      console.error('failed to delete schedule', e)
+      toast({ variant: 'destructive', title: '削除失敗', description: 'スケジュールの削除に失敗しました' })
     }
-
-    db.amazonSaleSchedules?.delete(scheduleId)
-    loadSchedules()
 
     toast({
       title: "スケジュール削除",

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,28 +13,48 @@ import Link from "next/link"
 import { useRouter } from 'next/navigation'
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { db } from "@/lib/db/storage"
 import { auth } from "@/lib/auth"
 import type { Product } from "@/lib/db/schema"
 import { fileToBase64 } from "@/lib/utils/image-utils"
 import { useToast } from "@/hooks/use-toast"
 
-const TAG_CATEGORIES = {
-  ジャンル: ["マウス", "キーボード", "照明", "オーディオ", "カメラ", "モニターアーム", "デスク", "チェア"],
-  カテゴリ: ["デスク周り", "生産性", "リモートワーク", "集中力", "エルゴノミクス", "目に優しい"],
-  リンク先: ["Amazon", "楽天", "Yahoo", "公式サイト"],
+import { db } from "@/lib/db/storage"
+import { getPublicImageUrl } from "@/lib/image-url"
+
+// tag groups are loaded from server (/api/tag-groups and /api/tags)
+// with a fallback to the in-memory `db` cache warmed on the client.
+
+
+type AffiliateTemplateId = 'amazon' | 'rakuten' | 'yahoo' | 'official'
+
+const AFFILIATE_LINK_TEMPLATES: Array<{
+  id: AffiliateTemplateId
+  name: string
+  defaultLabel: string
+  defaultUrl: string
+  linkTag: string
+}> = [
+  { id: 'amazon', name: 'Amazon', defaultLabel: 'Amazonで見る', defaultUrl: 'https://www.amazon.co.jp/dp/', linkTag: 'Amazon' },
+  { id: 'rakuten', name: '楽天', defaultLabel: '楽天で見る', defaultUrl: 'https://item.rakuten.co.jp/', linkTag: '楽天' },
+  { id: 'yahoo', name: 'ヤフー', defaultLabel: 'ヤフーショッピングで見る', defaultUrl: 'https://store.shopping.yahoo.co.jp/', linkTag: 'Yahoo' },
+  { id: 'official', name: '公式サイト', defaultLabel: '公式サイトで見る', defaultUrl: 'https://example.com/', linkTag: '公式サイト' },
+]
+
+type AttachmentSlot = {
+  file: File | null
+  url: string
 }
 
 export default function ProductNewPage() {
   const router = useRouter()
-  const linkTags = db.tags.getAll().filter((t: any) => t.linkUrl)
   const { toast } = useToast()
-  
+  const [currentUser] = useState(() => auth.getCurrentUser())
+  const [productId, setProductId] = useState(() => `prod-${Date.now()}`)
   const [title, setTitle] = useState("")
   const [shortDescription, setShortDescription] = useState("")
   const [body, setBody] = useState("")
   const [notes, setNotes] = useState("")
-  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
+  const [attachmentSlots, setAttachmentSlots] = useState<AttachmentSlot[]>([])
   const [relatedLinks, setRelatedLinks] = useState<string[]>([""])
   const [price, setPrice] = useState("")
   const [showPrice, setShowPrice] = useState(true)
@@ -42,9 +62,142 @@ export default function ProductNewPage() {
   const [tagInput, setTagInput] = useState("")
   const [published, setPublished] = useState(true)
   const [imageFile, setImageFile] = useState<File | null>(null)
+  const [mainImageUrl, setMainImageUrl] = useState("")
   const [affiliateLinks, setAffiliateLinks] = useState<Array<{ provider: string; url: string; label: string }>>([
     { provider: "", url: "", label: "" },
   ])
+  const [draftInitialized, setDraftInitialized] = useState(false)
+
+  // dynamic tag groups loaded from server with cache fallback
+  const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({
+    リンク先: ["Amazon", "楽天", "Yahoo", "公式サイト"],
+  })
+  const [availableTags, setAvailableTags] = useState<any[]>([])
+
+  useEffect(() => {
+    // load tags and tag-groups from server; fallback to in-memory cache
+    ;(async () => {
+      try {
+        const [tagsRes, groupsRes] = await Promise.all([fetch('/api/tags'), fetch('/api/tag-groups')])
+
+        const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
+        const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
+
+        const serverTags = Array.isArray(tagsJson) ? tagsJson : tagsJson.data || []
+        const serverGroups = Array.isArray(groupsJson) ? groupsJson : groupsJson.data || []
+
+        const finalTags = tagsRes.ok && Array.isArray(serverTags) && serverTags.length > 0 ? serverTags : db.tags.getAllWithPlaceholders()
+        setAvailableTags(finalTags)
+
+        const groupNames: string[] = serverGroups && serverGroups.length > 0 ? serverGroups.map((g: any) => g.name).filter(Boolean) : []
+        if (groupNames.length === 0) {
+          const inferred = Array.from(new Set((finalTags || []).map((t: any) => t.group).filter(Boolean)))
+          inferred.forEach((g) => groupNames.push(g))
+        }
+
+        const map: Record<string, string[]> = {}
+        map['リンク先'] = ['Amazon', '楽天', 'Yahoo', '公式サイト']
+        groupNames.forEach((name) => {
+          map[name] = (finalTags || []).filter((t: any) => (t.group || '未分類') === name).map((t: any) => t.name)
+        })
+
+        setTagGroups(map)
+      } catch (e) {
+        const fallback = db.tags.getAllWithPlaceholders()
+        const inferred = Array.from(new Set((fallback || []).map((t: any) => t.group).filter(Boolean)))
+        const map: Record<string, string[]> = {}
+        map['リンク先'] = ['Amazon', '楽天', 'Yahoo', '公式サイト']
+        inferred.forEach((name) => {
+          map[name] = (fallback || []).filter((t: any) => (t.group || '未分類') === name).map((t: any) => t.name)
+        })
+        setTagGroups(map)
+        console.warn('failed to load tags/groups, falling back to cache', e)
+      }
+    })()
+
+    if (!currentUser?.id || draftInitialized) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/admin/product-drafts?userId=${currentUser.id}`)
+        if (!res.ok) return
+        const json = await res.json()
+        if (!json?.data || cancelled) return
+        const data = json.data
+        setProductId(data.productId || `prod-${Date.now()}`)
+        setTitle(data.title || "")
+        setShortDescription(data.shortDescription || "")
+        setBody(data.body || "")
+        setNotes(data.notes || "")
+        setRelatedLinks(data.relatedLinks?.length ? data.relatedLinks : [""])
+        setPrice(data.price || "")
+        setShowPrice(typeof data.showPrice === "boolean" ? data.showPrice : true)
+        setTags(Array.isArray(data.tags) ? data.tags : [])
+        setPublished(typeof data.published === "boolean" ? data.published : true)
+        setAffiliateLinks(Array.isArray(data.affiliateLinks) && data.affiliateLinks.length > 0 ? data.affiliateLinks : [{ provider: "", url: "", label: "" }])
+        setMainImageUrl(data.mainImageUrl || "")
+        setAttachmentSlots(Array.isArray(data.attachmentUrls) ? data.attachmentUrls.map((url: string) => ({ file: null, url })) : [])
+      } catch (err) {
+        console.error("Failed to load product draft", err)
+      } finally {
+        if (!cancelled) setDraftInitialized(true)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentUser?.id, draftInitialized])
+
+  const draftState = useMemo(
+    () => ({
+      productId,
+      title,
+      shortDescription,
+      body,
+      notes,
+      relatedLinks,
+      price,
+      showPrice,
+      tags,
+      published,
+      affiliateLinks,
+      mainImageUrl,
+      attachmentUrls: attachmentSlots.map((slot) => slot.url).filter(Boolean),
+    }),
+    [productId, title, shortDescription, body, notes, relatedLinks, price, showPrice, tags, published, affiliateLinks, mainImageUrl, attachmentSlots],
+  )
+
+  useEffect(() => {
+    if (!currentUser?.id || !draftInitialized) return
+    const hasContent =
+      draftState.title ||
+      draftState.shortDescription ||
+      draftState.body ||
+      draftState.notes ||
+      draftState.relatedLinks?.some((link) => link.trim()) ||
+      draftState.tags?.length > 0 ||
+      draftState.affiliateLinks?.some((link) => link.url) ||
+      Boolean(draftState.mainImageUrl) ||
+      draftState.attachmentUrls?.length > 0
+
+    if (!hasContent) return
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => {
+      fetch('/api/admin/product-drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id, data: draftState }),
+        signal: controller.signal,
+      }).catch((err) => console.warn('Draft save failed', err))
+    }, 1000)
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [draftState, currentUser?.id, draftInitialized])
 
   const addTag = (tag: string) => {
     const trimmedTag = tag.trim()
@@ -66,17 +219,25 @@ export default function ProductNewPage() {
     setAffiliateLinks(affiliateLinks.filter((_, i) => i !== index))
   }
 
-  const updateAffiliateLinkFromTag = (index: number, tagName: string) => {
-    const tag = linkTags.find((t: any) => t.name === tagName)
-    if (tag) {
-      const updated = [...affiliateLinks]
-      updated[index] = { 
-        provider: tag.name,
-        url: tag.linkUrl || "",
-        label: tag.linkLabel || ""
-      }
-      setAffiliateLinks(updated)
+  const ensureLinkTag = (linkTag: string) => {
+    if (!linkTag) return
+    setTags((prev) => (prev.includes(linkTag) ? prev : [...prev, linkTag]))
+  }
+
+  const applyAffiliateTemplate = (index: number, templateId: AffiliateTemplateId) => {
+    const template = AFFILIATE_LINK_TEMPLATES.find((t) => t.id === templateId)
+    if (!template) return
+    const updated = [...affiliateLinks]
+    updated[index] = {
+      ...updated[index],
+      provider: template.name,
+      label: template.defaultLabel,
+      url: updated[index].url || template.defaultUrl,
     }
+    setAffiliateLinks(updated)
+
+    // リンク先テンプレート選択時に対応するリンク先タグを自動付与
+    ensureLinkTag(template.linkTag)
   }
 
   const updateAffiliateLink = (index: number, field: string, value: string) => {
@@ -99,18 +260,18 @@ export default function ProductNewPage() {
   }
 
   const handleAttachmentChange = (index: number, file: File | null) => {
-    const updated = [...attachmentFiles]
-    if (file) {
-      updated[index] = file
-    } else {
-      updated.splice(index, 1)
-    }
-    setAttachmentFiles(updated)
+    setAttachmentSlots((prev) => {
+      const next = [...prev]
+      if (next[index]) {
+        next[index] = { ...next[index], file }
+      }
+      return next
+    })
   }
 
   const addAttachmentSlot = () => {
-    if (attachmentFiles.length < 4) {
-      setAttachmentFiles([...attachmentFiles, null as any])
+    if (attachmentSlots.length < 4) {
+      setAttachmentSlots([...attachmentSlots, { file: null, url: "" }])
     }
   }
 
@@ -129,8 +290,8 @@ export default function ProductNewPage() {
   }
 
   const handleSave = async () => {
-    const currentUser = auth.getCurrentUser()
-    if (!currentUser) {
+    const user = currentUser || auth.getCurrentUser()
+    if (!user) {
       toast({
         variant: "destructive",
         title: "エラー",
@@ -140,7 +301,7 @@ export default function ProductNewPage() {
       return
     }
 
-    if (!title || !imageFile) {
+    if (!title || (!imageFile && !mainImageUrl)) {
       toast({
         variant: "destructive",
         title: "エラー",
@@ -149,14 +310,21 @@ export default function ProductNewPage() {
       return
     }
 
-    const imageBase64 = await fileToBase64(imageFile)
+    const generatedProductId = productId || `prod-${Date.now()}`
+    const mainImageSource = mainImageUrl || (imageFile ? await fileToBase64(imageFile) : null)
+    if (!mainImageSource) {
+      toast({ variant: "destructive", title: "エラー", description: "画像のアップロードに失敗しました" })
+      return
+    }
+
     const attachmentImages = await Promise.all(
-      attachmentFiles
-        .filter((f) => f)
-        .map(async (file, idx) => ({
+      attachmentSlots
+        .map((slot, idx) => ({ slot, idx }))
+        .filter(({ slot }) => slot.file || slot.url)
+        .map(async ({ slot, idx }) => ({
           id: `img-attachment-${Date.now()}-${idx}`,
-          productId: `prod-${Date.now()}`,
-          url: await fileToBase64(file),
+          productId: generatedProductId,
+          url: slot.url || (slot.file ? await fileToBase64(slot.file) : ""),
           width: 400,
           height: 400,
           aspect: "1:1",
@@ -165,8 +333,8 @@ export default function ProductNewPage() {
     )
 
     const newProduct: Product = {
-      id: `prod-${Date.now()}`,
-      userId: currentUser.id, // ユーザーIDを設定
+      id: generatedProductId,
+      userId: user.id, // ユーザーIDを設定
       title,
       slug: title.toLowerCase().replace(/\s+/g, "-"),
       shortDescription,
@@ -176,8 +344,8 @@ export default function ProductNewPage() {
       images: [
         {
           id: `img-${Date.now()}`,
-          productId: `prod-${Date.now()}`,
-          url: imageBase64,
+          productId: generatedProductId,
+          url: mainImageSource,
           width: 400,
           height: 400,
           aspect: "1:1",
@@ -194,13 +362,43 @@ export default function ProductNewPage() {
       updatedAt: new Date().toISOString(),
     }
 
-    db.products.create(newProduct)
+    try {
+      const res = await fetch('/api/admin/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newProduct),
+      })
 
-    toast({
-      title: "作成完了",
-      description: "商品を追加しました"
-    })
-    router.push("/admin/products")
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: '保存に失敗しました' }))
+        toast({ variant: 'destructive', title: 'エラー', description: err.error || '商品保存に失敗しました' })
+        return
+      }
+
+      const json = await res.json()
+
+      // If server returned partial errors, show them to the user but continue
+      if (json.errors) {
+        const messages = Object.entries(json.errors)
+          .map(([k, v]) => `${k}: ${String(v)}`)
+          .join('\n')
+        toast({ variant: 'destructive', title: '一部保存に失敗しました', description: messages })
+      }
+
+      const created = json.data || json
+
+      await fetch('/api/admin/product-drafts', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      }).catch(() => {})
+
+      toast({ title: '作成完了', description: '商品を追加しました' })
+      router.push('/admin/products')
+    } catch (e) {
+      console.error('product create error', e)
+      toast({ variant: 'destructive', title: 'エラー', description: '商品作成中にエラーが発生しました' })
+    }
   }
 
   return (
@@ -217,7 +415,7 @@ export default function ProductNewPage() {
             <p className="text-sm text-muted-foreground">新しい商品情報を登録</p>
           </div>
         </div>
-        <Button onClick={handleSave} size="lg">
+        <Button onClick={handleSave} size="lg" disabled={!title || !(imageFile || mainImageUrl)}>
           <Save className="w-4 h-4 mr-2" />
           保存
         </Button>
@@ -293,7 +491,7 @@ export default function ProductNewPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>選択中のタグ</Label>
-              <div className="flex flex-wrap gap-2 min-h-[40px] p-3 border rounded-md bg-muted/30">
+              <div className="flex flex-wrap gap-2 min-h-10 p-3 border rounded-md bg-muted/30">
                 {tags.length === 0 ? (
                   <span className="text-sm text-muted-foreground">タグを追加してください</span>
                 ) : (
@@ -330,7 +528,7 @@ export default function ProductNewPage() {
             </div>
 
             <div className="space-y-3">
-              {Object.entries(TAG_CATEGORIES).map(([category, categoryTags]) => (
+              {Object.entries(tagGroups).map(([category, categoryTags]) => (
                 <div key={category} className="space-y-2">
                   <Label className="text-sm text-muted-foreground">{category}</Label>
                   <div className="flex flex-wrap gap-2">
@@ -362,7 +560,12 @@ export default function ProductNewPage() {
             <CardTitle>商品画像 *</CardTitle>
           </CardHeader>
           <CardContent>
-            <ImageUpload value="" onChange={setImageFile} aspectRatioType="product" />
+            <ImageUpload
+                  value={getPublicImageUrl(mainImageUrl) || ""}
+                  onChange={setImageFile}
+                  aspectRatioType="product"
+                  onUploadComplete={(url) => url && setMainImageUrl(url)}
+                />
           </CardContent>
         </Card>
 
@@ -370,7 +573,7 @@ export default function ProductNewPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>添付画像（最大4枚）</CardTitle>
-              {attachmentFiles.length < 4 && (
+              {attachmentSlots.length < 4 && (
                 <Button type="button" size="sm" variant="outline" onClick={addAttachmentSlot}>
                   <Plus className="w-4 h-4 mr-1" />
                   追加
@@ -379,12 +582,24 @@ export default function ProductNewPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {attachmentFiles.map((file, index) => (
+            {attachmentSlots.map((slot, index) => (
               <div key={index} className="relative">
-                <ImageUpload value="" onChange={(f) => handleAttachmentChange(index, f)} aspectRatioType="product" />
+                <ImageUpload
+                  value={getPublicImageUrl(slot.url) || ""}
+                  onChange={(f) => handleAttachmentChange(index, f)}
+                  aspectRatioType="product"
+                  onUploadComplete={(url) =>
+                    url &&
+                    setAttachmentSlots((prev) => {
+                      const next = [...prev]
+                      if (next[index]) next[index] = { ...next[index], url }
+                      return next
+                    })
+                  }
+                />
               </div>
             ))}
-            {attachmentFiles.length === 0 && <p className="text-sm text-muted-foreground">添付画像はありません</p>}
+            {attachmentSlots.length === 0 && <p className="text-sm text-muted-foreground">添付画像はありません</p>}
           </CardContent>
         </Card>
 
@@ -403,27 +618,24 @@ export default function ProductNewPage() {
               <div key={index} className="flex gap-3 items-start p-4 border rounded-lg bg-muted/30">
                 <div className="flex-1 space-y-3">
                   <div className="space-y-2">
-                    <Label>リンク先</Label>
+                    <Label>リンク先テンプレート</Label>
                     <Select
-                      value={link.provider}
-                      onValueChange={(value) => {
-                        updateAffiliateLink(index, "provider", value)
-                        updateAffiliateLinkFromTag(index, value)
-                      }}
+                      value={AFFILIATE_LINK_TEMPLATES.find((t) => t.name === link.provider)?.id || ""}
+                      onValueChange={(value) => applyAffiliateTemplate(index, value as AffiliateTemplateId)}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="選択してください" />
                       </SelectTrigger>
                       <SelectContent>
-                        {linkTags.map((tag: any) => (
-                          <SelectItem key={tag.id} value={tag.name}>
-                            {tag.name}
+                        {AFFILIATE_LINK_TEMPLATES.map((template) => (
+                          <SelectItem key={template.id} value={template.id}>
+                            {template.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      タグ管理で登録したリンク先から選択できます
+                      Amazon / 楽天 / ヤフー / 公式サイトのテンプレートを選べます
                     </p>
                   </div>
 
@@ -455,7 +667,7 @@ export default function ProductNewPage() {
                       onChange={(e) => updateAffiliateLink(index, "label", e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">
-                      リンク先タグから自動入力されます
+                      テンプレート選択時に自動入力されます
                     </p>
                   </div>
                 </div>

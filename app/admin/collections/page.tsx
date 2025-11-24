@@ -23,6 +23,8 @@ export default function AdminCollectionsPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [manageProductsDialogOpen, setManageProductsDialogOpen] = useState(false)
   const [managingCollectionId, setManagingCollectionId] = useState<string | null>(null)
+  const [productsList, setProductsList] = useState<any[]>([])
+  const [managingCollectionProductIds, setManagingCollectionProductIds] = useState<string[]>([])
   const { toast } = useToast()
 
   const [formData, setFormData] = useState({
@@ -32,7 +34,42 @@ export default function AdminCollectionsPage() {
   })
 
   useEffect(() => {
-    setCollections(db.collections.getAll())
+    // Load from server API to ensure authoritative list
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/collections')
+        if (!res.ok) throw new Error('failed')
+        const json = await res.json()
+        const list = Array.isArray(json) ? json : json.data || []
+        setCollections(list)
+
+        // Inspect each collection for actual existing item counts
+        try {
+          const inspections = await Promise.all(list.map(async (c: any) => {
+            try {
+              const r = await fetch(`/api/admin/collections/${encodeURIComponent(c.id)}/inspect`)
+              if (!r.ok) return null
+              const j = await r.json().catch(() => null)
+              return { id: c.id, inspect: j?.data || null }
+            } catch (e) {
+              return null
+            }
+          }))
+
+          const inspectMap = new Map<string, any>()
+          inspections.forEach((it: any) => { if (it && it.id) inspectMap.set(it.id, it.inspect) })
+          if (inspectMap.size > 0) {
+            setCollections((prev) => prev.map((c) => ({ ...c, inspect: inspectMap.get(c.id) || null })))
+          }
+        } catch (e) {
+          console.warn('collection inspect failed', e)
+        }
+      } catch (e) {
+        console.warn('failed to load collections', e)
+        // fallback to in-memory cache if available
+        setCollections(db.collections.getAll())
+      }
+    })()
   }, [])
 
   const openCreateDialog = () => {
@@ -55,10 +92,34 @@ export default function AdminCollectionsPage() {
 
   const openManageProductsDialog = (collectionId: string) => {
     setManagingCollectionId(collectionId)
+    // fetch products and collection items for this collection
+    ;(async () => {
+      try {
+        const [prodRes, itemsRes] = await Promise.all([
+          fetch('/api/admin/products'),
+          fetch(`/api/admin/collections/${encodeURIComponent(collectionId)}/items`),
+        ])
+
+        const prodJson = await prodRes.json().catch(() => ({ data: [] }))
+        const itemsJson = await itemsRes.json().catch(() => ({ data: [] }))
+
+        const prods = Array.isArray(prodJson) ? prodJson : prodJson.data || []
+        const items = Array.isArray(itemsJson) ? itemsJson : itemsJson.data || []
+
+        setProductsList(prods)
+        setManagingCollectionProductIds(items.map((it: any) => it.productId))
+      } catch (e) {
+        console.error('failed to load products or collection items', e)
+        // fallback to in-memory
+        setProductsList(db.products.getAll())
+        setManagingCollectionProductIds(db.collectionItems.getByCollectionId(collectionId).map((i: any) => i.productId))
+      }
+    })()
+
     setManageProductsDialogOpen(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.title.trim()) {
       toast({
         variant: "destructive",
@@ -69,29 +130,48 @@ export default function AdminCollectionsPage() {
     }
 
     if (isCreating) {
-      const newCollection: Collection = {
-        id: `col-${Date.now()}`,
-        userId: "user-shirasame",
-        title: formData.title,
-        description: formData.description,
-        productIds: [],
-        visibility: formData.visibility,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+      try {
+        const payload = {
+          title: formData.title,
+          description: formData.description,
+          visibility: formData.visibility,
+        }
+        const res = await fetch('/api/admin/collections', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (!res.ok) throw new Error('failed')
+        const json = await res.json()
+        const created = json.data || json
+        setCollections((prev) => [...prev, created])
+        toast({ title: '作成完了', description: 'コレクションを作成しました' })
+      } catch (e) {
+        console.error('create collection failed', e)
+        toast({ variant: 'destructive', title: '作成失敗', description: 'コレクションの作成に失敗しました' })
       }
-      db.collections.create(newCollection)
-      setCollections([...collections, newCollection])
-      toast({
-        title: "作成完了",
-        description: "コレクションを作成しました"
-      })
     } else if (editingCollection) {
-      db.collections.update(editingCollection.id, formData)
-      setCollections(collections.map((col) => (col.id === editingCollection.id ? { ...col, ...formData } : col)))
-      toast({
-        title: "更新完了",
-        description: "コレクションを更新しました"
-      })
+      try {
+        const res = await fetch(`/api/admin/collections/${encodeURIComponent(editingCollection.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: formData.title, description: formData.description, visibility: formData.visibility }),
+        })
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          console.error('update failed', json)
+          const msg = json?.error || json?.message || 'コレクションの更新に失敗しました'
+          toast({ variant: 'destructive', title: '更新失敗', description: String(msg) })
+          return
+        }
+
+        const updated = json.data || json
+        setCollections((cols) => cols.map((col) => (col.id === editingCollection.id ? { ...col, ...updated } : col)))
+        toast({ title: '更新完了', description: 'コレクションを更新しました' })
+      } catch (e: any) {
+        console.error('update failed', e)
+        toast({ variant: 'destructive', title: '更新失敗', description: String(e?.message || e) })
+      }
     }
 
     setDialogOpen(false)
@@ -105,14 +185,18 @@ export default function AdminCollectionsPage() {
         <Button
           variant="destructive"
           size="sm"
-          onClick={() => {
-            db.collections.delete(collectionId)
-            setCollections(collections.filter((col) => col.id !== collectionId))
-            toast({
-              title: "削除完了",
-              description: "コレクションを削除しました"
-            })
-          }}
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/admin/collections/${encodeURIComponent(collectionId)}`, { method: 'DELETE' })
+                  if (!res.ok) throw new Error('delete failed')
+                  db.collections.delete(collectionId)
+                  setCollections(collections.filter((col) => col.id !== collectionId))
+                  toast({ title: '削除完了', description: 'コレクションを削除しました' })
+                } catch (e) {
+                  console.error('delete collection failed', e)
+                  toast({ variant: 'destructive', title: '削除に失敗しました' })
+                }
+              }}
         >
           削除
         </Button>
@@ -121,43 +205,89 @@ export default function AdminCollectionsPage() {
   }
 
   const handleAddProduct = (collectionId: string, productId: string) => {
-    db.collectionItems.addProduct(collectionId, productId)
-    toast({
-      title: "追加完了",
-      description: "商品を追加しました"
-    })
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/collection-items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ collectionId, productId }),
+        })
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          console.error('add failed', json)
+          toast({ variant: 'destructive', title: '追加失敗', description: json?.error || json?.message || '商品の追加に失敗しました' })
+          return
+        }
+
+        setManagingCollectionProductIds((prev) => [...prev, productId])
+        const itemCount = json?.data?.itemCount ?? json?.itemCount ?? null
+        if (itemCount != null) {
+          setCollections((prev) => prev.map((c) => c.id === collectionId ? ({ ...c, itemCount } as any) : c))
+        } else {
+          // fallback increment
+          setCollections((prev) => prev.map((c) => c.id === collectionId
+            ? ({ ...c, itemCount: ((c as any).itemCount ?? db.collectionItems.getByCollectionId(collectionId).length) + 1 } as any)
+            : c
+          ))
+        }
+        toast({ title: '追加完了', description: '商品を追加しました' })
+      } catch (e) {
+        console.error('add product to collection failed', e)
+        toast({ variant: 'destructive', title: '追加失敗', description: '商品の追加に失敗しました' })
+      }
+    })()
   }
 
-  const handleRemoveProduct = (collectionId: string, productId: string) => {
-    toast({
-      title: "削除の確認",
-      description: "この商品をコレクションから削除してもよろしいですか？",
-      action: (
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => {
-            db.collectionItems.removeProduct(collectionId, productId)
-            toast({
-              title: "削除完了",
-              description: "商品を削除しました"
-            })
-          }}
-        >
-          削除
-        </Button>
-      ),
-    })
+  const handleRemoveProduct = async (collectionId: string, productId: string) => {
+    try {
+      const res = await fetch('/api/admin/collection-items', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collectionId, productId }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        console.error('delete failed', json)
+        toast({ variant: 'destructive', title: '解除に失敗しました', description: json?.error || json?.message || '商品の解除に失敗しました' })
+        return
+      }
+
+      setManagingCollectionProductIds((prev) => prev.filter((id) => id !== productId))
+      const itemCount = json?.data?.itemCount ?? json?.itemCount ?? null
+      if (itemCount != null) {
+        setCollections((prev) => prev.map((c) => c.id === collectionId ? ({ ...c, itemCount } as any) : c))
+      } else {
+        // fallback decrement
+        setCollections((prev) => prev.map((c) => c.id === collectionId
+          ? ({ ...c, itemCount: Math.max(0, ((c as any).itemCount ?? db.collectionItems.getByCollectionId(collectionId).length) - 1) } as any)
+          : c
+        ))
+      }
+      toast({ title: '解除しました', description: '商品をコレクションから外しました' })
+    } catch (e) {
+      console.error('delete collection item failed', e)
+      toast({ variant: 'destructive', title: '解除に失敗しました' })
+    }
   }
 
   const getCollectionProducts = (collectionId: string) => {
-    const items = db.collectionItems.getByCollectionId(collectionId)
-    const products = db.products.getAll()
-    return items.map((item) => products.find((p) => p.id === item.productId)).filter(Boolean)
+    if (managingCollectionId === collectionId && productsList.length > 0) {
+      return productsList.filter((p) => managingCollectionProductIds.includes(p.id))
+    }
+    // fallback to in-memory
+    const items = db.collectionItems.getByCollectionId(collectionId) as any[]
+    const products = db.products.getAll() as any[]
+    return items
+      .map((item: any) => products.find((p: any) => p.id === item.productId))
+      .filter(Boolean)
   }
 
   const getAvailableProducts = (collectionId: string) => {
-    const collectionProductIds = db.collectionItems.getByCollectionId(collectionId).map((item) => item.productId)
+    if (managingCollectionId === collectionId && productsList.length > 0) {
+      return productsList.filter((p) => !managingCollectionProductIds.includes(p.id))
+    }
+    const collectionProductIds = (db.collectionItems.getByCollectionId(collectionId) as any[])
+      .map((item: any) => item.productId)
     return db.products.getAll().filter((p) => !collectionProductIds.includes(p.id))
   }
 
@@ -176,7 +306,7 @@ export default function AdminCollectionsPage() {
 
       <div className="grid md:grid-cols-2 gap-6">
         {collections.map((collection) => {
-          const itemCount = db.collectionItems.getByCollectionId(collection.id).length
+          const itemCount = (collection as any).itemCount ?? db.collectionItems.getByCollectionId(collection.id).length
 
           return (
             <Card key={collection.id}>
@@ -185,10 +315,13 @@ export default function AdminCollectionsPage() {
                   <div>
                     <CardTitle className="mb-2">{collection.title}</CardTitle>
                     <div className="flex items-center gap-2">
-                      <Badge variant={collection.visibility === "public" ? "default" : "secondary"}>
-                        {collection.visibility === "public" ? "公開" : "下書き"}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground">{itemCount}個のアイテム</span>
+                                <Badge variant={collection.visibility === "public" ? "default" : "secondary"}>
+                                  {collection.visibility === "public" ? "公開" : "下書き"}
+                                </Badge>
+                                <span className="text-sm text-muted-foreground">{((collection as any).inspect?.existingCount ?? itemCount)}個のアイテム</span>
+                                {((collection as any).inspect?.missingCount ?? 0) > 0 && (
+                                  <Badge variant="destructive" className="ml-2">欠損 { (collection as any).inspect.missingCount } 件</Badge>
+                                )}
                     </div>
                   </div>
                 </div>
@@ -204,6 +337,29 @@ export default function AdminCollectionsPage() {
                     <Plus className="w-4 h-4 mr-1" />
                     商品管理
                   </Button>
+                          {((collection as any).inspect?.missingCount ?? 0) > 0 && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="bg-transparent"
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(`/api/admin/collections/${encodeURIComponent(collection.id)}/sync`, { method: 'POST' })
+                                  if (!res.ok) throw new Error('sync failed')
+                                  const json = await res.json()
+                                  const data = json.data || json
+                                  // update local collection counts
+                                  setCollections((prev) => prev.map((c) => c.id === collection.id ? { ...c, inspect: { totalCount: data.totalCount, existingCount: data.existingCount, missingCount: 0 } } : c))
+                                  toast({ title: '同期完了', description: '欠損商品を削除しました' })
+                                } catch (e) {
+                                  console.error('sync failed', e)
+                                  toast({ variant: 'destructive', title: '同期失敗', description: '欠損商品の同期に失敗しました' })
+                                }
+                              }}
+                            >
+                              同期
+                            </Button>
+                          )}
                   <Button size="sm" variant="outline" onClick={() => openEditDialog(collection)}>
                     <Edit className="w-4 h-4 mr-1" />
                     編集
@@ -286,17 +442,17 @@ export default function AdminCollectionsPage() {
               <div className="space-y-6">
                 <div>
                   <h3 className="font-semibold mb-3">含まれている商品</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-3 md:grid-cols-2 gap-4">
                     {getCollectionProducts(managingCollectionId).map((product: any) => (
                       <div key={product.id} className="relative">
                         <ProductCard product={product} isAdminMode={true} />
                         <Button
                           size="sm"
-                          variant="destructive"
+                          variant="outline"
                           className="absolute top-2 right-2"
                           onClick={() => handleRemoveProduct(managingCollectionId, product.id)}
                         >
-                          <Trash2 className="w-3 h-3" />
+                          解除
                         </Button>
                       </div>
                     ))}
@@ -308,7 +464,7 @@ export default function AdminCollectionsPage() {
 
                 <div className="border-t pt-6">
                   <h3 className="font-semibold mb-3">追加できる商品</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-3 md:grid-cols-2 gap-4">
                     {getAvailableProducts(managingCollectionId).map((product) => (
                       <div key={product.id} className="relative">
                         <ProductCard product={product} isAdminMode={true} />

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { use, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,45 +11,214 @@ import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Save, Plus, Trash2, X, Clipboard } from 'lucide-react'
 import Link from "next/link"
 import { useRouter } from 'next/navigation'
-import { db } from "@/lib/db/storage"
-import { convertImageToBase64 } from "@/lib/utils/image-utils"
-import type { AffiliateLink } from "@/lib/mock-data/products"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import Image from "next/image"
+import { useToast } from "@/hooks/use-toast"
+import { db } from "@/lib/db/storage"
+import { getPublicImageUrl } from "@/lib/image-url"
 
-const TAG_CATEGORIES = {
-  ジャンル: ["マウス", "キーボード", "照明", "オーディオ", "カメラ", "モニターアーム", "デスク", "チェア"],
-  カテゴリ: ["デスク周り", "生産性", "リモートワーク", "集中力", "エルゴノミクス", "目に優しい"],
+// NOTE:
+// - `リンク先` タググループはサーバ側のタググループを使って表示します。
+// - アフィリエイトテンプレートのデフォルト値は既知のプロバイダ名に対してのみ保持します。
+type AffiliateTemplate = {
+  id: string
+  name: string
+  defaultLabel: string
+  defaultUrl: string
+  linkTag: string
 }
 
-export default function ProductEditPage({ params }: { params: { id: string } }) {
+const KNOWN_AFFILIATE_TEMPLATES: Record<string, Partial<AffiliateTemplate>> = {
+  Amazon: { name: 'Amazon', defaultLabel: 'Amazonで見る', defaultUrl: 'https://www.amazon.co.jp/dp/' },
+  楽天: { name: '楽天', defaultLabel: '楽天で見る', defaultUrl: 'https://item.rakuten.co.jp/' },
+  Yahoo: { name: 'ヤフー', defaultLabel: 'ヤフーショッピングで見る', defaultUrl: 'https://store.shopping.yahoo.co.jp/' },
+  '公式サイト': { name: '公式サイト', defaultLabel: '公式サイトで見る', defaultUrl: 'https://example.com/' },
+}
+
+type AttachmentSlot = {
+  file: File | null
+  url: string
+}
+
+export default function ProductEditPage({ params }: { params: any }) {
   const router = useRouter()
-  const product = db.products.getById(params.id)
-  const linkTags = db.tags.getAll().filter((t: any) => t.linkUrl)
+  const { toast } = useToast()
+  const [isLoading, setIsLoading] = useState(true)
 
-  const [title, setTitle] = useState(product?.title || "")
-  const [shortDescription, setShortDescription] = useState(product?.shortDescription || "")
-  const [body, setBody] = useState(product?.body || "")
-  const [notes, setNotes] = useState(product?.notes || "")
-  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
-  const [relatedLinks, setRelatedLinks] = useState<string[]>(product?.relatedLinks || [""])
-  const [price, setPrice] = useState(product?.price?.toString() || "")
-  const [showPrice, setShowPrice] = useState(product?.showPrice ?? true)
-  const [tags, setTags] = useState<string[]>(product?.tags || [])
+  // `params` in Client Components can be a Promise in Next 16.
+  // Use React.use() to unwrap it safely before accessing properties.
+  const resolvedParams = use(params as Promise<any>)
+  const id = resolvedParams?.id ?? params?.id
+  
+  const [title, setTitle] = useState("")
+  const [shortDescription, setShortDescription] = useState("")
+  const [body, setBody] = useState("")
+  const [notes, setNotes] = useState("")
+  const [attachmentSlots, setAttachmentSlots] = useState<AttachmentSlot[]>([])
+  const [relatedLinks, setRelatedLinks] = useState<string[]>([""])
+  const [price, setPrice] = useState("")
+  const [showPrice, setShowPrice] = useState(true)
+  const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState("")
-  const [published, setPublished] = useState(product?.published ?? true)
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [affiliateLinks, setAffiliateLinks] = useState<AffiliateLink[]>(
-    product?.affiliateLinks || [{ provider: "Amazon", url: "", label: "Amazonで見る" }],
-  )
+  const [published, setPublished] = useState(true)
+  const [mainImageUrl, setMainImageUrl] = useState("")
+  const [mainFile, setMainFile] = useState<File | null>(null)
+  const [affiliateLinks, setAffiliateLinks] = useState<Array<{ provider: string; url: string; label: string }>>([
+    { provider: "", url: "", label: "" },
+  ])
 
-  if (!product) {
-    return <div className="p-8 text-center">商品が見つかりません</div>
-  }
+  // dynamic tag groups loaded from server with cache fallback
+  // `リンク先` グループ is expected to be provided by the server; if absent,
+  // we still render an empty group until tags are available.
+  const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({})
+  const [availableTags, setAvailableTags] = useState<any[]>([])
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        if (!id) throw new Error('Invalid product id')
+        const res = await fetch(`/api/admin/products/${id}`)
+        if (!res.ok) throw new Error("Failed to fetch product")
+        const data = await res.json()
+
+        setTitle(data.title || "")
+        setShortDescription(data.shortDescription || "")
+        setBody(data.body || "")
+        setNotes(data.notes || "")
+        setRelatedLinks(data.relatedLinks?.length ? data.relatedLinks : [""])
+        setPrice(data.price || "")
+        setShowPrice(typeof data.showPrice === "boolean" ? data.showPrice : true)
+        setTags(Array.isArray(data.tags) ? data.tags : [])
+        setPublished(typeof data.published === "boolean" ? data.published : true)
+        
+        // Affiliate Links
+        if (Array.isArray(data.affiliateLinks) && data.affiliateLinks.length > 0) {
+          setAffiliateLinks(data.affiliateLinks)
+        }
+
+        // Images
+        if (Array.isArray(data.images) && data.images.length > 0) {
+          // Prefer explicit main role, otherwise fall back to the first image
+          const main = data.images.find((img: any) => img.role === 'main') || data.images[0]
+          if (main && main.url) setMainImageUrl(main.url)
+
+          // For attachments, take images that are marked attachment, or any remaining images
+          const attachmentsByRole = data.images.filter((img: any) => img.role === 'attachment')
+          let attachments: any[] = []
+          if (attachmentsByRole.length > 0) {
+            attachments = attachmentsByRole
+          } else {
+            // Exclude the main image we already used
+            attachments = data.images.filter((img: any) => img !== main)
+          }
+
+          // Limit to 4 slots and map to AttachmentSlot shape
+          setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, url: img.url || '' })))
+        }
+        else {
+          // If admin endpoint returned no images, try the public products API as a fallback
+          try {
+            const pubRes = await fetch(`/api/products?id=${id}`)
+            if (pubRes.ok) {
+              const pubJson = await pubRes.json().catch(() => ({}))
+              const pubData = Array.isArray(pubJson?.data) ? pubJson.data[0] : pubJson?.data
+              if (pubData && Array.isArray(pubData.images) && pubData.images.length > 0) {
+                const main = pubData.images.find((img: any) => img.role === 'main') || pubData.images[0]
+                if (main && main.url) setMainImageUrl(main.url)
+                const attachments = pubData.images.filter((img: any) => img !== main)
+                setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, url: img.url || '' })))
+              }
+            }
+          } catch (e) {
+            // ignore fallback failure; mainImageUrl remains empty and user must upload
+            console.warn('fallback public product fetch failed', e)
+          }
+        }
+
+      } catch (error) {
+        console.error(error)
+        toast({ variant: "destructive", title: "エラー", description: "商品データの読み込みに失敗しました" })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    fetchData()
+  }, [id, toast])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const [tagsRes, groupsRes] = await Promise.all([fetch('/api/tags'), fetch('/api/tag-groups')])
+
+        const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
+        const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
+
+        const serverTags = Array.isArray(tagsJson) ? tagsJson : tagsJson.data || []
+        const serverGroups = Array.isArray(groupsJson) ? groupsJson : groupsJson.data || []
+
+        const finalTags = tagsRes.ok && Array.isArray(serverTags) && serverTags.length > 0 ? serverTags : db.tags.getAllWithPlaceholders()
+        setAvailableTags(finalTags)
+
+        const groupNames: string[] = serverGroups && serverGroups.length > 0 ? serverGroups.map((g: any) => g.name).filter(Boolean) : []
+        if (groupNames.length === 0) {
+          const inferred = Array.from(new Set((finalTags || []).map((t: any) => String(t.group)).filter(Boolean))) as string[]
+          inferred.forEach((g: string) => groupNames.push(g))
+        }
+
+        const map: Record<string, string[]> = {}
+        groupNames.forEach((name) => {
+          map[name] = (finalTags || []).filter((t: any) => (t.group || '未分類') === name).map((t: any) => t.name)
+        })
+
+        // Ensure the `リンク先` group exists (may be empty until server provides tags).
+        if (!map['リンク先']) {
+          map['リンク先'] = (finalTags || []).filter((t: any) => (t.group || '未分類') === 'リンク先').map((t: any) => t.name)
+        }
+
+        setTagGroups(map)
+      } catch (e) {
+        const fallback: any[] = db.tags.getAllWithPlaceholders() || []
+        const inferred = Array.from(new Set(fallback.map((t: any) => String(t.group)).filter(Boolean))) as string[]
+        const map: Record<string, string[]> = {}
+        inferred.forEach((name: string) => {
+          map[name] = fallback.filter((t: any) => (t.group || '未分類') === name).map((t: any) => t.name)
+        })
+        if (!map['リンク先']) {
+          map['リンク先'] = fallback.filter((t: any) => (t.group || '未分類') === 'リンク先').map((t: any) => t.name)
+        }
+        setTagGroups(map)
+        console.warn('failed to load tags/groups, falling back to cache', e)
+      }
+    })()
+  }, [])
+
+  // アフィリエイトテンプレート候補は `リンク先` グループの中身を使う
+  const affiliateTemplateOptions: AffiliateTemplate[] = (tagGroups['リンク先'] || []).map((tag) => {
+    const known = KNOWN_AFFILIATE_TEMPLATES[tag]
+    return {
+      id: tag,
+      name: known?.name || tag,
+      defaultLabel: known?.defaultLabel || `${tag}で見る`,
+      defaultUrl: known?.defaultUrl || '',
+      linkTag: tag,
+    }
+  })
 
   const addTag = (tag: string) => {
     const trimmedTag = tag.trim()
+    if (!trimmedTag) return
+
+    // If the tag belongs to the `リンク先` group, require an affiliate link label
+    const linkGroup = tagGroups['リンク先'] || []
+    if (linkGroup.includes(trimmedTag)) {
+      const hasLabel = affiliateLinks.some((l) => (l.provider === trimmedTag || l.provider === KNOWN_AFFILIATE_TEMPLATES[trimmedTag]?.name) && (l.label || '').trim().length > 0)
+      if (!hasLabel) {
+        toast({ variant: 'destructive', title: '入力エラー', description: `"${trimmedTag}" タグを追加する前に、アフィリエイトリンクのラベルを入力してください` })
+        setTagInput("")
+        return
+      }
+    }
+
     if (trimmedTag && !tags.includes(trimmedTag)) {
       setTags([...tags, trimmedTag])
     }
@@ -68,20 +237,36 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
     setAffiliateLinks(affiliateLinks.filter((_, i) => i !== index))
   }
 
-  const updateAffiliateLinkFromTag = (index: number, tagName: string) => {
-    const tag = linkTags.find((t: any) => t.name === tagName)
-    if (tag) {
-      const updated = [...affiliateLinks]
-      updated[index] = { 
-        provider: tag.name,
-        url: tag.linkUrl || "",
-        label: tag.linkLabel || ""
-      }
-      setAffiliateLinks(updated)
-    }
+  const ensureLinkTag = (linkTag: string) => {
+    if (!linkTag) return
+    setTags((prev) => (prev.includes(linkTag) ? prev : [...prev, linkTag]))
   }
 
-  const updateAffiliateLink = (index: number, field: keyof AffiliateLink, value: string) => {
+  const applyAffiliateTemplate = (index: number, templateTag: string) => {
+    if (!templateTag) return
+    const known = KNOWN_AFFILIATE_TEMPLATES[templateTag]
+    const template: AffiliateTemplate = {
+      id: templateTag,
+      name: known?.name || templateTag,
+      defaultLabel: known?.defaultLabel || `${templateTag}で見る`,
+      defaultUrl: known?.defaultUrl || '',
+      linkTag: templateTag,
+    }
+
+    const updated = [...affiliateLinks]
+    updated[index] = {
+      ...updated[index],
+      provider: template.name,
+      label: updated[index].label || template.defaultLabel,
+      url: updated[index].url || template.defaultUrl,
+    }
+    setAffiliateLinks(updated)
+
+    // リンク先テンプレート選択時に対応するリンク先タグを自動付与
+    ensureLinkTag(template.linkTag)
+  }
+
+  const updateAffiliateLink = (index: number, field: string, value: string) => {
     const updated = [...affiliateLinks]
     updated[index] = { ...updated[index], [field]: value }
     setAffiliateLinks(updated)
@@ -92,71 +277,52 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
       const text = await navigator.clipboard.readText()
       updateAffiliateLink(index, "url", text)
     } catch (err) {
-      alert("クリップボードへのアクセスが許可されていません")
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "クリップボードへのアクセスが許可されていません"
+      })
     }
-  }
-
-  const handleSave = async () => {
-    if (!title.trim()) {
-      alert("商品名を入力してください")
-      return
-    }
-
-    let imageUrl = product.images[0]?.url
-    if (imageFile) {
-      imageUrl = await convertImageToBase64(imageFile)
-    }
-
-    const existingAttachments = product.images.filter((img) => img.role === "attachment")
-    const newAttachmentImages = await Promise.all(
-      attachmentFiles
-        .filter((f) => f)
-        .map(async (file, idx) => ({
-          id: `img-attachment-${Date.now()}-${idx}`,
-          productId: product.id,
-          url: await convertImageToBase64(file),
-          width: 400,
-          height: 400,
-          aspect: "1:1",
-          role: "attachment" as const,
-        })),
-    )
-
-    db.products.update(product.id, {
-      title: title.trim(),
-      shortDescription: shortDescription.trim() || undefined,
-      body: body.trim() || undefined,
-      notes: notes.trim() || undefined,
-      relatedLinks: relatedLinks.filter((link) => link.trim()),
-      price: price ? Number(price) : undefined,
-      showPrice,
-      tags,
-      published,
-      images: [
-        imageUrl ? { id: `img-${product.id}`, url: imageUrl, role: "main" as const } : product.images[0],
-        ...existingAttachments,
-        ...newAttachmentImages,
-      ].filter(Boolean),
-      affiliateLinks: affiliateLinks.filter((link) => link.url && link.provider),
-    })
-
-    alert("商品を更新しました！")
-    router.push("/admin/products")
   }
 
   const handleAttachmentChange = (index: number, file: File | null) => {
-    const updated = [...attachmentFiles]
-    if (file) {
-      updated[index] = file
-    } else {
-      updated.splice(index, 1)
+    setAttachmentSlots((prev) => {
+      const next = [...prev]
+      if (next[index]) {
+        next[index] = { ...next[index], file }
+      }
+      return next
+    })
+  }
+
+  // Upload helper used on save to ensure any selected files are uploaded
+  const uploadFile = async (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch('/api/images/upload', { method: 'POST', body: fd })
+    if (!res.ok) {
+      let errData: any = null
+      try {
+        errData = await res.json()
+      } catch (e) {
+        try {
+          const txt = await res.text()
+          errData = { error: txt }
+        } catch (e2) {
+          errData = { error: 'unknown' }
+        }
+      }
+      throw new Error(errData?.error || `upload failed (${res.status})`)
     }
-    setAttachmentFiles(updated)
+    const json = await res.json().catch(() => ({}))
+    const uploadedUrl = json?.result?.variants?.[0] || json?.result?.url || json?.result?.publicUrl || json?.result?.url
+    if (!uploadedUrl) throw new Error('upload did not return a URL')
+    return uploadedUrl
   }
 
   const addAttachmentSlot = () => {
-    if (attachmentFiles.length < 4) {
-      setAttachmentFiles([...attachmentFiles, null as any])
+    if (attachmentSlots.length < 4) {
+      setAttachmentSlots([...attachmentSlots, { file: null, url: "" }])
     }
   }
 
@@ -174,7 +340,117 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
     setRelatedLinks(relatedLinks.filter((_, i) => i !== index))
   }
 
-  const existingAttachments = product.images.filter((img) => img.role === "attachment")
+  const handleSave = async () => {
+    if (!title || !mainImageUrl) {
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "タイトルとメイン画像は必須です"
+      })
+      return
+    }
+
+    // Prepare images list
+    const images: any[] = []
+
+    // Ensure any selected files are uploaded before constructing the images array
+    // Use local variables to avoid relying on async setState timing
+    let finalMainUrl = mainImageUrl
+    let finalAttachmentSlots = attachmentSlots
+    try {
+      // If the user selected a new main file, always upload it before saving.
+      if (mainFile) {
+        const u = await uploadFile(mainFile)
+        finalMainUrl = u
+        setMainImageUrl(u)
+        // clear mainFile after successful upload
+        setMainFile(null)
+      }
+
+      // For attachments: upload files that have file but no url yet
+      const newAttachmentSlots = await Promise.all(
+        attachmentSlots.map(async (slot) => {
+          if (slot.file && !slot.url) {
+            try {
+              const u = await uploadFile(slot.file)
+              return { file: null, url: u }
+            } catch (e) {
+              console.error('attachment upload failed', e)
+              return { ...slot }
+            }
+          }
+          return slot
+        })
+      )
+      finalAttachmentSlots = newAttachmentSlots
+      setAttachmentSlots(newAttachmentSlots)
+    } catch (e) {
+      console.error('upload before save failed', e)
+      toast({ variant: 'destructive', title: 'アップロードエラー', description: '画像アップロード中にエラーが発生しました。' })
+      return
+    }
+
+    // Main Image (use the finalMainUrl which may be the freshly uploaded URL)
+    images.push({
+      url: finalMainUrl,
+      role: "main",
+      width: 400,
+      height: 400,
+      aspect: "1:1"
+    })
+
+    // Attachments (use finalAttachmentSlots which contains any newly-uploaded URLs)
+    finalAttachmentSlots.forEach((slot) => {
+      if (slot.url) {
+        images.push({
+          url: slot.url,
+          role: "attachment",
+          width: 400,
+          height: 400,
+          aspect: "1:1"
+        })
+      }
+    })
+
+    const productData = {
+      title,
+      shortDescription,
+      body,
+      notes: notes.trim() || undefined,
+      relatedLinks: relatedLinks.filter((link) => link.trim()),
+      images,
+      affiliateLinks: affiliateLinks.filter((link) => link.url),
+      tags,
+      price: price ? Number(price) : undefined,
+      showPrice,
+      published,
+    }
+
+    try {
+      if (!id) throw new Error('Invalid product id')
+      const res = await fetch(`/api/admin/products/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(productData),
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: '保存に失敗しました' }))
+        throw new Error(err.error)
+      }
+
+      toast({ title: '更新完了', description: '商品情報を更新しました' })
+      router.push('/admin/products')
+      router.refresh()
+    } catch (e: any) {
+      console.error('product update error', e)
+      toast({ variant: 'destructive', title: 'エラー', description: e.message || '商品更新中にエラーが発生しました' })
+    }
+  }
+
+  if (isLoading) {
+    return <div className="p-8 text-center">読み込み中...</div>
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
@@ -187,10 +463,10 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
           </Button>
           <div>
             <h1 className="text-2xl font-bold">商品を編集</h1>
-            <p className="text-sm text-muted-foreground">{product.title}</p>
+            <p className="text-sm text-muted-foreground">{title}</p>
           </div>
         </div>
-        <Button onClick={handleSave} size="lg">
+        <Button onClick={handleSave} size="lg" disabled={!title || !mainImageUrl}>
           <Save className="w-4 h-4 mr-2" />
           保存
         </Button>
@@ -250,11 +526,11 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
                 <Label>価格を表示する</Label>
                 <Switch checked={showPrice} onCheckedChange={setShowPrice} />
               </div>
-            </div>
 
-            <div className="flex items-center justify-between">
-              <Label>公開する</Label>
-              <Switch checked={published} onCheckedChange={setPublished} />
+              <div className="flex items-center justify-between">
+                <Label>公開する</Label>
+                <Switch checked={published} onCheckedChange={setPublished} />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -264,10 +540,9 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
             <CardTitle>タグ管理</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* 現在のタグ */}
             <div className="space-y-2">
               <Label>選択中のタグ</Label>
-              <div className="flex flex-wrap gap-2 min-h-[40px] p-3 border rounded-md bg-muted/30">
+              <div className="flex flex-wrap gap-2 min-h-10 p-3 border rounded-md bg-muted/30">
                 {tags.length === 0 ? (
                   <span className="text-sm text-muted-foreground">タグを追加してください</span>
                 ) : (
@@ -283,7 +558,6 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
               </div>
             </div>
 
-            {/* カスタムタグ入力 */}
             <div className="space-y-2">
               <Label>カスタムタグを追加</Label>
               <div className="flex gap-2">
@@ -304,9 +578,8 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
               </div>
             </div>
 
-            {/* タグ候補 */}
             <div className="space-y-3">
-              {Object.entries(TAG_CATEGORIES).map(([category, categoryTags]) => (
+              {Object.entries(tagGroups).map(([category, categoryTags]) => (
                 <div key={category} className="space-y-2">
                   <Label className="text-sm text-muted-foreground">{category}</Label>
                   <div className="flex flex-wrap gap-2">
@@ -335,10 +608,20 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
 
         <Card>
           <CardHeader>
-            <CardTitle>商品画像</CardTitle>
+            <CardTitle>商品画像 *</CardTitle>
           </CardHeader>
           <CardContent>
-            <ImageUpload value={product.images[0]?.url} onChange={setImageFile} aspectRatioType="product" />
+            <ImageUpload
+                value={getPublicImageUrl(mainImageUrl) || ""}
+                onChange={(f) => setMainFile(f)}
+                aspectRatioType="product"
+                onUploadComplete={(url) => {
+                  if (url) {
+                    setMainImageUrl(url)
+                    setMainFile(null)
+                  }
+                }}
+              />
           </CardContent>
         </Card>
 
@@ -346,7 +629,7 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>添付画像（最大4枚）</CardTitle>
-              {existingAttachments.length + attachmentFiles.length < 4 && (
+              {attachmentSlots.length < 4 && (
                 <Button type="button" size="sm" variant="outline" onClick={addAttachmentSlot}>
                   <Plus className="w-4 h-4 mr-1" />
                   追加
@@ -355,22 +638,24 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {existingAttachments.map((img, index) => (
-              <div key={img.id} className="relative">
-                <Label className="text-xs text-muted-foreground">既存画像 {index + 1}</Label>
-                <div className="relative w-32 h-32 rounded-md overflow-hidden bg-muted">
-                  <Image src={img.url || "/placeholder.svg"} alt={`添付${index + 1}`} fill className="object-cover" />
-                </div>
-              </div>
-            ))}
-            {attachmentFiles.map((file, index) => (
+            {attachmentSlots.map((slot, index) => (
               <div key={index} className="relative">
-                <ImageUpload value="" onChange={(f) => handleAttachmentChange(index, f)} aspectRatioType="product" />
+                <ImageUpload
+                  value={getPublicImageUrl(slot.url) || ""}
+                  onChange={(f) => handleAttachmentChange(index, f)}
+                  aspectRatioType="product"
+                  onUploadComplete={(url) =>
+                    url &&
+                    setAttachmentSlots((prev) => {
+                      const next = [...prev]
+                      if (next[index]) next[index] = { ...next[index], url }
+                      return next
+                    })
+                  }
+                />
               </div>
             ))}
-            {existingAttachments.length === 0 && attachmentFiles.length === 0 && (
-              <p className="text-sm text-muted-foreground">添付画像はありません</p>
-            )}
+            {attachmentSlots.length === 0 && <p className="text-sm text-muted-foreground">添付画像はありません</p>}
           </CardContent>
         </Card>
 
@@ -389,28 +674,26 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
               <div key={index} className="flex gap-3 items-start p-4 border rounded-lg bg-muted/30">
                 <div className="flex-1 space-y-3">
                   <div className="space-y-2">
-                    <Label>リンク先</Label>
+                    <Label>リンク先テンプレート</Label>
                     <Select
-                      value={link.provider}
-                      onValueChange={(value) => {
-                        updateAffiliateLink(index, "provider", value)
-                        updateAffiliateLinkFromTag(index, value)
-                      }}
+                      value={affiliateTemplateOptions.find((t) => t.name === link.provider)?.id || ""}
+                      onValueChange={(value) => applyAffiliateTemplate(index, value)}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="選択してください" />
                       </SelectTrigger>
                       <SelectContent>
-                        {linkTags.map((tag: any) => (
-                          <SelectItem key={tag.id} value={tag.name}>
-                            {tag.name}
-                          </SelectItem>
-                        ))}
+                        {affiliateTemplateOptions.length === 0 ? (
+                          <SelectItem value="__no-template__" disabled>テンプレートがありません</SelectItem>
+                        ) : (
+                          affiliateTemplateOptions.map((template) => (
+                            <SelectItem key={template.id} value={template.id}>
+                              {template.name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">
-                      タグ管理で登録したリンク先から選択できます
-                    </p>
                   </div>
 
                   <div className="space-y-2">
@@ -440,12 +723,9 @@ export default function ProductEditPage({ params }: { params: { id: string } }) 
                       value={link.label}
                       onChange={(e) => updateAffiliateLink(index, "label", e.target.value)}
                     />
-                    <p className="text-xs text-muted-foreground">
-                      リンク先タグから自動入力されます
-                    </p>
                   </div>
                 </div>
-                {affiliateLinks.length > 1 && (
+                {affiliateLinks.length > 0 && (
                   <Button type="button" variant="ghost" size="icon" onClick={() => removeAffiliateLink(index)}>
                     <Trash2 className="w-4 h-4" />
                   </Button>

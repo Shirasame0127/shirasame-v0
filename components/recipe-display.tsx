@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
+import { getPublicImageUrl } from "@/lib/image-url"
 import type { Product } from "@/lib/mock-data/products"
 
 // ===========================
@@ -63,6 +64,7 @@ type RecipeDisplayProps = {
   recipeId: string
   recipeTitle: string
   imageDataUrl: string
+  imageUrl?: string
   imageWidth: number
   imageHeight: number
   aspectRatio?: string
@@ -105,6 +107,7 @@ export function RecipeDisplay({
   recipeId,
   recipeTitle,
   imageDataUrl,
+  imageUrl,
   imageWidth,
   imageHeight,
   aspectRatio = "4:3",
@@ -124,7 +127,7 @@ export function RecipeDisplay({
     <div ref={containerRef} className="relative w-full max-w-5xl mx-auto">
       <div ref={pinAreaRef} className="relative w-full">
         <img
-          src={imageDataUrl || "/placeholder.svg"}
+          src={(imageUrl ? getPublicImageUrl(imageUrl) : imageDataUrl) || "/placeholder.svg"}
           alt={recipeTitle}
           className="w-full h-auto object-contain rounded-md"
           onLoad={handleImageLoad}

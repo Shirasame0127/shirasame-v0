@@ -14,16 +14,4 @@ CREATE TABLE IF NOT EXISTS images (
   owner_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at timestamptz DEFAULT now()
 );
-
--- profiles table: public profile data for site
-CREATE TABLE IF NOT EXISTS profiles (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
-  username text UNIQUE,
-  display_name text,
-  bio text,
-  profile_image_url text,
-  header_image_urls jsonb DEFAULT '[]'::jsonb,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
-);
+-- Note: profile-like fields are stored on `users` table in this project.
