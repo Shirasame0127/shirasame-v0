@@ -51,6 +51,8 @@ function mapClientToRow(payload: any) {
   if (payload.avatar_url !== undefined) out.avatar_url = payload.avatar_url
   if (payload.backgroundType !== undefined) out.background_type = payload.backgroundType
   if (payload.backgroundValue !== undefined) out.background_value = payload.backgroundValue
+  if (payload.backgroundImageValue !== undefined) out.background_value = payload.backgroundImageValue
+  if (payload.background_image_value !== undefined) out.background_value = payload.background_image_value
   if (payload.backgroundImageKey !== undefined) out.background_image_key = payload.backgroundImageKey
   if (payload.headerImageKeys !== undefined) out.header_image_keys = payload.headerImageKeys
   if (payload.header_image_keys !== undefined) out.header_image_keys = payload.header_image_keys
@@ -60,6 +62,23 @@ function mapClientToRow(payload: any) {
   if (payload.amazonAccessKey !== undefined) out.amazon_access_key = payload.amazonAccessKey
   if (payload.amazonSecretKey !== undefined) out.amazon_secret_key = payload.amazonSecretKey
   if (payload.amazonAssociateId !== undefined) out.amazon_associate_id = payload.amazonAssociateId
+  // Normalize potential alias/typo keys and then filter to allowed DB columns
+  function sanitizeSettingsPayload(p: any) {
+    const allowed = new Set([
+      'display_name','email','bio','profile_image_key','profile_image','avatar_url','background_type','background_value','background_image_key',
+      'header_image','header_image_keys','header_images','social_links','amazon_access_key','amazon_secret_key','amazon_associate_id'
+    ])
+    const out: any = {}
+    for (const [k, v] of Object.entries(p || {})) {
+      let key = k
+      if (key === 'header_images_keys') key = 'header_image_keys'
+      if (key === 'headerImageKeys') key = 'header_image_keys'
+      if (key === 'backgroundImageValue' || key === 'backgroundValue' || key === 'background_image_value') key = 'background_value'
+      const snake = key.includes('_') ? key : key.replace(/([A-Z])/g, (_m, p1) => `_${p1.toLowerCase()}`)
+      if (allowed.has(snake)) out[snake] = v
+    }
+    return out
+  }
   return out
 }
 
@@ -92,6 +111,7 @@ export async function GET() {
     try {
       if (ownerUserId) {
         const { data: aData, error: aErr } = await supabase.from('amazon_credentials').select('*').eq('user_id', ownerUserId).maybeSingle()
+          console.log('[api/admin/settings] GET amazon_credentials select result:', { ownerUserId, aData, aErr })
         if (aErr) {
           console.warn('[api/admin/settings] GET amazon_credentials warning', aErr)
         } else {

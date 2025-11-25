@@ -1,11 +1,8 @@
-import {
-  mockRecipes,
-  mockAnnotations,
-  mockRecipeImages,
-  type Recipe,
-  type Annotation,
-  type RecipeImage,
-} from "@/lib/mock-data/recipes"
+import { db } from "@/lib/db/storage"
+import type { Recipe } from "@/lib/db/schema"
+
+type Annotation = any
+type RecipeImage = any
 
 /**
  * レシピサービス層
@@ -20,9 +17,10 @@ export class RecipesService {
     // const { data } = await supabase.from('recipes').select('*')
     // return data || []
 
-    return new Promise((resolve) => {
-      setTimeout(() => resolve([...mockRecipes]), 100)
-    })
+    try {
+      await db.recipes.refresh()
+    } catch (e) {}
+    return db.recipes.getAll()
   }
 
   /**
@@ -33,8 +31,10 @@ export class RecipesService {
     // const { data } = await supabase.from('recipes').select('*').eq('id', id).single()
     // return data
 
-    const recipes = await this.getAll()
-    return recipes.find((r) => r.id === id) || null
+    try {
+      await db.recipes.refresh()
+    } catch (e) {}
+    return db.recipes.getById(id)
   }
 
   /**
@@ -45,7 +45,11 @@ export class RecipesService {
     // const { data } = await supabase.from('recipe_images').select('*').eq('id', imageId).single()
     // return data
 
-    return mockRecipeImages.find((img) => img.id === imageId) || null
+    try {
+      return db.recipeImages.getByRecipeId(imageId)
+    } catch (e) {
+      return null
+    }
   }
 
   /**
@@ -56,7 +60,11 @@ export class RecipesService {
     // const { data } = await supabase.from('annotations').select('*').eq('recipe_id', recipeId)
     // return data || []
 
-    return mockAnnotations.filter((ann) => ann.recipeId === recipeId)
+    try {
+      return db.recipeItems.getByRecipeId(recipeId)
+    } catch (e) {
+      return []
+    }
   }
 
   /**
@@ -67,14 +75,9 @@ export class RecipesService {
     // const { data } = await supabase.from('recipes').insert(recipeData).select().single()
     // return data
 
-    const newRecipe: Recipe = {
-      ...recipeData,
-      id: `recipe-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    }
-
-    mockRecipes.push(newRecipe)
-    return newRecipe
+    // Delegate to client-side db layer which will persist to server best-effort
+    const created = db.recipes.create({ ...(recipeData as any) })
+    return created
   }
 
   /**
@@ -85,13 +88,8 @@ export class RecipesService {
     // const { data } = await supabase.from('annotations').insert(annotationData).select().single()
     // return data
 
-    const newAnnotation: Annotation = {
-      ...annotationData,
-      id: `ann-${Date.now()}`,
-    }
-
-    mockAnnotations.push(newAnnotation)
-    return newAnnotation
+    const created = db.recipeItems.create(annotationData as any)
+    return created
   }
 
   /**
@@ -102,15 +100,13 @@ export class RecipesService {
     // const { data } = await supabase.from('annotations').update(annotationData).eq('id', id).select().single()
     // return data
 
-    const index = mockAnnotations.findIndex((ann) => ann.id === id)
-    if (index === -1) return null
-
-    mockAnnotations[index] = {
-      ...mockAnnotations[index],
-      ...annotationData,
+    try {
+      db.recipeItems.update(id, annotationData as any)
+      const items = db.recipeItems.getByRecipeId((annotationData as any).recipeId || "")
+      return items ? items.find((i: any) => i.id === id) : null
+    } catch (e) {
+      return null
     }
-
-    return mockAnnotations[index]
   }
 
   /**
@@ -121,10 +117,11 @@ export class RecipesService {
     // const { error } = await supabase.from('annotations').delete().eq('id', id)
     // return !error
 
-    const index = mockAnnotations.findIndex((ann) => ann.id === id)
-    if (index === -1) return false
-
-    mockAnnotations.splice(index, 1)
-    return true
+    try {
+      db.recipeItems.delete(id)
+      return true
+    } catch (e) {
+      return false
+    }
   }
 }

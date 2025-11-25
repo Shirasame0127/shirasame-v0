@@ -74,6 +74,21 @@ export async function POST(request: Request) {
     const { data, error } = await supabase.from('amazon_credentials').upsert(payload, { onConflict })
     console.log('[admin/amazon/credentials] supabase upsert result:', { data, error })
 
+    // Some Supabase/PostgREST setups may return `data: null` for upsert responses.
+    // If upsert reported no error but returned no data, fetch the row explicitly
+    // so the client can be shown the saved values.
+    let finalData = data
+    if (!finalData && !error) {
+      try {
+        const selector = ownerUserId ? supabase.from('amazon_credentials').select('*').eq('user_id', ownerUserId).maybeSingle() : supabase.from('amazon_credentials').select('*').eq('id', id).maybeSingle()
+        const sel = await selector
+        console.log('[admin/amazon/credentials] post-upsert select result:', sel)
+        finalData = sel?.data ?? null
+      } catch (e) {
+        console.error('[admin/amazon/credentials] post-upsert select error', e)
+      }
+    }
+
     if (error) {
       console.error('[admin/amazon/credentials] upsert error', error)
       // Detect missing table in PostgREST/schema cache (PGRST205) and provide actionable message
@@ -85,7 +100,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ ok: true, data })
+    return NextResponse.json({ ok: true, data: finalData })
   } catch (err: any) {
     console.error('[admin/amazon/credentials] error', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

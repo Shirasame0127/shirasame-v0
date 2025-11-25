@@ -90,6 +90,26 @@ export default function AdminSettingsPage() {
   const [amazonAssociateId, setAmazonAssociateId] = useState("")
   const { toast } = useToast()
 
+  // Sanitize server-provided user row into a client-friendly updates object
+  function sanitizeServerUserForCache(srv: any) {
+    if (!srv) return {}
+    const headerKeys = srv.headerImageKeys || srv.header_images_keys || srv.header_images || srv.headerImageKeys || srv.header_image_keys || srv.header_image || []
+    return {
+      displayName: srv.display_name || srv.displayName || srv.name || null,
+      bio: srv.bio || null,
+      email: srv.email || null,
+      backgroundType: srv.background_type || srv.backgroundType || null,
+      backgroundValue: srv.background_value || srv.backgroundValue || null,
+      profileImage: srv.profile_image || srv.profileImage || null,
+      profileImageKey: srv.profile_image_key || srv.profileImageKey || null,
+      avatarUrl: srv.avatar_url || srv.avatarUrl || null,
+      headerImageKeys: Array.isArray(headerKeys) ? headerKeys : headerKeys ? [headerKeys] : [],
+      amazonAccessKey: srv.access_key || srv.amazon_access_key || srv.amazonAccessKey || null,
+      amazonSecretKey: srv.secret_key || srv.amazon_secret_key || srv.amazonSecretKey || null,
+      amazonAssociateId: srv.associate_id || srv.amazon_associate_id || srv.amazonAssociateId || null,
+    }
+  }
+
   useEffect(() => {
     let mounted = true
     async function load() {
@@ -264,11 +284,11 @@ export default function AdminSettingsPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           })
-          if (saveRes.ok) {
+            if (saveRes.ok) {
             const saved = await saveRes.json().catch(() => null)
             if (saved?.data) {
               setUser(saved.data)
-              try { db.user.update(saved.data.id || user?.id || 'local', saved.data) } catch (e) {}
+              try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch (e) {}
             }
           } else {
             console.warn('[settings] failed to persist header images to server')
@@ -307,7 +327,7 @@ export default function AdminSettingsPage() {
           const json = await res.json().catch(() => null)
           if (json?.data) {
             setUser(json.data)
-            try { db.user.update(json.data.id || user?.id || 'local', json.data) } catch (e) {}
+            try { db.user.update(json.data.id || user?.id || 'local', sanitizeServerUserForCache(json.data)) } catch (e) {}
           }
         }
       } catch (e) {
@@ -435,7 +455,7 @@ export default function AdminSettingsPage() {
           const json = await res.json().catch(() => null)
           if (json?.data) {
             setUser(json.data)
-            try { db.user.update(json.data.id || user?.id || 'local', json.data) } catch (e) {}
+            try { db.user.update(json.data.id || user?.id || 'local', sanitizeServerUserForCache(json.data)) } catch (e) {}
           }
         }
       } catch (e) {
@@ -515,7 +535,7 @@ export default function AdminSettingsPage() {
           setUser(saved)
           // also update local cache so UI that still reads db.user stays in sync
           try {
-            db.user.update(saved.id || user?.id || 'local', saved)
+              db.user.update(saved.id || user?.id || 'local', sanitizeServerUserForCache(saved))
           } catch (e) {
             // ignore local cache update errors
           }

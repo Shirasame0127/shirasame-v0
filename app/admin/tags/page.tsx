@@ -8,6 +8,9 @@ import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Save, Plus, Trash2, Tag, Edit, LinkIcon } from 'lucide-react'
 import Link from "next/link"
 import { db } from "@/lib/db/storage"
+import { DndContext, closestCenter, PointerSensor, TouchSensor, MouseSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core"
+import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import {
   Dialog,
   DialogContent,
@@ -114,7 +117,7 @@ export default function AdminTagsPage() {
       groups.get(groupName)!.push(tag)
     })
     return groups
-  }, [tags])
+  }, [tags, serverGroups])
 
   const allGroupNames = useMemo(() => {
     const names = new Set<string>()
@@ -153,6 +156,71 @@ export default function AdminTagsPage() {
     } catch (e) {
       console.error('moveGroup failed', e)
       toast({ variant: 'destructive', title: '並び替え失敗' })
+    }
+  }
+
+  // ----- Drag-and-drop (グループ単位) -----
+  function SortableGroup({ id, children }: any) {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id })
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      touchAction: 'none' as const,
+      userSelect: 'none' as const,
+    }
+
+    return (
+      <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 flex items-center justify-between">
+        <div className="truncate">{children}</div>
+        <div className="flex items-center gap-2 ml-2">
+          <button
+            {...attributes}
+            {...listeners}
+            type="button"
+            aria-label={`ドラッグ ${id}`}
+            style={{ touchAction: 'none', WebkitTapHighlightColor: 'transparent' }}
+            className="h-6 w-6 rounded border bg-muted flex items-center justify-center text-xs"
+          >
+            ≡
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  async function handleGroupMove(activeId: string, overId: string) {
+    if (!overId || activeId === overId) return
+
+    const arr = serverGroups.slice()
+    const fromIdx = arr.indexOf(activeId)
+    const toIdx = arr.indexOf(overId)
+    if (fromIdx === -1 || toIdx === -1) return
+
+    const newArr = arr.slice()
+    const [moved] = newArr.splice(fromIdx, 1)
+    newArr.splice(toIdx, 0, moved)
+
+    const prev = serverGroups.slice()
+    setServerGroups(newArr)
+
+    try {
+      const groupsPayload = newArr.map((name, i) => ({ name, order: i }))
+      const res = await fetch('/api/admin/tag-groups/reorder', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groups: groupsPayload })
+      })
+      if (!res.ok) throw new Error('reorder failed')
+
+      // refresh authoritative groups from server
+      const fresh = await fetch('/api/tag-groups')
+      if (fresh.ok) {
+        const freshJson = await fresh.json().catch(() => ({ data: [] }))
+        const freshGroups = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+        setServerGroups(freshGroups.map((g: any) => g.name))
+      }
+    } catch (e) {
+      console.error('group reorder failed', e)
+      setServerGroups(prev)
+      toast({ variant: 'destructive', title: 'グループの並び替えに失敗しました' })
     }
   }
 
@@ -472,6 +540,126 @@ export default function AdminTagsPage() {
     })()
   }
 
+  // ----- Drag-and-drop (タグ単位) -----
+  function SortableTag({ id, tag, groupName, onEdit, onDelete }: any) {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id })
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      touchAction: 'none' as const,
+      userSelect: 'none' as const,
+    }
+
+    return (
+      <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Badge variant="outline" className="gap-1">
+            {tag.linkUrl && <LinkIcon className="w-3 h-3" />}
+          </Badge>
+          <div className="truncate">
+            <div className="text-sm font-medium">{tag.name}</div>
+            {usedTags.has(tag.name) && (
+              <div className="text-xs text-muted-foreground">{usedTags.get(tag.name)}件</div>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2 items-center">
+          <button
+            {...attributes}
+            {...listeners}
+            type="button"
+            aria-label={`ドラッグ ${tag.name}`}
+            style={{ touchAction: 'none', WebkitTapHighlightColor: 'transparent' }}
+            className="h-6 w-6 rounded border bg-muted flex items-center justify-center text-xs"
+          >
+            ≡
+          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => onEdit(tag)}
+          >
+            <Edit className="w-3 h-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-destructive"
+            onClick={() => onDelete(tag.id)}
+          >
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  async function handleTagMove(activeId: string, overId: string) {
+    if (!overId) return
+    const [fromGroup, fromTagId] = String(activeId).split('::')
+    const [toGroup, toTagId] = String(overId).split('::')
+
+    const current = tags.slice()
+    const movingIdx = current.findIndex((t) => t.id === fromTagId)
+    if (movingIdx === -1) return
+    const moving = { ...current[movingIdx] }
+
+    // remove
+    current.splice(movingIdx, 1)
+
+    // determine insertion index
+    let insertIndex = current.length
+    if (toTagId) {
+      const toIdx = current.findIndex((t) => t.id === toTagId)
+      insertIndex = toIdx === -1 ? current.length : toIdx
+    } else {
+      // append to group: find last index of that group
+      const tg = toGroup || '未分類'
+      let last = -1
+      for (let i = 0; i < current.length; i++) if ((current[i].group || '未分類') === tg) last = i
+      insertIndex = last === -1 ? current.length : last + 1
+    }
+
+    moving.group = (toGroup && toGroup !== '未分類') ? toGroup : undefined
+    current.splice(insertIndex, 0, moving)
+
+    const prev = tags.slice()
+    setTags(current)
+    db.tags.saveAll(current)
+
+    try {
+      const payload = current.map((t, i) => ({ id: t.id, order: i, group: t.group }))
+      const res = await fetch('/api/admin/tags/reorder', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: payload })
+      })
+      if (!res.ok) throw new Error('reorder failed')
+
+      const fresh = await fetch('/api/tags')
+      if (!fresh.ok) throw new Error('fetch tags failed')
+      const freshJson = await fresh.json().catch(() => ({ data: [] }))
+      const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+      setTags(freshTags)
+      db.tags.saveAll(freshTags)
+    } catch (e) {
+      console.error('tag reorder failed', e)
+      setTags(prev)
+      db.tags.saveAll(prev)
+      toast({ variant: 'destructive', title: 'タグの並び替えに失敗しました' })
+    }
+  }
+
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || !active) return
+    const a = String(active.id)
+    const o = String(over.id)
+    // only handle tag ids which we encode as `group::id`
+    if (a.includes('::') || o.includes('::')) {
+      handleTagMove(a, o)
+    }
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
@@ -618,102 +806,88 @@ export default function AdminTagsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            <div className="bg-background rounded-md border-2 border-dashed p-3 flex items-center justify-center">
-              <span className="text-sm text-muted-foreground">未分類</span>
-            </div>
-                  {allGroupNames.map((groupName) => (
-              <div 
-                key={groupName}
-                className="bg-background rounded-md border p-3 flex items-center justify-between"
-              >
-                <span className="text-sm font-medium truncate">{groupName}</span>
-                <div className="flex gap-2">
-                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => moveGroup(groupName, 'up')}>
-                    ↑
-                  </Button>
-                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => moveGroup(groupName, 'down')}>
-                    ↓
-                  </Button>
-                  {/* Special handling: protect the special link group from rename/delete */}
-                  {groupName !== SPECIAL_LINK_GROUP_NAME && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0"
-                        onClick={() => {
-                          setEditingGroupName(groupName)
-                          setNewGroupName(groupName)
-                          setIsGroupDialogOpen(true)
-                        }}
-                      >
-                        <Edit className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 text-destructive"
-                        onClick={async () => {
-                          if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
-                          try {
-                            const res = await fetch('/api/admin/tag-groups', {
-                              method: 'DELETE',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ name: groupName }),
-                            })
-                            if (!res.ok) throw new Error('delete failed')
-                            // unset group locally
-                            const updatedTags = tags.map((t) => (t.group === groupName ? { ...t, group: undefined } : t))
-                            setTags(updatedTags)
-                            db.tags.saveAll(updatedTags)
-                            setServerGroups((s) => s.filter((g) => g !== groupName))
-                            toast({ title: '削除完了', description: `グループ「${groupName}」を削除しました` })
-                          } catch (e) {
-                            console.error('delete group failed', e)
-                            toast({ variant: 'destructive', title: '削除失敗' })
-                          }
-                        }}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </>
-                  )}
+          <DndContext
+            sensors={useSensors(
+              useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+              useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+              useSensor(MouseSensor),
+            )}
+            collisionDetection={closestCenter}
+            onDragEnd={(e) => {
+              const { active, over } = e
+              if (!active || !over) return
+              const a = String(active.id)
+              const o = String(over.id)
+              // only handle group ids (they don't include ::)
+              if (!a.includes('::') && !o.includes('::')) {
+                handleGroupMove(a, o)
+              }
+            }}
+          >
+            <SortableContext items={serverGroups} strategy={rectSortingStrategy}>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                <div className="bg-background rounded-md border-2 border-dashed p-3 flex items-center justify-center">
+                  <span className="text-sm text-muted-foreground">未分類</span>
                 </div>
+                {serverGroups.map((groupName) => (
+                  <SortableGroup key={groupName} id={groupName}>
+                    <span className="text-sm font-medium truncate">{groupName}</span>
+                    <div className="flex gap-2 items-center ml-2">
+                      {/* Special handling: protect the special link group from rename/delete */}
+                      {groupName !== SPECIAL_LINK_GROUP_NAME && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 shrink-0"
+                            onClick={() => {
+                              setEditingGroupName(groupName)
+                              setNewGroupName(groupName)
+                              setIsGroupDialogOpen(true)
+                            }}
+                          >
+                            <Edit className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-destructive"
+                            onClick={async () => {
+                              if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
+                              try {
+                                const res = await fetch('/api/admin/tag-groups', {
+                                  method: 'DELETE',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ name: groupName }),
+                                })
+                                if (!res.ok) throw new Error('delete failed')
+                                // unset group locally
+                                const updatedTags = tags.map((t) => (t.group === groupName ? { ...t, group: undefined } : t))
+                                setTags(updatedTags)
+                                db.tags.saveAll(updatedTags)
+                                setServerGroups((s) => s.filter((g) => g !== groupName))
+                                toast({ title: '削除完了', description: `グループ「${groupName}」を削除しました` })
+                              } catch (e) {
+                                console.error('delete group failed', e)
+                                toast({ variant: 'destructive', title: '削除失敗' })
+                              }
+                            }}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </SortableGroup>
+                ))}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+          </DndContext>
         </CardContent>
       </Card>
 
       <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Badge variant="secondary" className="text-sm">
-                {Array.from(usedTags.entries()).length}
-              </Badge>
-              使用中のタグ
-            </CardTitle>
-            <CardDescription>現在商品に設定されているタグと使用数</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {Array.from(usedTags.entries()).length === 0 ? (
-                <span className="text-sm text-muted-foreground">使用中のタグはありません</span>
-              ) : (
-                Array.from(usedTags.entries()).map(([tagName, count]) => (
-                  <Badge key={tagName} variant="secondary" className="gap-2">
-                    <Tag className="w-3 h-3" />
-                    {tagName}
-                    <span className="text-xs bg-background/50 px-1.5 py-0.5 rounded">{count}</span>
-                  </Badge>
-                ))
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
+        
         <div className="border-t pt-6">
           <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
             <Tag className="w-6 h-6" />
@@ -721,8 +895,19 @@ export default function AdminTagsPage() {
             <Badge variant="outline" className="text-sm">{tags.length}個</Badge>
           </h2>
           
-          {Array.from(groupedTags.entries()).map(([groupName, groupTags]) => (
-            <Card key={groupName} className="mb-4">
+          <DndContext
+            sensors={useSensors(
+              useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+              useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+              useSensor(MouseSensor),
+            )}
+            collisionDetection={closestCenter}
+            onDragStart={(e) => { try { console.debug('dnd:start', { active: (e as any).active?.id }) } catch(_){} }}
+            onDragOver={(e) => { try { console.debug('dnd:over', { active: (e as any).active?.id, over: (e as any).over?.id }) } catch(_){} }}
+            onDragEnd={(e) => { try { console.debug('dnd:end', { active: (e as any).active?.id, over: (e as any).over?.id }) } catch(_){}; handleDragEnd(e) }}
+          >
+            {Array.from(groupedTags.entries()).map(([groupName, groupTags]) => (
+              <Card key={groupName} className="mb-4">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
@@ -746,49 +931,24 @@ export default function AdminTagsPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-wrap gap-2">
-                  {groupTags.map((tag, gIdx) => (
-                      <div key={tag.id} className="flex items-center gap-1 bg-muted px-3 py-2 rounded-md">
-                      <Badge variant="outline" className="gap-1 flex-1">
-                        {tag.linkUrl && <LinkIcon className="w-3 h-3" />}
-                        {tag.name}
-                        {usedTags.has(tag.name) && (
-                          <span className="text-xs bg-primary/10 px-1.5 py-0.5 rounded">{usedTags.get(tag.name)}</span>
-                        )}
-                      </Badge>
-                      <div className="flex gap-1">
-                        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => moveTag(tag.id, groupName, 'up')}>
-                          ↑
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => moveTag(tag.id, groupName, 'down')}>
-                          ↓
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => {
-                            setEditingTag(tag)
-                            setIsEditDialogOpen(true)
-                          }}
-                        >
-                          <Edit className="w-3 h-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => removeTag(tag.id)}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                        <div className="flex flex-wrap gap-2">
+                          <SortableContext items={groupTags.map(t => `${groupName}::${t.id}`)} strategy={rectSortingStrategy}>
+                            {groupTags.map((tag) => (
+                              <SortableTag
+                                key={tag.id}
+                                id={`${groupName}::${tag.id}`}
+                                tag={tag}
+                                groupName={groupName}
+                                onEdit={(t: any) => { setEditingTag(t); setIsEditDialogOpen(true); }}
+                                onDelete={(id: string) => removeTag(id)}
+                              />
+                            ))}
+                          </SortableContext>
+                        </div>
               </CardContent>
             </Card>
-          ))}
+            ))}
+          </DndContext>
         </div>
       </div>
 

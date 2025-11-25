@@ -35,11 +35,17 @@ export default function HomePage() {
   const [sortMode, setSortMode] = useState<"newest" | "clicks" | "price-asc" | "price-desc">("newest")
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({})
+  // which groups are currently open in the accordion; undefined until initialized
+  const [openGroups, setOpenGroups] = useState<string[] | undefined>(undefined)
   const [showFilters, setShowFilters] = useState(false)
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false)
   const [searchText, setSearchText] = useState("")
 
   useEffect(() => {
+    // initialize openGroups to all groups when tagGroups first loads
+    if (openGroups === undefined && Object.keys(tagGroups).length > 0) {
+      setOpenGroups(Object.keys(tagGroups))
+    }
     ;(async () => {
       try {
         // 公開商品をAPIから取得
@@ -78,25 +84,68 @@ export default function HomePage() {
         setUser(loadedUser || null)
         setTheme(loadedTheme)
 
-        // 公開されている商品の tags からタググループを動的に構築
-        const groups: Record<string, string[]> = {}
-        apiProducts
-          .filter((p: any) => p.published && Array.isArray(p.tags))
-          .forEach((p: any) => {
-            ;(p.tags as string[]).forEach((tag) => {
-              const isLinkTag =
-                tag === "Amazon" || tag === "楽天市場" || tag === "Yahoo!ショッピング" || tag === "公式サイト"
-              const groupName = isLinkTag ? "リンク先" : "その他"
-              if (!groups[groupName]) {
-                groups[groupName] = []
-              }
-              if (!groups[groupName].includes(tag)) {
-                groups[groupName].push(tag)
-              }
-            })
-          })
+        // Prefer server-backed tag groups + tags (cloud-first). Fall back to deriving groups from products.
+        try {
+          const [groupsRes, tagsRes] = await Promise.all([fetch('/api/tag-groups'), fetch('/api/tags')])
+          const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
+          const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
+          const serverGroups = Array.isArray(groupsJson.data) ? groupsJson.data : groupsJson.data || []
+          const serverTags = Array.isArray(tagsJson.data) ? tagsJson.data : tagsJson.data || []
 
-        setTagGroups(groups)
+          // Build ordered mapping from server groups; ensure insertion order matches server sort_order
+          const groups: Record<string, string[]> = {}
+          for (const g of serverGroups) {
+            if (!g || !g.name) continue
+            groups[g.name] = []
+          }
+
+          // Place tags into their declared groups; fall back to '未分類' when missing
+          for (const t of serverTags) {
+            const tagName = t.name
+            const groupName = t.group || '未分類'
+            if (!groups[groupName]) groups[groupName] = []
+            if (!groups[groupName].includes(tagName)) groups[groupName].push(tagName)
+          }
+
+          // If serverGroups was empty, fallback to deriving from product tags (previous behavior)
+          if (Object.keys(groups).length === 0) {
+            const derived: Record<string, string[]> = {}
+            apiProducts
+              .filter((p: any) => p.published && Array.isArray(p.tags))
+              .forEach((p: any) => {
+                ;(p.tags as string[]).forEach((tag) => {
+                  const isLinkTag =
+                    tag === "Amazon" || tag === "楽天市場" || tag === "Yahoo!ショッピング" || tag === "公式サイト"
+                  const groupName = isLinkTag ? "リンク先" : "その他"
+                  if (!derived[groupName]) derived[groupName] = []
+                  if (!derived[groupName].includes(tag)) derived[groupName].push(tag)
+                })
+              })
+            setTagGroups(derived)
+          } else {
+            setTagGroups(groups)
+          }
+        } catch (e) {
+          // fallback: derive from product tags (existing behavior)
+          const groups: Record<string, string[]> = {}
+          apiProducts
+            .filter((p: any) => p.published && Array.isArray(p.tags))
+            .forEach((p: any) => {
+              ;(p.tags as string[]).forEach((tag) => {
+                const isLinkTag =
+                  tag === "Amazon" || tag === "楽天市場" || tag === "Yahoo!ショッピング" || tag === "公式サイト"
+                const groupName = isLinkTag ? "リンク先" : "その他"
+                if (!groups[groupName]) {
+                  groups[groupName] = []
+                }
+                if (!groups[groupName].includes(tag)) {
+                  groups[groupName].push(tag)
+                }
+              })
+            })
+
+          setTagGroups(groups)
+        }
 
         console.log(
           "[v0] Loaded public data from API - Products:",
@@ -247,7 +296,7 @@ export default function HomePage() {
               ))}
             </div>
           )}
-          <Accordion type="multiple" className="w-full">
+          <Accordion type="multiple" className="w-full" value={openGroups} onValueChange={(v) => setOpenGroups(Array.isArray(v) ? v : [v])}>
             {Object.entries(tagGroups).map(([groupName, tags]) => (
               <AccordionItem key={groupName} value={groupName}>
                 <AccordionTrigger className={isMobile ? "text-xs py-2" : "text-sm"}>

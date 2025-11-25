@@ -1,6 +1,7 @@
-import { mockCollections, mockCollectionItems, type Collection, type CollectionItem } from "@/lib/mock-data/collections"
+import { db } from "@/lib/db/storage"
 import { ProductsService } from "./products.service"
-import type { Product } from "@/lib/mock-data/products"
+import type { Collection } from "@/lib/db/schema"
+import type { Product } from "@/lib/db/schema"
 
 /**
  * コレクションサービス層
@@ -11,13 +12,14 @@ export class CollectionsService {
    * 全コレクションを取得
    */
   static async getAll(): Promise<Collection[]> {
-    // TODO: データベース接続時
-    // const { data } = await supabase.from('collections').select('*')
-    // return data || []
-
-    return new Promise((resolve) => {
-      setTimeout(() => resolve([...mockCollections]), 100)
-    })
+    // Use the client-side cache / API wrapper
+    // Prefer to refresh to get fresh server data
+    try {
+      await db.collections.getAll && db.collections.refresh()
+    } catch (e) {
+      // ignore — fall back to cache
+    }
+    return db.collections.getAll()
   }
 
   /**
@@ -32,8 +34,11 @@ export class CollectionsService {
    * IDでコレクションを取得
    */
   static async getById(id: string): Promise<Collection | null> {
-    const collections = await this.getAll()
-    return collections.find((c) => c.id === id) || null
+    try {
+      // Refresh cache for single collection if available
+      await db.collections.refresh()
+    } catch (e) {}
+    return db.collections.getById(id)
   }
 
   /**
@@ -47,11 +52,13 @@ export class CollectionsService {
     //   .eq('collection_id', collectionId)
     //   .order('position')
 
-    const items = mockCollectionItems
-      .filter((item) => item.collectionId === collectionId)
-      .sort((a, b) => a.order - b.order)
+    // Use collectionItems cache to get ordered items
+    try {
+      await db.collectionItems.getByCollectionId(collectionId)
+    } catch (e) {}
 
-    const productIds = items.map((item) => item.productId)
+    const items = db.collectionItems.getByCollectionId(collectionId) || []
+    const productIds = items.map((item: any) => item.productId)
     const allProducts = await ProductsService.getPublished()
 
     return productIds.map((id) => allProducts.find((p) => p.id === id)).filter((p): p is Product => p !== undefined)
@@ -70,18 +77,15 @@ export class CollectionsService {
     // }).select().single()
     // return data
 
-    const items = mockCollectionItems.filter((item) => item.collectionId === collectionId)
-    const position = items.length > 0 ? Math.max(...items.map((i) => i.order)) + 1 : 1
-
-    const newItem: CollectionItem = {
-      id: `ci-${Date.now()}`,
-      collectionId,
-      productId,
-      order: position,
-      createdAt: new Date().toISOString(),
+    // Delegate to shared db collectionItems helper which updates cache and server
+    try {
+      db.collectionItems.addProduct(collectionId, productId)
+    } catch (e) {
+      // best-effort — continue
     }
-
-    mockCollectionItems.push(newItem)
+    const items = db.collectionItems.getByCollectionId(collectionId) || []
+    // return the last matching item
+    const newItem = [...items].reverse().find((i: any) => i.productId === productId) || null
     return newItem
   }
 
@@ -96,13 +100,11 @@ export class CollectionsService {
     //   .eq('product_id', productId)
     // return !error
 
-    const index = mockCollectionItems.findIndex(
-      (item) => item.collectionId === collectionId && item.productId === productId,
-    )
-
-    if (index === -1) return false
-
-    mockCollectionItems.splice(index, 1)
-    return true
+    try {
+      db.collectionItems.removeProduct(collectionId, productId)
+      return true
+    } catch (e) {
+      return false
+    }
   }
 }

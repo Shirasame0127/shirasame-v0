@@ -6,7 +6,7 @@ import { Menu, X, Settings, Sparkles } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import Image from "next/image"
 import { db } from "@/lib/db/storage"
-import type { Collection } from "@/lib/mock-data/collections"
+import type { Collection } from "@/lib/db/schema"
 
 interface PublicNavProps {
   logoUrl?: string
@@ -37,7 +37,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="flex h-16 items-center justify-between px-2">
           <Link href="/" className="flex items-center gap-3">
             <div className="relative h-12 w-auto">
@@ -46,7 +46,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
                 alt={siteName}
                 width={180}
                 height={48}
-                className="m-l-3 h-10 w-auto object-contain mx-0 mx-3"
+                className="ml-3 h-10 w-auto object-contain mx-3"
                 priority
               />
             </div>

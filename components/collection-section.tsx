@@ -1,6 +1,5 @@
 import { ProductCard } from "@/components/product-card"
-import type { Product } from "@/lib/mock-data/products"
-import type { Collection } from "@/lib/mock-data/collections"
+import type { Product, Collection } from "@/lib/db/schema"
 
 interface CollectionSectionProps {
   collection: Collection

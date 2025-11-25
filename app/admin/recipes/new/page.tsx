@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation'
 import { db } from "@/lib/db/storage"
 import { auth } from "@/lib/auth"
 import { convertImageToBase64 } from "@/lib/utils/image-utils"
-import type { Recipe, RecipeImage } from "@/lib/mock-data/recipes"
+import type { Recipe } from "@/lib/db/schema"
 import { useToast } from "@/hooks/use-toast"
 
 export default function RecipeNewPage() {

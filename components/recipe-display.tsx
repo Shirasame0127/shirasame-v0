@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react"
 import { getPublicImageUrl } from "@/lib/image-url"
-import type { Product } from "@/lib/mock-data/products"
+import type { Product } from "@/lib/db/schema"
 
 // ===========================
 // 型定義
