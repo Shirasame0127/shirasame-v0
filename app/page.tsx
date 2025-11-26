@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { PublicNav } from "@/components/public-nav"
 import { ProfileCard } from "@/components/profile-card"
 import { ProductCardSimple } from "@/components/product-card-simple"
@@ -20,6 +20,214 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Input } from "@/components/ui/input"
 // Use persisted user record (cloud-first). Do not rely on local mock data.
 import { ProfileHeader } from "@/components/profile-header"
+
+type FilterContentProps = {
+  isMobile?: boolean
+  searchText: string
+  setSearchText: (v: string) => void
+  viewMode: "grid" | "list"
+  setViewMode: (v: "grid" | "list") => void
+  gridColumns: number
+  setGridColumns: (n: number) => void
+  sortMode: "newest" | "clicks" | "price-asc" | "price-desc"
+  setSortMode: (v: any) => void
+  tagGroups: Record<string, string[]>
+  selectedTags: string[]
+  toggleTag: (t: string) => void
+  openGroups: string[] | undefined
+  setOpenGroups: (v: string[] | undefined) => void
+  setSelectedTags: (v: string[]) => void
+}
+
+function FilterContent({
+  isMobile = false,
+  searchText,
+  setSearchText,
+  viewMode,
+  setViewMode,
+  gridColumns,
+  setGridColumns,
+  sortMode,
+  setSortMode,
+  tagGroups,
+  selectedTags,
+  toggleTag,
+  openGroups,
+  setOpenGroups,
+  setSelectedTags,
+}: FilterContentProps) {
+  const [localQuery, setLocalQuery] = useState<string>(searchText)
+  const composingRef = useRef(false)
+  const debounceRef = useRef<number | null>(null)
+
+  // 外部から searchText が変更された場合は localQuery を更新
+  useEffect(() => {
+    setLocalQuery(searchText)
+  }, [searchText])
+
+  // デバウンスして非同期検索（IME中は動かさない）
+  useEffect(() => {
+    if (composingRef.current) return
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current)
+    }
+    debounceRef.current = window.setTimeout(() => {
+      setSearchText(localQuery)
+      debounceRef.current = null
+    }, 300)
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+    }
+  }, [localQuery, setSearchText])
+
+  const handleCompositionStart = () => {
+    composingRef.current = true
+  }
+
+  const handleCompositionEnd = () => {
+    composingRef.current = false
+    // IME確定時は即時反映
+    setSearchText(localQuery)
+  }
+
+  return (
+    <div className={`space-y-4 ${isMobile ? "text-sm" : ""}`}>
+      <div className="space-y-2">
+        <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>テキスト検索</Label>
+        <Input
+          placeholder="商品名・説明文で検索"
+          value={localQuery}
+          onChange={(e: any) => setLocalQuery(e.target.value)}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
+          className={isMobile ? "text-xs h-9" : ""}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>表示設定</Label>
+        <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2">
+            <Button
+              variant={viewMode === "grid" ? "default" : "outline"}
+              size={isMobile ? "sm" : "sm"}
+              onClick={() => setViewMode("grid")}
+              className={isMobile ? "text-xs h-8" : ""}
+            >
+              <Grid3x3 className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-1`} />
+              グリッド
+            </Button>
+            <Button
+              variant={viewMode === "list" ? "default" : "outline"}
+              size={isMobile ? "sm" : "sm"}
+              onClick={() => setViewMode("list")}
+              className={isMobile ? "text-xs h-8" : ""}
+            >
+              <List className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-1`} />
+              リスト
+            </Button>
+          </div>
+
+          {viewMode === "grid" && (
+            <Select value={String(gridColumns)} onValueChange={(v) => setGridColumns(Number(v))}>
+              <SelectTrigger className={`w-24 ${isMobile ? "text-xs h-8" : ""}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="3">3列</SelectItem>
+                <SelectItem value="4">4列</SelectItem>
+                <SelectItem value="5">5列</SelectItem>
+                <SelectItem value="6">6列</SelectItem>
+                <SelectItem value="7">7列</SelectItem>
+                <SelectItem value="8">8列</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>並び替え</Label>
+        <Select value={sortMode} onValueChange={(v: any) => setSortMode(v)}>
+          <SelectTrigger className={`w-full ${isMobile ? "text-xs h-9" : ""}`}>
+            <SortAsc className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-2`} />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="newest">新しい順</SelectItem>
+            <SelectItem value="clicks">クリック数順</SelectItem>
+            <SelectItem value="price-asc">価格が安い順</SelectItem>
+            <SelectItem value="price-desc">価格が高い順</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {Object.keys(tagGroups).length > 0 && (
+        <div className="space-y-2">
+          <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>タグで絞り込み</Label>
+          {selectedTags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 p-2 bg-muted rounded-lg">
+              {selectedTags.map((tag) => (
+                <Badge
+                  key={tag}
+                  variant="default"
+                  className={`cursor-pointer ${isMobile ? "text-[10px] px-2 py-0.5" : ""}`}
+                  onClick={() => toggleTag(tag)}
+                >
+                  {tag} <X className="w-3 h-3 ml-1" />
+                </Badge>
+              ))}
+            </div>
+          )}
+          <Accordion type="multiple" className="w-full" value={openGroups} onValueChange={(v) => setOpenGroups(Array.isArray(v) ? v : [v])}>
+            {Object.entries(tagGroups).map(([groupName, tags]) => (
+              <AccordionItem key={groupName} value={groupName}>
+                <AccordionTrigger className={isMobile ? "text-xs py-2" : "text-sm"}>
+                  {groupName}
+                  {selectedTags.some((t) => tags.includes(t)) && (
+                    <Badge variant="secondary" className={`ml-2 ${isMobile ? "text-[10px] px-1.5 py-0" : ""}`}>
+                      {selectedTags.filter((t) => tags.includes(t)).length}
+                    </Badge>
+                  )}
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="flex flex-wrap gap-1.5 pt-2">
+                    {tags.map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant={selectedTags.includes(tag) ? "default" : "outline"}
+                        className={`cursor-pointer hover:scale-105 transition-transform ${
+                          isMobile ? "text-[10px] px-2 py-0.5" : ""
+                        }`}
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+          {selectedTags.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedTags([])}
+              className={`w-full ${isMobile ? "text-xs h-8" : ""}`}
+            >
+              <X className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-1`} />
+              絞り込みを解除
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([])
@@ -209,138 +417,8 @@ export default function HomePage() {
     return (col?.products || []) as Product[]
   }
 
-  const FilterContent = ({ isMobile = false }: { isMobile?: boolean }) => (
-    <div className={`space-y-4 ${isMobile ? "text-sm" : ""}`}>
-      <div className="space-y-2">
-        <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>テキスト検索</Label>
-        <Input
-          placeholder="商品名・説明文で検索"
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          className={isMobile ? "text-xs h-9" : ""}
-        />
-      </div>
+  // `FilterContent` はファイル上部で定義済みです。そちらを使用してください。
 
-      <div className="space-y-2">
-        <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>表示設定</Label>
-        <div className="flex flex-wrap gap-2">
-          <div className="flex gap-2">
-            <Button
-              variant={viewMode === "grid" ? "default" : "outline"}
-              size={isMobile ? "sm" : "sm"}
-              onClick={() => setViewMode("grid")}
-              className={isMobile ? "text-xs h-8" : ""}
-            >
-              <Grid3x3 className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-1`} />
-              グリッド
-            </Button>
-            <Button
-              variant={viewMode === "list" ? "default" : "outline"}
-              size={isMobile ? "sm" : "sm"}
-              onClick={() => setViewMode("list")}
-              className={isMobile ? "text-xs h-8" : ""}
-            >
-              <List className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-1`} />
-              リスト
-            </Button>
-          </div>
-
-          {viewMode === "grid" && (
-            <Select value={String(gridColumns)} onValueChange={(v) => setGridColumns(Number(v))}>
-              <SelectTrigger className={`w-24 ${isMobile ? "text-xs h-8" : ""}`}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="3">3列</SelectItem>
-                <SelectItem value="4">4列</SelectItem>
-                <SelectItem value="5">5列</SelectItem>
-                <SelectItem value="6">6列</SelectItem>
-                <SelectItem value="7">7列</SelectItem>
-                <SelectItem value="8">8列</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>並び替え</Label>
-        <Select value={sortMode} onValueChange={(v: any) => setSortMode(v)}>
-          <SelectTrigger className={`w-full ${isMobile ? "text-xs h-9" : ""}`}>
-            <SortAsc className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-2`} />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="newest">新しい順</SelectItem>
-            <SelectItem value="clicks">クリック数順</SelectItem>
-            <SelectItem value="price-asc">価格が安い順</SelectItem>
-            <SelectItem value="price-desc">価格が高い順</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {Object.keys(tagGroups).length > 0 && (
-        <div className="space-y-2">
-          <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>タグで絞り込み</Label>
-          {selectedTags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 p-2 bg-muted rounded-lg">
-              {selectedTags.map((tag) => (
-                <Badge
-                  key={tag}
-                  variant="default"
-                  className={`cursor-pointer ${isMobile ? "text-[10px] px-2 py-0.5" : ""}`}
-                  onClick={() => toggleTag(tag)}
-                >
-                  {tag} <X className="w-3 h-3 ml-1" />
-                </Badge>
-              ))}
-            </div>
-          )}
-          <Accordion type="multiple" className="w-full" value={openGroups} onValueChange={(v) => setOpenGroups(Array.isArray(v) ? v : [v])}>
-            {Object.entries(tagGroups).map(([groupName, tags]) => (
-              <AccordionItem key={groupName} value={groupName}>
-                <AccordionTrigger className={isMobile ? "text-xs py-2" : "text-sm"}>
-                  {groupName}
-                  {selectedTags.some((t) => tags.includes(t)) && (
-                    <Badge variant="secondary" className={`ml-2 ${isMobile ? "text-[10px] px-1.5 py-0" : ""}`}>
-                      {selectedTags.filter((t) => tags.includes(t)).length}
-                    </Badge>
-                  )}
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="flex flex-wrap gap-1.5 pt-2">
-                    {tags.map((tag) => (
-                      <Badge
-                        key={tag}
-                        variant={selectedTags.includes(tag) ? "default" : "outline"}
-                        className={`cursor-pointer hover:scale-105 transition-transform ${
-                          isMobile ? "text-[10px] px-2 py-0.5" : ""
-                        }`}
-                        onClick={() => toggleTag(tag)}
-                      >
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-          {selectedTags.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelectedTags([])}
-              className={`w-full ${isMobile ? "text-xs h-8" : ""}`}
-            >
-              <X className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-1`} />
-              絞り込みを解除
-            </Button>
-          )}
-        </div>
-      )}
-    </div>
-  )
 
   return (
     <div className="min-h-screen" style={appliedStyle}>
@@ -432,7 +510,23 @@ export default function HomePage() {
                       </SheetHeader>
 
                       <div className="flex-1 overflow-y-auto py-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                        <FilterContent isMobile={true} />
+                        <FilterContent
+                          isMobile={true}
+                          searchText={searchText}
+                          setSearchText={setSearchText}
+                          viewMode={viewMode}
+                          setViewMode={setViewMode}
+                          gridColumns={gridColumns}
+                          setGridColumns={setGridColumns}
+                          sortMode={sortMode}
+                          setSortMode={setSortMode}
+                          tagGroups={tagGroups}
+                          selectedTags={selectedTags}
+                          toggleTag={toggleTag}
+                          openGroups={openGroups}
+                          setOpenGroups={setOpenGroups}
+                          setSelectedTags={setSelectedTags}
+                        />
                       </div>
 
                       <div className="py-4 border-t bg-background sticky bottom-0">
@@ -446,7 +540,22 @@ export default function HomePage() {
 
                 {showFilters && (
                   <div className="mt-4 border rounded-lg p-6 bg-card animate-in fade-in slide-in-from-top-2 duration-300 hidden sm:block">
-                    <FilterContent />
+                    <FilterContent
+                      searchText={searchText}
+                      setSearchText={setSearchText}
+                      viewMode={viewMode}
+                      setViewMode={setViewMode}
+                      gridColumns={gridColumns}
+                      setGridColumns={setGridColumns}
+                      sortMode={sortMode}
+                      setSortMode={setSortMode}
+                      tagGroups={tagGroups}
+                      selectedTags={selectedTags}
+                      toggleTag={toggleTag}
+                      openGroups={openGroups}
+                      setOpenGroups={setOpenGroups}
+                      setSelectedTags={setSelectedTags}
+                    />
                   </div>
                 )}
               </div>

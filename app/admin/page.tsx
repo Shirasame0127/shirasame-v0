@@ -4,29 +4,48 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Package, Camera, Eye, TrendingUp, Plus, ArrowRight } from 'lucide-react'
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
+import { usePathname } from 'next/navigation'
 import { db } from "@/lib/db/storage"
 import { auth } from "@/lib/auth"
 import type { Product, Recipe } from "@/lib/db/schema"
+import dynamic from 'next/dynamic'
+
+const AdminSaleCalendar = dynamic(() => import('@/components/admin-sale-calendar'), { ssr: false })
 
 export default function AdminDashboard() {
   const [products, setProducts] = useState<Product[]>([])
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
+  const pathname = usePathname()
+
+  const loadData = useCallback(async () => {
     console.log("[v0] Dashboard: Loading data from DB")
-    const currentUser = auth.getCurrentUser()
-    
-    if (!currentUser) {
-      console.error("[v0] Dashboard: No user logged in")
-      setIsLoading(false)
-      return
-    }
+    setIsLoading(true)
 
     try {
-      const loadedProducts = db.products.getAll(currentUser.id)
-      const loadedRecipes = db.recipes.getAll(currentUser.id)
+      // Try to use minimal local mirror, but always refresh caches from server
+      const currentUser = auth.getCurrentUser()
+
+      // Refresh caches from server so we rely on server-side session (cookies)
+      // Pass user id where possible to allow server-side filtering if implemented
+      try {
+        await db.products.refresh(currentUser?.id)
+      } catch (e) {
+        console.warn('[v0] products.refresh warning', e)
+      }
+      try {
+        await db.recipes.refresh(currentUser?.id)
+      } catch (e) {
+        console.warn('[v0] recipes.refresh warning', e)
+      }
+
+      // Determine owner/user scope: prefer explicit signed-in user, else fallback to cached owner
+      const userId = currentUser?.id || (db.user.get() as any)?.id || undefined
+
+      const loadedProducts = db.products.getAll(userId)
+      const loadedRecipes = db.recipes.getAll(userId)
 
       console.log("[v0] Dashboard: Products loaded:", loadedProducts.length)
       console.log("[v0] Dashboard: Recipes loaded:", loadedRecipes.length)
@@ -39,6 +58,33 @@ export default function AdminDashboard() {
       setIsLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    // Load when component mounts or when route changes to /admin
+    if (pathname && pathname.startsWith('/admin')) {
+      loadData()
+    }
+
+    // Refresh when window/tab gains focus or becomes visible
+    const onFocus = () => {
+      console.log('[v0] Dashboard: window focus - refreshing data')
+      loadData()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[v0] Dashboard: visibility visible - refreshing data')
+        loadData()
+      }
+    }
+
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [pathname, loadData])
 
   if (isLoading) {
     return (
@@ -142,9 +188,9 @@ export default function AdminDashboard() {
       <Card>
         <div className="p-4 pb-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold">最近の活動</h3>
+            <h3 className="text-base font-semibold">セール管理カレンダー</h3>
             <Button asChild variant="ghost" size="sm">
-              <Link href="/admin/products">
+              <Link href="/admin/amazon-sales">
                 全て見る
                 <ArrowRight className="w-4 h-4 ml-1" />
               </Link>
@@ -152,22 +198,7 @@ export default function AdminDashboard() {
           </div>
         </div>
         <CardContent>
-          <div className="space-y-3">
-            {products.slice(0, 3).map((product) => (
-              <div key={product.id} className="flex items-center gap-3 text-sm">
-                <div className="w-2 h-2 bg-primary rounded-full flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{product.title}</p>
-                  <p className="text-muted-foreground text-xs">
-                    {new Date(product.createdAt).toLocaleDateString("ja-JP")}
-                  </p>
-                </div>
-              </div>
-            ))}
-            {products.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">まだ商品が登録されていません</p>
-            )}
-          </div>
+          <AdminSaleCalendar />
         </CardContent>
       </Card>
     </div>

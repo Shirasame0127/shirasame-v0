@@ -57,11 +57,17 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
   }, [images.length])
 
   if (!isLoaded) {
-    return <div className="relative h-[300px] md:h-[400px] w-full bg-muted animate-pulse" />
+    return (
+      <div
+        className="relative w-full bg-muted animate-pulse"
+        // 保険として最小高さを与える
+        style={{ minHeight: 200, aspectRatio: 16 / 9 }}
+      />
+    )
   }
 
   return (
-    <div className="relative overflow-hidden h-[300px] md:h-[400px] w-full">
+    <div className="relative overflow-hidden w-full" style={{ aspectRatio: 16 / 9 }}>
       {images.length > 0 ? (
         <div className="absolute inset-0">
           {images.map((image, index) => (

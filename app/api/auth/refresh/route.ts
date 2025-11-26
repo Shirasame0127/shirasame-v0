@@ -68,7 +68,7 @@ export async function POST(req: Request) {
       return failRes
     }
 
-    const accessMaxAge = 60 * 60 // 1 hour
+    const accessMaxAge = 60 * 60 * 24 * 7 // 7 days
     const refreshMaxAge = 60 * 60 * 24 * 30 // 30 days
 
     const res = NextResponse.json({ ok: true, data: { expires_in: json.expires_in } })

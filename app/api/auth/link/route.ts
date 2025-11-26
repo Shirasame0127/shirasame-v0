@@ -15,10 +15,12 @@ export async function POST(req: Request) {
 
     try {
       // Upsert a users row with id = auth.user.id so we can link them
+      // Prefer: explicit username -> email local-part (before @) -> null
+      const emailLocal = email ? String(email).split('@')[0] : null
       const row = {
         id: userId,
         email,
-        display_name: username || email || null,
+        display_name: username || emailLocal || null,
         updated_at: new Date().toISOString(),
       }
 
@@ -27,8 +29,10 @@ export async function POST(req: Request) {
       try {
         ownerUserId = await getOwnerUserId()
       } catch (oe) {
-        console.error('[api/auth/link] failed to resolve owner', oe)
-        return NextResponse.json({ ok: false, error: 'owner resolution failed' }, { status: 500 })
+        // Don't treat owner resolution failure as fatal in development — warn and continue.
+        // Previously this returned 500 and caused linking to fail when owner row wasn't present.
+        console.warn('[api/auth/link] failed to resolve owner; continuing without owner constraint', oe)
+        ownerUserId = null
       }
 
       const ownerEmail = (process.env.PUBLIC_PROFILE_EMAIL || '').toString().trim().toLowerCase()
@@ -44,6 +48,20 @@ export async function POST(req: Request) {
             return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 })
           }
         }
+      }
+
+      // Preserve an existing display_name when present to avoid
+      // overwriting admin-updated names during auth linking.
+      // Only use provided username/emailLocal when no display_name exists.
+      let existingDisplayName: string | null = null
+      try {
+        const { data: existing, error: existingErr } = await supabaseAdmin.from('users').select('display_name').eq('id', userId).maybeSingle()
+        if (!existingErr && existing && existing.display_name) existingDisplayName = existing.display_name
+      } catch (ee) {
+        // ignore
+      }
+      if (existingDisplayName) {
+        row.display_name = existingDisplayName
       }
 
       // Use upsert to avoid duplicates

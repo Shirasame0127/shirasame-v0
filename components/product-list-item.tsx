@@ -39,7 +39,7 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
 
   return (
     <Card>
-      <CardContent className="p-4">
+      <CardContent className="p-4 h-30">
         <div className="flex gap-4">
           <div className="relative w-24 h-24 shrink-0 rounded-lg overflow-hidden bg-muted">
             <Image
@@ -54,9 +54,7 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
             <div className="flex items-start justify-between gap-2 mb-2">
               <div>
                 <h3 className="font-semibold line-clamp-1">{product.title}</h3>
-                {product.shortDescription && (
-                  <p className="text-sm text-muted-foreground line-clamp-1">{product.shortDescription}</p>
-                )}
+                {/* 短い説明は管理画面カードでは表示しない */}
               </div>
               <Badge variant={product.published ? "default" : "secondary"}>
                 {product.published ? "公開中" : "下書き"}
@@ -69,7 +67,7 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
                   {tag}
                 </Badge>
               ))}
-              {product.price && <span className="text-sm font-medium">¥{product.price.toLocaleString()}</span>}
+              {/* 価格は管理画面の一覧カードでは非表示 */}
             </div>
 
             <div className="flex gap-2">

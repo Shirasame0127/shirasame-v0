@@ -31,8 +31,8 @@ export async function POST(req: Request) {
 
     // Set httpOnly cookies for access and refresh tokens
     const cookies: string[] = []
-    // access token lifetime: short (1 hour)
-    const accessMaxAge = 60 * 60 // 1 hour
+    // access token lifetime: keep short but allow short-lived persistent login (7 days)
+    const accessMaxAge = 60 * 60 * 24 * 7 // 7 days
     const refreshMaxAge = 60 * 60 * 24 * 30 // 30 days
 
     const safe = process.env.NODE_ENV === 'production'

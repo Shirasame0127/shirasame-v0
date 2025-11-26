@@ -517,7 +517,13 @@ export default function AdminSettingsPage() {
 
     // Save user-visible settings to the server via API
     try {
-      const payload: any = { id: user?.id, ...updates }
+      // Avoid sending a local placeholder id (e.g. 'local') to the server —
+      // that may trigger a forbidden check if owner resolution is active.
+      const payload: any = { ...updates }
+      const maybeId = user?.id
+      if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) {
+        payload.id = maybeId
+      }
       const res = await fetch('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

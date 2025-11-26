@@ -290,4 +290,13 @@ if (typeof window !== 'undefined' && supabaseClient?.auth && (supabaseClient as 
       console.warn('[auth] onAuthStateChange handler error', e)
     }
   })
+  
+  // If we already have a local user (e.g. page reload), start the periodic refresh
+  try {
+    if (readLocalUser()) {
+      startAutoRefresh()
+    }
+  } catch (e) {
+    console.warn('[auth] startAutoRefresh on load failed', e)
+  }
 }

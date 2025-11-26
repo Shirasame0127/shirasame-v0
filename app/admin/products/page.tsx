@@ -19,12 +19,17 @@ import {
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 
 export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [searchQuery, setSearchQuery] = useState("")
-  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "price-high" | "price-low">("newest")
+  const [sortBy, setSortBy] = useState<"newest" | "clicks" | "price-asc" | "price-desc">("newest")
   const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({})
+  const [openGroups, setOpenGroups] = useState<string[] | undefined>(undefined)
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false)
 
   useEffect(() => {
     // APIから商品データを読み込む
@@ -51,6 +56,58 @@ export default function AdminProductsPage() {
     fetchProducts()
   }, [])
 
+  // Load tag groups from server (fallback to tags derived from products)
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const [groupsRes, tagsRes] = await Promise.all([fetch('/api/tag-groups'), fetch('/api/tags')])
+        const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
+        const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
+        const serverGroups = Array.isArray(groupsJson.data) ? groupsJson.data : groupsJson.data || []
+        const serverTags = Array.isArray(tagsJson.data) ? tagsJson.data : tagsJson.data || []
+
+        const groups: Record<string, string[]> = {}
+        for (const g of serverGroups) {
+          if (!g || !g.name) continue
+          groups[g.name] = []
+        }
+
+        for (const t of serverTags) {
+          const tagName = t.name
+          const groupName = t.group || '未分類'
+          if (!groups[groupName]) groups[groupName] = []
+          if (!groups[groupName].includes(tagName)) groups[groupName].push(tagName)
+        }
+
+        if (Object.keys(groups).length === 0) {
+          // derive from products
+          const derived: Record<string, string[]> = {}
+          products.filter((p: any) => Array.isArray(p.tags)).forEach((p: any) => {
+            p.tags.forEach((tag: string) => {
+              const groupName = 'その他'
+              if (!derived[groupName]) derived[groupName] = []
+              if (!derived[groupName].includes(tag)) derived[groupName].push(tag)
+            })
+          })
+          setTagGroups(derived)
+        } else {
+          setTagGroups(groups)
+        }
+      } catch (e) {
+        // fallback derive
+        const derived: Record<string, string[]> = {}
+        products.filter((p: any) => Array.isArray(p.tags)).forEach((p: any) => {
+          p.tags.forEach((tag: string) => {
+            const groupName = 'その他'
+            if (!derived[groupName]) derived[groupName] = []
+            if (!derived[groupName].includes(tag)) derived[groupName].push(tag)
+          })
+        })
+        setTagGroups(derived)
+      }
+    })()
+  }, [products])
+
   // 全タグを取得
   const allTags = useMemo(() => {
     const tags = new Set<string>()
@@ -69,22 +126,30 @@ export default function AdminProductsPage() {
   // フィルタリングとソート
   const filteredAndSortedProducts = useMemo(() => {
     const filtered = products.filter((product) => {
-      const matchesSearch = product.title.toLowerCase().includes(searchQuery.toLowerCase())
+      const q = searchQuery.toLowerCase().trim()
+      const matchesSearch =
+        !q ||
+        product.title.toLowerCase().includes(q) ||
+        (product.shortDescription && product.shortDescription.toLowerCase().includes(q))
       const matchesTags = selectedTags.length === 0 || selectedTags.some((tag) => product.tags.includes(tag))
       return matchesSearch && matchesTags
     })
 
-    // ソート
+    // ソート（公開ページと同じモードに合わせる）
     filtered.sort((a, b) => {
       switch (sortBy) {
         case "newest":
           return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        case "oldest":
-          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        case "price-high":
-          return (b.price || 0) - (a.price || 0)
-        case "price-low":
+        case "clicks":
+          // If click count is present, sort by that; otherwise fallback to stable pseudo-random ordering
+          const ac = (a as any).clicks ?? 0
+          const bc = (b as any).clicks ?? 0
+          if (ac !== bc) return bc - ac
+          return 0
+        case "price-asc":
           return (a.price || 0) - (b.price || 0)
+        case "price-desc":
+          return (b.price || 0) - (a.price || 0)
         default:
           return 0
       }
@@ -128,34 +193,57 @@ export default function AdminProductsPage() {
             />
           </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <Sheet open={isFilterSheetOpen} onOpenChange={setIsFilterSheetOpen}>
+            <SheetTrigger asChild>
               <Button variant="outline" size="icon">
                 <Filter className="w-4 h-4" />
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>タグで絞り込み</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {allTags.map((tag) => (
-                <DropdownMenuCheckboxItem
-                  key={tag}
-                  checked={selectedTags.includes(tag)}
-                  onCheckedChange={() => toggleTag(tag)}
-                >
-                  {tag}
-                </DropdownMenuCheckboxItem>
-              ))}
-              {selectedTags.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <Button variant="ghost" size="sm" className="w-full" onClick={clearTags}>
-                    クリア
+            </SheetTrigger>
+            <SheetContent side="bottom" className="h-auto max-h-[80vh] rounded-t-2xl px-4 pb-0 flex flex-col">
+              <SheetHeader className="pb-4 border-b">
+                <SheetTitle className="text-base">タグで絞り込み</SheetTitle>
+              </SheetHeader>
+
+              <div className="flex-1 overflow-y-auto py-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {Object.keys(tagGroups).length === 0 ? (
+                  <div className="text-sm text-muted-foreground">タグがありません</div>
+                ) : (
+                  <Accordion type="multiple" className="w-full" value={openGroups} onValueChange={(v) => setOpenGroups(Array.isArray(v) ? v : [v])}>
+                    {Object.entries(tagGroups).map(([groupName, tags]) => (
+                      <AccordionItem key={groupName} value={groupName}>
+                        <AccordionTrigger className="text-sm py-2">
+                          {groupName}
+                          {selectedTags.some((t) => tags.includes(t)) && (
+                            <Badge variant="secondary" className="ml-2">{selectedTags.filter((t) => tags.includes(t)).length}</Badge>
+                          )}
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="flex flex-wrap gap-1.5 pt-2">
+                            {tags.map((tag) => (
+                              <Badge
+                                key={tag}
+                                variant={selectedTags.includes(tag) ? "default" : "outline"}
+                                className="cursor-pointer hover:scale-105 transition-transform text-[12px] px-2 py-0.5"
+                                onClick={() => toggleTag(tag)}
+                              >
+                                {tag}
+                              </Badge>
+                            ))}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
+                )}
+
+                {selectedTags.length > 0 && (
+                  <Button variant="ghost" size="sm" className="w-full mt-4" onClick={clearTags}>
+                    絞り込みを解除
                   </Button>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -169,9 +257,9 @@ export default function AdminProductsPage() {
               <DropdownMenuSeparator />
               <DropdownMenuRadioGroup value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
                 <DropdownMenuRadioItem value="newest">新しい順</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="oldest">古い順</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="price-high">価格が高い順</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="price-low">価格が安い順</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="clicks">クリック数順</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="price-asc">価格が安い順</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="price-desc">価格が高い順</DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>

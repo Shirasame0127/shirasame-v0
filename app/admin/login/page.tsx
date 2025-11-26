@@ -19,14 +19,42 @@ export default function LoginPage() {
   // ログインフォーム
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
+  const [loginEmailError, setLoginEmailError] = useState('')
+  const [loginPasswordError, setLoginPasswordError] = useState('')
 
   // サインアップフォーム
   const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
   const [signupUsername, setSignupUsername] = useState('')
+  const [signupEmailError, setSignupEmailError] = useState('')
+  const [signupPasswordError, setSignupPasswordError] = useState('')
+  const [signupUsernameError, setSignupUsernameError] = useState('')
+  const [showLoginPassword, setShowLoginPassword] = useState(false)
+  const [showSignupPassword, setShowSignupPassword] = useState(false)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    // clear previous errors
+    setLoginEmailError('')
+    setLoginPasswordError('')
+
+    // basic client-side validation using local flags
+    let hasError = false
+    const emailValid = /\S+@\S+\.\S+/.test(loginEmail)
+    if (!loginEmail) {
+      setLoginEmailError('メールアドレスを入力してください')
+      hasError = true
+    } else if (!emailValid) {
+      setLoginEmailError('有効なメールアドレスを入力してください')
+      hasError = true
+    }
+    if (!loginPassword) {
+      setLoginPasswordError('パスワードを入力してください')
+      hasError = true
+    }
+
+    if (hasError) return
+
     setIsLoading(true)
 
     const result = await auth.login(loginEmail, loginPassword)
@@ -39,11 +67,8 @@ export default function LoginPage() {
       })
       window.location.href = '/admin'
     } else {
-      toast({
-        title: 'ログイン失敗',
-        description: result.error,
-        variant: 'destructive',
-      })
+      // server-side auth errors (invalid credentials etc.) still shown via toast
+      toast({ title: 'ログイン失敗', description: result.error, variant: 'destructive' })
     }
 
     setIsLoading(false)
@@ -71,6 +96,18 @@ export default function LoginPage() {
       toast({ title: '送信中にエラー', description: String(e), variant: 'destructive' })
     }
     setIsLoading(false)
+  }
+
+  const handleGoogleLogin = async () => {
+    try {
+      const redirectTo = `${location.origin}/admin/login`
+      // Trigger Supabase OAuth flow for Google
+      await (supabaseClient as any).auth.signInWithOAuth({ provider: 'google', options: { redirectTo } })
+      // signInWithOAuth will redirect the browser; if it doesn't, no-op
+    } catch (e) {
+      console.error('[auth] google oauth error', e)
+      toast({ title: 'Googleログインに失敗しました', description: String(e), variant: 'destructive' })
+    }
   }
 
   // Google OAuth removed — email/password and magic link only
@@ -151,6 +188,22 @@ export default function LoginPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
+    // clear previous errors
+    setSignupEmailError('')
+    setSignupPasswordError('')
+    setSignupUsernameError('')
+
+    // basic client-side validation
+    const emailValid = /\S+@\S+\.\S+/.test(signupEmail)
+    if (!signupUsername) setSignupUsernameError('ユーザー名を入力してください')
+    if (!signupEmail) setSignupEmailError('メールアドレスを入力してください')
+    else if (!emailValid) setSignupEmailError('有効なメールアドレスを入力してください')
+    if (!signupPassword) setSignupPasswordError('パスワードを入力してください')
+
+    if (signupUsernameError || signupEmailError || signupPasswordError || !signupUsername || !signupEmail || !signupPassword || !emailValid) {
+      return
+    }
+
     setIsLoading(true)
 
     if (!signupEmail || !signupPassword || !signupUsername) {
@@ -206,26 +259,52 @@ export default function LoginPage() {
                     type="email"
                     placeholder="email@example.com"
                     value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
+                    onChange={(e) => {
+                      setLoginEmail(e.target.value)
+                      setLoginEmailError('')
+                    }}
                     required
                   />
+                  {loginEmailError ? <p className="text-sm text-destructive mt-1">{loginEmailError}</p> : null}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="login-password">パスワード</Label>
-                  <Input
-                    id="login-password"
-                    type="password"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    required
-                  />
+                  <div className="relative">
+                    <Input
+                      id="login-password"
+                      type={showLoginPassword ? 'text' : 'password'}
+                      value={loginPassword}
+                      onChange={(e) => {
+                        setLoginPassword(e.target.value)
+                        setLoginPasswordError('')
+                      }}
+                      required
+                    />
+                    {loginPasswordError ? <p className="text-sm text-destructive mt-1">{loginPasswordError}</p> : null}
+                    <button
+                      type="button"
+                      onClick={() => setShowLoginPassword((s) => !s)}
+                      aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-sm opacity-70 hover:opacity-100"
+                    >
+                      {showLoginPassword ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-5 0-9.27-3.11-11-8 1.05-2.59 2.77-4.78 4.8-6.24"/><path d="M1 1l22 22"/></svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? 'ログイン中...' : 'ログイン'}
                 </Button>
                 <div className="flex items-center gap-2">
+                  <Button type="button" variant="ghost" onClick={handleGoogleLogin} disabled={isLoading} className="flex-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="inline mr-2" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12c0-.68-.06-1.34-.17-1.97H12v3.73h5.36c-.23 1.25-1.03 2.31-2.2 3.02v2.5h3.56C20.55 19.06 22 15.87 22 12z"/><path d="M12 22c2.97 0 5.47-.98 7.29-2.66l-3.56-2.5c-.98.66-2.24 1.06-3.73 1.06-2.86 0-5.28-1.93-6.15-4.53H2.14v2.84C3.95 19.97 7.73 22 12 22z"/><path d="M5.85 13.31A6.99 6.99 0 0 1 5.2 12c0-.4.05-.79.11-1.17V8.0H2.14A10.98 10.98 0 0 0 1 12c0 1.83.44 3.56 1.21 5.07l3.64-3.76z"/><path d="M12 6.5c1.62 0 3.08.56 4.22 1.66l3.17-3.17C17.47 2.51 14.97 1.5 12 1.5 7.73 1.5 3.95 3.53 2.14 6.5l3.66 2.84C6.72 8.43 9.14 6.5 12 6.5z"/></svg>
+                    Googleでログイン
+                  </Button>
                   <Button type="button" variant="outline" onClick={handleSendMagicLink} disabled={isLoading} className="flex-1">
-                    マジックリンクを送る（メール）
+                    メール認証
                   </Button>
                 </div>
               </form>
@@ -240,9 +319,13 @@ export default function LoginPage() {
                     type="text"
                     placeholder="username"
                     value={signupUsername}
-                    onChange={(e) => setSignupUsername(e.target.value)}
+                    onChange={(e) => {
+                      setSignupUsername(e.target.value)
+                      setSignupUsernameError('')
+                    }}
                     required
                   />
+                  {signupUsernameError ? <p className="text-sm text-destructive mt-1">{signupUsernameError}</p> : null}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-email">メールアドレス</Label>
@@ -251,19 +334,41 @@ export default function LoginPage() {
                     type="email"
                     placeholder="email@example.com"
                     value={signupEmail}
-                    onChange={(e) => setSignupEmail(e.target.value)}
+                    onChange={(e) => {
+                      setSignupEmail(e.target.value)
+                      setSignupEmailError('')
+                    }}
                     required
                   />
+                  {signupEmailError ? <p className="text-sm text-destructive mt-1">{signupEmailError}</p> : null}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-password">パスワード</Label>
-                  <Input
-                    id="signup-password"
-                    type="password"
-                    value={signupPassword}
-                    onChange={(e) => setSignupPassword(e.target.value)}
-                    required
-                  />
+                  <div className="relative">
+                    <Input
+                      id="signup-password"
+                      type={showSignupPassword ? 'text' : 'password'}
+                      value={signupPassword}
+                      onChange={(e) => {
+                        setSignupPassword(e.target.value)
+                        setSignupPasswordError('')
+                      }}
+                      required
+                    />
+                    {signupPasswordError ? <p className="text-sm text-destructive mt-1">{signupPasswordError}</p> : null}
+                    <button
+                      type="button"
+                      onClick={() => setShowSignupPassword((s) => !s)}
+                      aria-label={showSignupPassword ? 'Hide password' : 'Show password'}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-sm opacity-70 hover:opacity-100"
+                    >
+                      {showSignupPassword ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-5 0-9.27-3.11-11-8 1.05-2.59 2.77-4.78 4.8-6.24"/><path d="M1 1l22 22"/></svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? 'アカウント作成中...' : 'アカウント作成'}

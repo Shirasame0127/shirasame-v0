@@ -34,11 +34,11 @@ const RECIPE_ASPECT_RATIOS = [
   { value: "16:9", label: "横長 (16:9)", ratio: 16 / 9 },
 ]
 
-const ASPECT_RATIOS = {
-  product: { value: 1, label: "商品画像 (1:1)" },
-  profile: { value: 1, label: "プロフィール画像 (1:1)" },
-  header: { value: 3, label: "ヘッダー画像 (3:1)" },
-  background: { value: 16 / 9, label: "背景画像 (16:9)" },
+const ASPECT_RATIOS: Record<string, { value: number; label: string; aspect?: string }> = {
+  product: { value: 1, label: "商品画像 (1:1)", aspect: "1:1" },
+  profile: { value: 1, label: "プロフィール画像 (1:1)", aspect: "1:1" },
+  header: { value: 16 / 9, label: "ヘッダー画像 (16:9)", aspect: "16:9" },
+  background: { value: 16 / 9, label: "背景画像 (16:9)", aspect: "16:9" },
 }
 
 export function ImageCropper({
@@ -56,9 +56,10 @@ export function ImageCropper({
   const [selectedRecipeAspect, setSelectedRecipeAspect] = useState("4:3")
 
   const isRecipe = aspectRatioType === "recipe"
-  const aspectRatio = isRecipe 
-    ? RECIPE_ASPECT_RATIOS.find(r => r.value === selectedRecipeAspect)?.ratio || 4/3
+  const aspectRatio = isRecipe
+    ? RECIPE_ASPECT_RATIOS.find((r) => r.value === selectedRecipeAspect)?.ratio || 4 / 3
     : ASPECT_RATIOS[aspectRatioType]?.value || 1
+  const aspectString = isRecipe ? selectedRecipeAspect : ASPECT_RATIOS[aspectRatioType]?.aspect || "1:1"
 
   const onCropCompleteCallback = useCallback((_croppedArea: Area, croppedAreaPixels: Area) => {
     setCroppedAreaPixels(croppedAreaPixels)
@@ -100,7 +101,7 @@ export function ImageCropper({
         (blob) => {
           if (blob) {
             const file = new File([blob], `cropped-${Date.now()}.jpg`, { type: "image/jpeg" })
-            onCropComplete(file, isRecipe ? selectedRecipeAspect : "1:1")
+            onCropComplete(file, aspectString)
             setCrop({ x: 0, y: 0 })
             setZoom(1)
             setRotation(0)
