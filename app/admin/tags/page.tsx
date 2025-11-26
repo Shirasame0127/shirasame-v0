@@ -170,9 +170,10 @@ export default function AdminTagsPage() {
     }
 
     return (
-      <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 flex items-center justify-between">
-        <div className="truncate">{children}</div>
-        <div className="flex items-center gap-2 ml-2">
+      <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 flex items-center">
+        {/* children are expected to include a left (name) and right (actions) element */}
+        {children}
+        <div className="flex-none ml-2">
           <button
             {...attributes}
             {...listeners}
@@ -184,6 +185,26 @@ export default function AdminTagsPage() {
             ≡
           </button>
         </div>
+      </div>
+    )
+  }
+
+  // empty group droppable placeholder
+  function SortablePlaceholder({ id, groupName }: any) {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id })
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      touchAction: 'none' as const,
+      userSelect: 'none' as const,
+    }
+
+    return (
+      <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 min-w-40 min-h-11 flex items-center justify-center text-sm text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <div className="text-sm">ドロップしてタグを追加</div>
+        </div>
+        <div {...attributes} {...listeners} className="sr-only" />
       </div>
     )
   }
@@ -551,19 +572,19 @@ export default function AdminTagsPage() {
     }
 
     return (
-      <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 flex items-center w-full">
+        <div className="flex-1 min-w-0 flex items-center gap-3">
           <Badge variant="outline" className="gap-1">
             {tag.linkUrl && <LinkIcon className="w-3 h-3" />}
           </Badge>
           <div className="truncate">
-            <div className="text-sm font-medium">{tag.name}</div>
-            {usedTags.has(tag.name) && (
-              <div className="text-xs text-muted-foreground">{usedTags.get(tag.name)}件</div>
-            )}
+            <div className="text-sm font-medium truncate">{tag.name}</div>
           </div>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex-none flex items-center gap-2">
+          {usedTags.has(tag.name) && (
+            <div className="text-xs text-muted-foreground mr-2">{usedTags.get(tag.name)}件</div>
+          )}
           <button
             {...attributes}
             {...listeners}
@@ -659,6 +680,16 @@ export default function AdminTagsPage() {
       handleTagMove(a, o)
     }
   }
+
+  // Ensure we display server groups even when they have zero tags
+  const displayGroupNames = useMemo(() => {
+    const names = new Set<string>()
+    // show server-declared groups first
+    serverGroups.forEach((g) => names.add(g))
+    // include any groups derived from tags (e.g., 未分類)
+    Array.from(groupedTags.keys()).forEach((g) => names.add(g))
+    return Array.from(names)
+  }, [serverGroups, groupedTags])
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -825,14 +856,16 @@ export default function AdminTagsPage() {
             }}
           >
             <SortableContext items={serverGroups} strategy={rectSortingStrategy}>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-2">
                 <div className="bg-background rounded-md border-2 border-dashed p-3 flex items-center justify-center">
                   <span className="text-sm text-muted-foreground">未分類</span>
                 </div>
                 {serverGroups.map((groupName) => (
                   <SortableGroup key={groupName} id={groupName}>
-                    <span className="text-sm font-medium truncate">{groupName}</span>
-                    <div className="flex gap-2 items-center ml-2">
+                    <div className="flex-1 min-w-0 flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{groupName}</span>
+                    </div>
+                    <div className="flex-none flex items-center gap-2 ml-2">
                       {/* Special handling: protect the special link group from rename/delete */}
                       {groupName !== SPECIAL_LINK_GROUP_NAME && (
                         <>
@@ -906,48 +939,55 @@ export default function AdminTagsPage() {
             onDragOver={(e) => { try { console.debug('dnd:over', { active: (e as any).active?.id, over: (e as any).over?.id }) } catch(_){} }}
             onDragEnd={(e) => { try { console.debug('dnd:end', { active: (e as any).active?.id, over: (e as any).over?.id }) } catch(_){}; handleDragEnd(e) }}
           >
-            {Array.from(groupedTags.entries()).map(([groupName, groupTags]) => (
-              <Card key={groupName} className="mb-4">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>{groupName}</CardTitle>
-                    <CardDescription>{groupTags.length}個のタグ</CardDescription>
-                  </div>
-                  {groupName !== "未分類" && groupName !== SPECIAL_LINK_GROUP_NAME && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setEditingGroupName(groupName)
-                        setNewGroupName(groupName)
-                        setIsGroupDialogOpen(true)
-                      }}
-                    >
-                      <Edit className="w-3 h-3 mr-1" />
-                      グループ名変更
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                        <div className="flex flex-wrap gap-2">
-                          <SortableContext items={groupTags.map(t => `${groupName}::${t.id}`)} strategy={rectSortingStrategy}>
-                            {groupTags.map((tag) => (
-                              <SortableTag
-                                key={tag.id}
-                                id={`${groupName}::${tag.id}`}
-                                tag={tag}
-                                groupName={groupName}
-                                onEdit={(t: any) => { setEditingTag(t); setIsEditDialogOpen(true); }}
-                                onDelete={(id: string) => removeTag(id)}
-                              />
-                            ))}
-                          </SortableContext>
-                        </div>
-              </CardContent>
-            </Card>
-            ))}
+            {displayGroupNames.map((groupName) => {
+              const groupTags = groupedTags.get(groupName) || []
+              return (
+                <Card key={groupName} className="mb-4">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="text-sm font-medium truncate">{groupName}</span>
+                        {groupName !== "未分類" && groupName !== SPECIAL_LINK_GROUP_NAME && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => {
+                              setEditingGroupName(groupName)
+                              setNewGroupName(groupName)
+                              setIsGroupDialogOpen(true)
+                            }}
+                          >
+                            <Edit className="w-3 h-3" />
+                          </Button>
+                        )}
+                      </div>
+                      <Badge variant="outline" className="text-sm">{groupTags.length}個</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      <SortableContext items={groupTags.length > 0 ? groupTags.map(t => `${groupName}::${t.id}`) : [`${groupName}::__placeholder__`]} strategy={rectSortingStrategy}>
+                        {groupTags.length > 0 ? (
+                          groupTags.map((tag) => (
+                            <SortableTag
+                              key={tag.id}
+                              id={`${groupName}::${tag.id}`}
+                              tag={tag}
+                              groupName={groupName}
+                              onEdit={(t: any) => { setEditingTag(t); setIsEditDialogOpen(true); }}
+                              onDelete={(id: string) => removeTag(id)}
+                            />
+                          ))
+                        ) : (
+                          <SortablePlaceholder key={`${groupName}::__placeholder__`} id={`${groupName}::__placeholder__`} groupName={groupName} />
+                        )}
+                      </SortableContext>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
           </DndContext>
         </div>
       </div>

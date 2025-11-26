@@ -57,7 +57,8 @@ export async function GET() {
       // If this request is public (no access cookie), restrict products to the
       // site owner's user id (PUBLIC_PROFILE_EMAIL) so public collections only
       // include the owner's products.
-      let prodQuery = supabaseAdmin.from('products').select('*, images:product_images(*)').in('id', productIds).eq('published', true)
+      // Include affiliate_links so collection products include affiliateLinks
+      let prodQuery = supabaseAdmin.from('products').select('*, images:product_images(*), affiliateLinks:affiliate_links(*)').in('id', productIds).eq('published', true)
       try {
         const rawCookie = ('' + (typeof globalThis !== 'undefined' && (globalThis as any).__NEXT_INIT__?.cookie || ''))
         const noCookie = true // default to public mode for this API
@@ -129,6 +130,9 @@ export async function GET() {
                   aspect: img.aspect,
                   role: img.role,
                 }))
+            : [],
+          affiliateLinks: Array.isArray(p.affiliateLinks)
+            ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label }))
             : [],
         })),
       }

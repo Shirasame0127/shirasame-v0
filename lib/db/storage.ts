@@ -124,9 +124,16 @@ export const db = {
       const obj = { ...product, createdAt: product.createdAt || nowISO(), updatedAt: product.updatedAt || nowISO() }
       caches.products = [...(caches.products || []), obj]
       // best-effort send to server (fire-and-log)
-      apiFetch("POST", "/api/admin/products", obj).then((r) => {
-        if (!r) console.warn("[v0] Failed to persist product to server")
-      })
+      apiFetch("POST", "/api/admin/products", obj)
+        .then((r) => {
+          if (!r) console.warn("[v0] Failed to persist product to server")
+        })
+        .finally(() => {
+          try {
+            ;(db.collections as any)?.refresh?.().catch(() => {})
+            ;(db.recipePins as any)?.refresh?.().catch(() => {})
+          } catch (e) {}
+        })
       return obj
     },
     update: (id: string, updates: Partial<Product>) => {
@@ -134,10 +141,24 @@ export const db = {
       apiFetch("PUT", `/api/admin/products/${encodeURIComponent(id)}`, updates)
         .then((r) => r)
         .catch((e) => console.error(e))
+        .finally(() => {
+          try {
+            ;(db.collections as any)?.refresh?.().catch(() => {})
+            ;(db.recipePins as any)?.refresh?.().catch(() => {})
+          } catch (e) {
+            // ignore
+          }
+        })
     },
     delete: (id: string) => {
       caches.products = (caches.products || []).filter((p: any) => p.id !== id)
       apiFetch("DELETE", `/api/admin/products/${encodeURIComponent(id)}`)
+        .finally(() => {
+          try {
+            ;(db.collections as any)?.refresh?.().catch(() => {})
+            ;(db.recipePins as any)?.refresh?.().catch(() => {})
+          } catch (e) {}
+        })
     },
   },
 
@@ -261,6 +282,23 @@ export const db = {
     getAll: (userId?: string) => {
       const items = caches.collections || []
       return userId ? items.filter((c: any) => c.userId === userId) : items
+    },
+    // Refresh collections from server and update cache. Returns the fresh list.
+    refresh: async (userId?: string) => {
+      try {
+        const data = await apiFetch('GET', '/api/collections')
+        let items: any = []
+        if (data != null) {
+          if (typeof data === 'object' && data !== null && 'data' in data) items = data.data
+          else items = data
+        }
+        if (!Array.isArray(items)) items = items ? [items] : []
+        caches.collections = items
+        return userId ? items.filter((c: any) => c.userId === userId) : items
+      } catch (e) {
+        console.error('[v0] collections.refresh failed', e)
+        return (caches.collections || []).filter((c: any) => (userId ? c.userId === userId : true))
+      }
     },
     getById: (id: string) => (caches.collections || []).find((c: any) => c.id === id) || null,
     create: (collection: any) => {

@@ -50,6 +50,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
                 priority
               />
             </div>
+            <span className="text-sm font-medium text-muted-foreground"> のコレクション</span>
           </Link>
 
           <div className="flex items-center gap-2">
