@@ -16,10 +16,25 @@ interface PublicNavProps {
 export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [collections, setCollections] = useState<Collection[]>([])
+  const [initialLoading, setInitialLoading] = useState(false)
 
   useEffect(() => {
     const loadedCollections = db.collections.getAll().filter((c) => c.visibility === "public")
     setCollections(loadedCollections)
+  }, [])
+
+  useEffect(() => {
+    // initialize from global flag and listen for changes from InitialLoading
+    try {
+      setInitialLoading(Boolean((window as any).__v0_initial_loading))
+    } catch (e) {}
+    const handler = (e: any) => {
+      try {
+        setInitialLoading(Boolean(e.detail))
+      } catch (er) {}
+    }
+    try { window.addEventListener('v0-initial-loading', handler as EventListener) } catch (e) {}
+    return () => { try { window.removeEventListener('v0-initial-loading', handler as EventListener) } catch (e) {} }
   }, [])
 
   function handleAnchorClick(e: React.MouseEvent<HTMLAnchorElement>, targetId: string) {
@@ -78,7 +93,9 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
             <div className="space-y-1">
               <h4 className="text-xs font-medium mb-2 text-muted-foreground">コレクション</h4>
               {collections.length === 0 ? (
-                <div className="text-sm text-muted-foreground py-2">読み込み中…</div>
+                initialLoading ? null : (
+                  <div className="text-sm text-muted-foreground py-2">読み込み中…</div>
+                )
               ) : (
                 collections.map((col, index) => (
                   <a

@@ -10,13 +10,16 @@ export async function GET(req: Request) {
     const tag = url.searchParams.get("tag")
     const published = url.searchParams.get("published")
 
-    // Determine if this is a public request: either explicitly asking for
-    // published=true or the request has no sb-access-token cookie (client
-    // public page). In public mode we restrict products to the site owner's
-    // user id (PUBLIC_PROFILE_EMAIL) to ensure only the owner's products are shown.
+    // Determine if this is a public request:
+    // - explicitly asking for published=true
+    // - no sb-access-token cookie
+    // - OR request comes from the configured public host (e.g. `shirasame.example.com`)
     const cookieHeader = req.headers.get('cookie') || ''
     const hasAccessCookie = cookieHeader.includes('sb-access-token')
-    const isPublicRequest = (published === 'true') || !hasAccessCookie
+    const host = new URL(req.url).hostname
+    const PUBLIC_HOST = process.env.PUBLIC_HOST || process.env.NEXT_PUBLIC_PUBLIC_HOST || ''
+    const isHostPublic = PUBLIC_HOST ? host === PUBLIC_HOST : false
+    const isPublicRequest = (published === 'true') || !hasAccessCookie || isHostPublic
     let ownerUserId: string | null = null
     if (isPublicRequest) {
       try {

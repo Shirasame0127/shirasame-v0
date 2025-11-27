@@ -32,7 +32,7 @@ export function ProductCardSimple({ product, onClick }: ProductCardSimpleProps) 
       {/* aspect-square: 正方形のアスペクト比を維持 */}
       {/* rounded-md: 角丸の大きさ（sm, md, lg, xlから選択） */}
       {/* hover:shadow-md: ホバー時の影の大きさ */}
-      <div className="relative aspect-square overflow-hidden rounded-md bg-muted hover:shadow-md transition-all duration-300">
+      <div className="relative aspect-square overflow-hidden rounded-md bg-muted transform transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
         <Image
           src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg"}
           alt={product.title}

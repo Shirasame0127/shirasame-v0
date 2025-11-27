@@ -8,6 +8,7 @@ export async function POST(req: Request) {
     console.log('[api/images/complete] request body:', body)
     const url = body?.url || body?.result?.url || body?.result?.default || null
     const key = body?.key || body?.filename || body?.result?.filename || null
+    const aspect = body?.aspect || null
     const userId = body?.userId || body?.user_id || body?.userID || null
     const target = body?.target || body?.type || 'header' // 'header' or 'profile'
 
@@ -27,7 +28,9 @@ export async function POST(req: Request) {
 
       const insertObj: any = { url, user_id: ownerUserId }
       if (key) insertObj.filename = key
-      insertObj.metadata = { source: 'cloudflare-direct', key }
+      const metadata: any = { source: 'cloudflare-direct', key }
+      if (aspect) metadata.aspect = aspect
+      insertObj.metadata = metadata
       console.log('[api/images/complete] inserting image metadata:', insertObj)
 
       const { data, error } = await supabaseAdmin.from('images').insert([insertObj]).select().maybeSingle()

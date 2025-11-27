@@ -16,6 +16,7 @@ interface ImageCropperProps {
   imageUrl: string
   onCropComplete: (croppedImage: File, aspectRatio: string) => void
   aspectRatioType?: "product" | "recipe" | "profile" | "header" | "background"
+  forcedAspect?: string
 }
 
 const RECIPE_ASPECT_RATIOS = [
@@ -47,6 +48,7 @@ export function ImageCropper({
   imageUrl,
   onCropComplete,
   aspectRatioType = "product",
+  forcedAspect,
 }: ImageCropperProps) {
   const [crop, setCrop] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
@@ -54,12 +56,49 @@ export function ImageCropper({
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [selectedRecipeAspect, setSelectedRecipeAspect] = useState("4:3")
+  const [selectedProductAspect, setSelectedProductAspect] = useState("1:1")
 
   const isRecipe = aspectRatioType === "recipe"
-  const aspectRatio = isRecipe
-    ? RECIPE_ASPECT_RATIOS.find((r) => r.value === selectedRecipeAspect)?.ratio || 4 / 3
-    : ASPECT_RATIOS[aspectRatioType]?.value || 1
-  const aspectString = isRecipe ? selectedRecipeAspect : ASPECT_RATIOS[aspectRatioType]?.aspect || "1:1"
+  // If parent forces an aspect (e.g. admin selected), prefer that for non-recipe types
+  let aspectRatio: number
+  let aspectString: string
+  if (!isRecipe && (forcedAspect && forcedAspect.length > 0)) {
+    const parts = forcedAspect.split(":")
+    if (parts.length === 2) {
+      const a = Number(parts[0])
+      const b = Number(parts[1])
+      aspectRatio = a && b ? a / b : ASPECT_RATIOS[aspectRatioType]?.value || 1
+      aspectString = forcedAspect
+    } else {
+      aspectRatio = ASPECT_RATIOS[aspectRatioType]?.value || 1
+      aspectString = ASPECT_RATIOS[aspectRatioType]?.aspect || "1:1"
+    }
+  } else {
+    if (isRecipe) {
+      aspectRatio = RECIPE_ASPECT_RATIOS.find((r) => r.value === selectedRecipeAspect)?.ratio || 4 / 3
+      aspectString = selectedRecipeAspect
+    } else if (aspectRatioType === 'product') {
+      // product: if parent didn't force an aspect, allow local product selector
+      if (selectedProductAspect && selectedProductAspect.length > 0) {
+        const parts = selectedProductAspect.split(":")
+        if (parts.length === 2) {
+          const a = Number(parts[0])
+          const b = Number(parts[1])
+          aspectRatio = a && b ? a / b : ASPECT_RATIOS.product.value
+          aspectString = selectedProductAspect
+        } else {
+          aspectRatio = ASPECT_RATIOS.product.value
+          aspectString = ASPECT_RATIOS.product.aspect || "1:1"
+        }
+      } else {
+        aspectRatio = ASPECT_RATIOS.product.value
+        aspectString = ASPECT_RATIOS.product.aspect || "1:1"
+      }
+    } else {
+      aspectRatio = ASPECT_RATIOS[aspectRatioType]?.value || 1
+      aspectString = ASPECT_RATIOS[aspectRatioType]?.aspect || "1:1"
+    }
+  }
 
   const onCropCompleteCallback = useCallback((_croppedArea: Area, croppedAreaPixels: Area) => {
     setCroppedAreaPixels(croppedAreaPixels)
@@ -153,6 +192,23 @@ export function ImageCropper({
                       {aspect.label}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {aspectRatioType === 'product' && !forcedAspect && (
+            <div className="space-y-2">
+              <Label className="text-xs sm:text-sm font-medium">画像比率</Label>
+              <Select value={selectedProductAspect} onValueChange={setSelectedProductAspect}>
+                <SelectTrigger className="text-xs sm:text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1:1" className="text-xs sm:text-sm">正方形 (1:1)</SelectItem>
+                  <SelectItem value="4:3" className="text-xs sm:text-sm">横長 (4:3)</SelectItem>
+                  <SelectItem value="16:9" className="text-xs sm:text-sm">横長ワイド (16:9)</SelectItem>
+                  <SelectItem value="2:3" className="text-xs sm:text-sm">縦長 (2:3)</SelectItem>
+                  <SelectItem value="3:4" className="text-xs sm:text-sm">縦長 (3:4)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -8,9 +8,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { DndContext, PointerSensor, TouchSensor, MouseSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core"
+import { arrayMove, SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { db } from "@/lib/db/storage"
 import { ProductCard } from "@/components/product-card"
-import { Plus, Edit, Trash2, Save, X } from 'lucide-react'
+import { Plus, Edit, Trash2, Save, X, GripVertical } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { Collection } from "@/types/collection" // Declare the Collection variable
@@ -41,7 +44,27 @@ export default function AdminCollectionsPage() {
         if (!res.ok) throw new Error('failed')
         const json = await res.json()
         const list = Array.isArray(json) ? json : json.data || []
-        setCollections(list)
+        // apply saved order from localStorage if present
+        try {
+          const saved = typeof window !== 'undefined' ? localStorage.getItem('collections-order') : null
+          if (saved) {
+            const ids: string[] = JSON.parse(saved || '[]')
+            if (Array.isArray(ids) && ids.length > 0) {
+              const map = new Map(list.map((c: any) => [c.id, c]))
+              const ordered: any[] = []
+              ids.forEach((id) => { if (map.has(id)) { ordered.push(map.get(id)); map.delete(id) } })
+              // append any new items not in saved order
+              for (const c of list) { if (!ids.includes(c.id)) ordered.push(c) }
+              setCollections(ordered)
+            } else {
+              setCollections(list)
+            }
+          } else {
+            setCollections(list)
+          }
+        } catch (e) {
+          setCollections(list)
+        }
 
         // Inspect each collection for actual existing item counts
         try {
@@ -204,6 +227,21 @@ export default function AdminCollectionsPage() {
     })
   }
 
+  // SortableCard component for dnd-kit — provides handle support.
+  function SortableCard({ id, children }: { id: string; children: (props: { attributes: any; listeners: any; isDragging: boolean }) => React.ReactNode }) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+    const style: any = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      zIndex: isDragging ? 50 : undefined,
+    }
+    return (
+      <div ref={setNodeRef} style={{ ...style, touchAction: 'none', userSelect: 'none' }}>
+        {children({ attributes, listeners, isDragging })}
+      </div>
+    )
+  }
+
   const handleAddProduct = (collectionId: string, productId: string) => {
     ;(async () => {
       try {
@@ -291,6 +329,40 @@ export default function AdminCollectionsPage() {
     return db.products.getAll().filter((p) => !collectionProductIds.includes(p.id))
   }
 
+  const handleToggleVisibility = async (collectionId: string, toVisibility: "public" | "draft") => {
+    // capture previous visibility to allow rollback
+    const prevVis = (collections.find((c) => c.id === collectionId) as any)?.visibility || "draft"
+
+    // optimistic UI update
+    setCollections((prev) => prev.map((c) => (c.id === collectionId ? { ...c, visibility: toVisibility } : c)))
+
+    try {
+      const res = await fetch(`/api/admin/collections/${encodeURIComponent(collectionId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visibility: toVisibility }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(json?.error || json?.message || 'failed')
+      }
+
+      const updated = json.data || json
+      try {
+        ;(db.collections as any).update?.(collectionId, updated)
+      } catch (e) {
+        // ignore if in-memory update fails
+      }
+      setCollections((prev) => prev.map((c) => (c.id === collectionId ? { ...c, ...updated } : c)))
+      toast({ title: '更新完了', description: '公開状態を更新しました' })
+    } catch (e) {
+      console.error('toggle visibility failed', e)
+      // rollback
+      setCollections((prev) => prev.map((c) => (c.id === collectionId ? { ...c, visibility: prevVis } : c)))
+      toast({ variant: 'destructive', title: '更新失敗', description: '公開状態の更新に失敗しました' })
+    }
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
@@ -304,39 +376,86 @@ export default function AdminCollectionsPage() {
         </Button>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        {collections.map((collection) => {
-          const itemCount = (collection as any).itemCount ?? db.collectionItems.getByCollectionId(collection.id).length
+      <DndContext
+        sensors={useSensors(useSensor(PointerSensor, { activationConstraint: { delay: 150, tolerance: 5 } }))}
+        onDragEnd={(e: DragEndEvent) => {
+          const { active, over } = e
+          if (!over) return
+          if (active.id === over.id) return
+          const oldIndex = collections.findIndex((c) => c.id === active.id)
+          const newIndex = collections.findIndex((c) => c.id === over.id)
+          if (oldIndex < 0 || newIndex < 0) return
+          const next = arrayMove(collections, oldIndex, newIndex)
+          setCollections(next)
+          try {
+            localStorage.setItem('collections-order', JSON.stringify(next.map((c) => c.id)))
+          } catch (e) {}
 
-          return (
-            <Card key={collection.id}>
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="mb-2">{collection.title}</CardTitle>
-                    <div className="flex items-center gap-2">
-                                <Badge variant={collection.visibility === "public" ? "default" : "secondary"}>
-                                  {collection.visibility === "public" ? "公開" : "下書き"}
-                                </Badge>
-                                <span className="text-sm text-muted-foreground">{((collection as any).inspect?.existingCount ?? itemCount)}個のアイテム</span>
-                                {((collection as any).inspect?.missingCount ?? 0) > 0 && (
-                                  <Badge variant="destructive" className="ml-2">欠損 { (collection as any).inspect.missingCount } 件</Badge>
-                                )}
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 bg-transparent"
-                    onClick={() => openManageProductsDialog(collection.id)}
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    商品管理
-                  </Button>
+          // try to persist order to server (best-effort)
+          ;(async () => {
+            try {
+              await fetch('/api/admin/collections/reorder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order: next.map((c, i) => ({ id: c.id, order: i })) }),
+              })
+            } catch (err) {
+              console.warn('collections reorder persist failed', err)
+            }
+          })()
+        }}
+      >
+        <SortableContext items={collections.map((c) => c.id)} strategy={rectSortingStrategy}>
+          <div className="grid md:grid-cols-2 gap-6">
+            {collections.map((collection) => {
+          const itemCount = (collection as any).itemCount ?? db.collectionItems.getByCollectionId(collection.id).length
+              return (
+                <SortableCard key={collection.id} id={collection.id}>
+                  {({ attributes, listeners }) => (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <CardTitle className="mb-2">{collection.title}</CardTitle>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={collection.visibility === "public" ? "default" : "secondary"}>
+                                {collection.visibility === "public" ? "公開" : "下書き"}
+                              </Badge>
+                              <span className="text-sm text-muted-foreground">{((collection as any).inspect?.existingCount ?? itemCount)}個のアイテム</span>
+                              {((collection as any).inspect?.missingCount ?? 0) > 0 && (
+                                <Badge variant="destructive" className="ml-2">欠損 { (collection as any).inspect.missingCount } 件</Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={collection.visibility === "public"}
+                              onCheckedChange={(checked) => handleToggleVisibility(collection.id, checked ? "public" : "draft")}
+                            />
+                            <button
+                              {...attributes}
+                              {...listeners}
+                              type="button"
+                              aria-label={`ドラッグ ${collection.id}`}
+                              style={{ touchAction: 'none', WebkitTapHighlightColor: 'transparent' }}
+                              className="h-6 w-6 rounded border bg-muted flex items-center justify-center text-xs ml-2"
+                            >
+                              ≡
+                            </button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1 bg-transparent"
+                            onClick={() => openManageProductsDialog(collection.id)}
+                          >
+                            <Plus className="w-4 h-4 mr-1" />
+                            商品管理
+                          </Button>
                           {((collection as any).inspect?.missingCount ?? 0) > 0 && (
                             <Button
                               size="sm"
@@ -360,24 +479,28 @@ export default function AdminCollectionsPage() {
                               同期
                             </Button>
                           )}
-                  <Button size="sm" variant="outline" onClick={() => openEditDialog(collection)}>
-                    <Edit className="w-4 h-4 mr-1" />
-                    編集
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-destructive hover:text-destructive bg-transparent"
-                    onClick={() => handleDelete(collection.id)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
+                          <Button size="sm" variant="outline" onClick={() => openEditDialog(collection)}>
+                            <Edit className="w-4 h-4 mr-1" />
+                            編集
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-destructive hover:text-destructive bg-transparent"
+                            onClick={() => handleDelete(collection.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </SortableCard>
+              )
+            })}
+          </div>
+        </SortableContext>
+      </DndContext>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl">

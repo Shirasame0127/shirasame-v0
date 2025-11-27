@@ -2,21 +2,15 @@ import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
 import { getPublicImageUrl } from '@/lib/image-url'
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    // Determine if this is a public request (no sb-access-token cookie present).
-    const cookieHeader = (globalThis as any)?.Request ? undefined : undefined
-    const reqHeaders = (typeof Request !== 'undefined') ? undefined : undefined
-    const cookie = ''
-    const headerCookie = (globalThis as any) // fallback: read from env-less request
-    let hasAccessCookie = false
-    try {
-      // req isn't available as a global in this context; use URL-based check below
-      const rawCookie = ''
-      hasAccessCookie = Boolean(rawCookie && rawCookie.includes('sb-access-token'))
-    } catch (e) {
-      hasAccessCookie = false
-    }
+    // Determine if this is a public request by inspecting cookies and host header.
+    const cookieHeader = req.headers.get('cookie') || ''
+    const hasAccessCookie = cookieHeader.includes('sb-access-token')
+    const host = new URL(req.url).hostname
+    const PUBLIC_HOST = process.env.PUBLIC_HOST || process.env.NEXT_PUBLIC_PUBLIC_HOST || ''
+    const isHostPublic = PUBLIC_HOST ? host === PUBLIC_HOST : false
+    const isPublicRequest = !hasAccessCookie || isHostPublic
 
     // 1. 公開コレクションを取得
     const { data: collections, error: colErr } = await supabaseAdmin
@@ -60,9 +54,7 @@ export async function GET() {
       // Include affiliate_links so collection products include affiliateLinks
       let prodQuery = supabaseAdmin.from('products').select('*, images:product_images(*), affiliateLinks:affiliate_links(*)').in('id', productIds).eq('published', true)
       try {
-        const rawCookie = ('' + (typeof globalThis !== 'undefined' && (globalThis as any).__NEXT_INIT__?.cookie || ''))
-        const noCookie = true // default to public mode for this API
-        if (noCookie) {
+        if (isPublicRequest) {
           const OWNER_EMAIL = process.env.PUBLIC_PROFILE_EMAIL || ''
           if (OWNER_EMAIL) {
             const u = await supabaseAdmin.from('users').select('id').eq('email', OWNER_EMAIL).limit(1)

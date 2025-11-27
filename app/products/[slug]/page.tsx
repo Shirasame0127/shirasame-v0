@@ -18,8 +18,18 @@ export default function ProductPage() {
 
   const [product, setProduct] = useState<Product | null>(null)
   const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(false)
 
   useEffect(() => {
+    try {
+      setInitialLoading(Boolean((window as any).__v0_initial_loading))
+    } catch (e) {}
+    const handler = (e: any) => {
+      try { setInitialLoading(Boolean(e.detail)) } catch (er) {}
+    }
+    try { window.addEventListener('v0-initial-loading', handler as EventListener) } catch (e) {}
+    return () => { try { window.removeEventListener('v0-initial-loading', handler as EventListener) } catch (e) {} }
+
     if (!slug) {
       setLoading(false)
       return
@@ -48,9 +58,12 @@ export default function ProductPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted-foreground">読み込み中...</div>
-      </div>
+      // If the global initial-loading overlay is active, don't render a duplicate textual placeholder
+      initialLoading ? null : (
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <div className="text-muted-foreground">読み込み中...</div>
+        </div>
+      )
     )
   }
 

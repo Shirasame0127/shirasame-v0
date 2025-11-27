@@ -82,6 +82,8 @@ if (typeof window !== "undefined") {
     warmCache("customFonts", "/api/custom-fonts")
     warmCache("recipePins", "/api/recipe-pins")
     warmCache("amazonSaleSchedules", "/api/amazon-sale-schedules")
+    // site settings (loading animation etc.)
+    warmCache("siteSettings", "/api/site-settings")
   })()
 }
 
@@ -370,6 +372,26 @@ export const db = {
     set: (theme: any) => {
       caches.theme = theme
       apiFetch("POST", "/api/admin/theme", { theme })
+    },
+  },
+
+  // siteSettings cache (key -> value)
+  siteSettings: {
+    get: () => caches.siteSettings || {},
+    getValue: (key: string) => (caches.siteSettings || {})[key],
+    refresh: async () => {
+      try {
+        const data = await apiFetch('GET', '/api/site-settings')
+        if (data && typeof data === 'object' && 'data' in data) {
+          caches.siteSettings = data.data || {}
+        } else {
+          caches.siteSettings = data || {}
+        }
+        return caches.siteSettings
+      } catch (e) {
+        console.error('[v0] siteSettings.refresh failed', e)
+        return caches.siteSettings || {}
+      }
     },
   },
 

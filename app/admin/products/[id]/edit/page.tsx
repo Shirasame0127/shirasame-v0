@@ -1,6 +1,7 @@
 "use client"
 
 import { use, useEffect, useState } from "react"
+import AdminLoading from '@/components/admin-loading'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -449,7 +450,7 @@ export default function ProductEditPage({ params }: { params: any }) {
   }
 
   if (isLoading) {
-    return <div className="p-8 text-center">読み込み中...</div>
+    return <AdminLoading />
   }
 
   return (

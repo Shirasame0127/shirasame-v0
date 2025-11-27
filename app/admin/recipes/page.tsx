@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import AdminLoading from '@/components/admin-loading'
 import { db } from "@/lib/db/storage"
 import { Button } from "@/components/ui/button"
 import { getPublicImageUrl } from "@/lib/image-url"
@@ -144,11 +145,7 @@ export default function RecipesManagementPage() {
   }
 
   if (loading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="text-center py-12 text-muted-foreground">読み込み中...</div>
-      </div>
-    )
+    return <AdminLoading />
   }
 
   return (

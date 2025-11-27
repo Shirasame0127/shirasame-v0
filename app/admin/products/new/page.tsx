@@ -69,9 +69,8 @@ export default function ProductNewPage() {
   const [draftInitialized, setDraftInitialized] = useState(false)
 
   // dynamic tag groups loaded from server with cache fallback
-  const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({
-    リンク先: ["Amazon", "楽天", "Yahoo", "公式サイト"],
-  })
+  // 初期は空にして、サーバーから来たタググループ（特に「リンク先」）を優先して設定する
+  const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({})
   const [availableTags, setAvailableTags] = useState<any[]>([])
 
   useEffect(() => {
@@ -91,12 +90,24 @@ export default function ProductNewPage() {
 
         const groupNames: string[] = serverGroups && serverGroups.length > 0 ? serverGroups.map((g: any) => g.name).filter(Boolean) : []
         if (groupNames.length === 0) {
-          const inferred = Array.from(new Set((finalTags || []).map((t: any) => t.group).filter(Boolean)))
-          inferred.forEach((g) => groupNames.push(g))
+          const inferred = Array.from(new Set((finalTags || []).map((t: any) => t.group).filter(Boolean))) as string[]
+          inferred.forEach((g: string) => groupNames.push(g))
         }
 
         const map: Record<string, string[]> = {}
-        map['リンク先'] = ['Amazon', '楽天', 'Yahoo', '公式サイト']
+        // 'リンク先' はまずサーバーから来たタグ群の中で group === 'リンク先' を探す
+        const linkTags = (finalTags || [])
+          .filter((t: any) => (t.group || '未分類') === 'リンク先')
+          .map((t: any) => t.name)
+          .filter(Boolean)
+
+        if (linkTags.length > 0) {
+          map['リンク先'] = linkTags
+        } else {
+          // サーバーに無ければ既知のアフィリエイトテンプレート名をフォールバックとして使う
+          map['リンク先'] = AFFILIATE_LINK_TEMPLATES.map((t) => t.name)
+        }
+
         groupNames.forEach((name) => {
           map[name] = (finalTags || []).filter((t: any) => (t.group || '未分類') === name).map((t: any) => t.name)
         })
@@ -104,10 +115,15 @@ export default function ProductNewPage() {
         setTagGroups(map)
       } catch (e) {
         const fallback = db.tags.getAllWithPlaceholders()
-        const inferred = Array.from(new Set((fallback || []).map((t: any) => t.group).filter(Boolean)))
+        const inferred = Array.from(new Set((fallback || []).map((t: any) => t.group).filter(Boolean))) as string[]
         const map: Record<string, string[]> = {}
-        map['リンク先'] = ['Amazon', '楽天', 'Yahoo', '公式サイト']
-        inferred.forEach((name) => {
+        const linkTags = (fallback || [])
+          .filter((t: any) => (t.group || '未分類') === 'リンク先')
+          .map((t: any) => t.name)
+          .filter(Boolean)
+
+        map['リンク先'] = linkTags.length > 0 ? linkTags : AFFILIATE_LINK_TEMPLATES.map((t) => t.name)
+        inferred.forEach((name: string) => {
           map[name] = (fallback || []).filter((t: any) => (t.group || '未分類') === name).map((t: any) => t.name)
         })
         setTagGroups(map)
@@ -238,6 +254,22 @@ export default function ProductNewPage() {
 
     // リンク先テンプレート選択時に対応するリンク先タグを自動付与
     ensureLinkTag(template.linkTag)
+  }
+
+  // Apply a tag-based link template coming from `tagGroups['リンク先']`.
+  const applyLinkTagTemplate = (index: number, tagName: string) => {
+    if (!tagName) return
+    // Find tag object in availableTags to get stored linkUrl/linkLabel
+    const tagObj = (availableTags || []).find((t: any) => t.name === tagName)
+    const updated = [...affiliateLinks]
+    updated[index] = {
+      ...updated[index],
+      provider: tagName,
+      label: (tagObj && (tagObj.linkLabel || tagObj.link_label)) || updated[index].label || "",
+      url: (tagObj && (tagObj.linkUrl || tagObj.link_url)) || updated[index].url || "",
+    }
+    setAffiliateLinks(updated)
+    ensureLinkTag(tagName)
   }
 
   const updateAffiliateLink = (index: number, field: string, value: string) => {
@@ -620,23 +652,32 @@ export default function ProductNewPage() {
                   <div className="space-y-2">
                     <Label>リンク先テンプレート</Label>
                     <Select
-                      value={AFFILIATE_LINK_TEMPLATES.find((t) => t.name === link.provider)?.id || ""}
-                      onValueChange={(value) => applyAffiliateTemplate(index, value as AffiliateTemplateId)}
+                      value={link.provider || ""}
+                      onValueChange={(value) => applyLinkTagTemplate(index, value)}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="選択してください" />
                       </SelectTrigger>
                       <SelectContent>
-                        {AFFILIATE_LINK_TEMPLATES.map((template) => (
-                          <SelectItem key={template.id} value={template.id}>
-                            {template.name}
-                          </SelectItem>
-                        ))}
+                        {(tagGroups['リンク先'] || []).map((tagName) => {
+                          const tagObj = (availableTags || []).find((t: any) => t.name === tagName)
+                          const display = tagObj ? (tagObj.linkLabel || tagObj.link_label || tagName) : tagName
+                          return (
+                            <SelectItem key={tagName} value={tagName}>
+                              {display}
+                            </SelectItem>
+                          )
+                        })}
+                        {/* Fallback: include known affiliate templates if tag group missing */}
+                        {(tagGroups['リンク先'] || []).length === 0 &&
+                          AFFILIATE_LINK_TEMPLATES.map((template) => (
+                            <SelectItem key={template.id} value={template.name}>
+                              {template.name}
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Amazon / 楽天 / ヤフー / 公式サイトのテンプレートを選べます
-                    </p>
+                    <p className="text-xs text-muted-foreground">タグで管理されたリンク先を選択できます</p>
                   </div>
 
                   <div className="space-y-2">

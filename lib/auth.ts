@@ -169,32 +169,34 @@ export const auth = {
       const res = await fetch('/api/auth/refresh', { method: 'POST' })
       if (!res.ok) {
         const j = await res.json().catch(() => null)
-        // On refresh failure, force local sign-out and redirect to login
-        try {
-          await auth.logout()
-        } catch (e) {
-          console.warn('[auth] logout after refresh failure failed', e)
-        }
+        // On refresh failure: clear local mirror. Only redirect/logout when
+        // the user is on the admin UI to avoid navigating away from public pages.
         try {
           writeLocalUser(null)
         } catch {}
-        if (typeof window !== 'undefined') {
-          window.location.href = '/admin/login'
+        try {
+          if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+            await auth.logout()
+            // auth.logout will perform redirect to /admin/login
+          }
+        } catch (e) {
+          console.warn('[auth] logout after refresh failure failed', e)
         }
+        // Do not redirect when on public pages
         return { success: false, error: j?.error || 'refresh failed' }
       }
       return { success: true }
     } catch (e: any) {
       console.warn('[auth] refresh exception', e)
       try {
-        await auth.logout()
-      } catch {}
-      try {
         writeLocalUser(null)
       } catch {}
-      if (typeof window !== 'undefined') {
-        window.location.href = '/admin/login'
-      }
+      try {
+        if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+          await auth.logout()
+        }
+      } catch {}
+      // Avoid redirecting from public pages
       return { success: false, error: String(e) }
     }
   },
@@ -277,8 +279,14 @@ if (typeof window !== 'undefined' && supabaseClient?.auth && (supabaseClient as 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId: user.id, email: user.email }),
           }).catch((e) => console.warn('[auth] link after auth state change failed', e))
-          // start periodic refresh
-          startAutoRefresh()
+          // start periodic refresh only when in admin UI
+          try {
+            if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+              startAutoRefresh()
+            }
+          } catch (e) {
+            console.warn('[auth] startAutoRefresh guard failed', e)
+          }
         }
       }
 
@@ -292,8 +300,10 @@ if (typeof window !== 'undefined' && supabaseClient?.auth && (supabaseClient as 
   })
   
   // If we already have a local user (e.g. page reload), start the periodic refresh
+  // only when the user is viewing the admin UI. This prevents public pages
+  // from triggering periodic refresh+redirect when the admin session expires.
   try {
-    if (readLocalUser()) {
+    if (readLocalUser() && typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
       startAutoRefresh()
     }
   } catch (e) {

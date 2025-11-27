@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Package, Camera, Eye, TrendingUp, Plus, ArrowRight } from 'lucide-react'
 import Link from "next/link"
 import { useEffect, useState, useCallback } from "react"
+import AdminLoading from '@/components/admin-loading'
 import { usePathname } from 'next/navigation'
 import { db } from "@/lib/db/storage"
 import { auth } from "@/lib/auth"
@@ -87,20 +88,7 @@ export default function AdminDashboard() {
   }, [pathname, loadData])
 
   if (isLoading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-4 md:py-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-2xl md:text-3xl font-bold">ダッシュボード</h1>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/" target="_blank" className="flex items-center gap-2">
-              <Eye className="w-4 h-4" />
-              公開ページ
-            </Link>
-          </Button>
-        </div>
-        <p className="text-muted-foreground">読み込み中...</p>
-      </div>
-    )
+    return <AdminLoading />
   }
 
   const stats = [

@@ -6,6 +6,7 @@ import { ProfileCard } from "@/components/profile-card"
 import { ProductCardSimple } from "@/components/product-card-simple"
 import { ProductDetailModal } from "@/components/product-detail-modal"
 import { RecipeDisplay } from "@/components/recipe-display"
+import ProductMasonry from "@/components/product-masonry"
 import { db } from "@/lib/db/storage"
 import type { Product } from "@/lib/db/schema"
 import Image from "next/image"
@@ -20,6 +21,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Input } from "@/components/ui/input"
 // Use persisted user record (cloud-first). Do not rely on local mock data.
 import { ProfileHeader } from "@/components/profile-header"
+import InitialLoading from '@/components/initial-loading'
 
 type FilterContentProps = {
   isMobile?: boolean
@@ -29,6 +31,8 @@ type FilterContentProps = {
   setViewMode: (v: "grid" | "list") => void
   gridColumns: number
   setGridColumns: (n: number) => void
+  layoutStyle: "masonry" | "square"
+  setLayoutStyle: (s: "masonry" | "square") => void
   sortMode: "newest" | "clicks" | "price-asc" | "price-desc"
   setSortMode: (v: any) => void
   tagGroups: Record<string, string[]>
@@ -47,6 +51,8 @@ function FilterContent({
   setViewMode,
   gridColumns,
   setGridColumns,
+  layoutStyle,
+  setLayoutStyle,
   sortMode,
   setSortMode,
   tagGroups,
@@ -137,14 +143,34 @@ function FilterContent({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="2">2列</SelectItem>
                 <SelectItem value="3">3列</SelectItem>
                 <SelectItem value="4">4列</SelectItem>
                 <SelectItem value="5">5列</SelectItem>
                 <SelectItem value="6">6列</SelectItem>
                 <SelectItem value="7">7列</SelectItem>
-                <SelectItem value="8">8列</SelectItem>
               </SelectContent>
             </Select>
+          )}
+          {viewMode === "grid" && (
+            <div className="flex items-center gap-2 ml-2">
+              <Button
+                size={isMobile ? "sm" : "sm"}
+                variant={layoutStyle === "masonry" ? "default" : "outline"}
+                onClick={() => setLayoutStyle("masonry")}
+                className={isMobile ? "text-xs h-8" : ""}
+              >
+                ピンタレスト
+              </Button>
+              <Button
+                size={isMobile ? "sm" : "sm"}
+                variant={layoutStyle === "square" ? "default" : "outline"}
+                onClick={() => setLayoutStyle("square")}
+                className={isMobile ? "text-xs h-8" : ""}
+              >
+                正方形
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -239,7 +265,8 @@ export default function HomePage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
-  const [gridColumns, setGridColumns] = useState(6) // PCのデフォルト列数を6列に変更
+  const [gridColumns, setGridColumns] = useState(7) // PCのデフォルト列数を7列に変更
+  const [layoutStyle, setLayoutStyle] = useState<"masonry" | "square">("masonry")
   const [sortMode, setSortMode] = useState<"newest" | "clicks" | "price-asc" | "price-desc">("newest")
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({})
@@ -403,7 +430,8 @@ export default function HomePage() {
     })
 
   if (!isLoaded) {
-    return <div className="flex items-center justify-center min-h-screen">読み込み中...</div>
+    // InitialLoading overlay handles visual feedback; avoid rendering duplicate textual placeholder.
+    return null
   }
 
   const appliedStyle = theme
@@ -422,6 +450,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen" style={appliedStyle}>
+      <InitialLoading />
       <main className="min-h-screen pb-20 relative">
         <PublicNav logoUrl={user?.avatarUrl || user?.profileImage} siteName={user?.displayName || ""} />
 
@@ -518,6 +547,8 @@ export default function HomePage() {
                           setViewMode={setViewMode}
                           gridColumns={gridColumns}
                           setGridColumns={setGridColumns}
+                          layoutStyle={layoutStyle}
+                          setLayoutStyle={setLayoutStyle}
                           sortMode={sortMode}
                           setSortMode={setSortMode}
                           tagGroups={tagGroups}
@@ -547,6 +578,8 @@ export default function HomePage() {
                       setViewMode={setViewMode}
                       gridColumns={gridColumns}
                       setGridColumns={setGridColumns}
+                      layoutStyle={layoutStyle}
+                      setLayoutStyle={setLayoutStyle}
                       sortMode={sortMode}
                       setSortMode={setSortMode}
                       tagGroups={tagGroups}
@@ -561,11 +594,33 @@ export default function HomePage() {
               </div>
 
               {viewMode === "grid" ? (
-                <div className={`grid gap-3 grid-cols-4 md:grid-cols-${gridColumns}`}>
-                  {filteredAndSortedProducts.map((product) => (
-                    <ProductCardSimple key={product.id} product={product} onClick={() => handleProductClick(product)} />
-                  ))}
-                </div>
+                layoutStyle === "masonry" ? (
+                  <div>
+                    <ProductMasonry
+                      items={filteredAndSortedProducts.map((product) => ({
+                        id: product.id,
+                        image: getPublicImageUrl(product.images?.[0]?.url) || product.images?.[0]?.url || "/placeholder.svg",
+                        aspect: product.images?.[0]?.aspect || undefined,
+                        title: product.title,
+                        href: `/products/${product.slug}`,
+                      }))}
+                      className={`gap-3`}
+                      columns={gridColumns}
+                      onItemClick={(id: string) => {
+                        const p = products.find((pr) => pr.id === id)
+                        if (p) handleProductClick(p)
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>
+                    {filteredAndSortedProducts.map((product) => (
+                      <div key={product.id} onClick={() => handleProductClick(product)}>
+                        <ProductCardSimple product={product} onClick={() => handleProductClick(product)} />
+                      </div>
+                    ))}
+                  </div>
+                )
               ) : (
                 <div className="space-y-3">
                   {filteredAndSortedProducts.map((product) => (

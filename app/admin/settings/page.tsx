@@ -682,6 +682,62 @@ export default function AdminSettingsPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>公開ページローディングアニメーション</CardTitle>
+            <CardDescription>公開ページを開いた際に中央に表示するアニメーション（GIF）。1:1 にトリミングされます。</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>アップロード（GIF推奨）</Label>
+              <div className="max-w-[300px] mt-2">
+                <ImageUpload
+                  value={db.siteSettings.getValue('loading_animation')?.url || ''}
+                  onChange={() => {}}
+                  aspectRatioType={'product'}
+                  onUploadComplete={async (url) => {
+                    if (!url) return
+                    try {
+                      await fetch('/api/site-settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key: 'loading_animation', value: { url } }),
+                      })
+                      // refresh local cache
+                      try { db.siteSettings.refresh().catch(() => {}) } catch (e) {}
+                      toast({ title: '保存しました' })
+                    } catch (e) {
+                      toast({ variant: 'destructive', title: '保存に失敗しました' })
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            <div>
+              <Label>現在のアニメーション</Label>
+              <div className="mt-2">
+                {db.siteSettings.getValue('loading_animation')?.url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={db.siteSettings.getValue('loading_animation')?.url} alt="loading" className="w-24 h-24 object-cover rounded-md border" />
+                ) : (
+                  <p className="text-sm text-muted-foreground">未設定</p>
+                )}
+              </div>
+            </div>
+            <div>
+              <Button variant="ghost" onClick={async () => {
+                try {
+                  await fetch('/api/site-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'loading_animation', value: { url: null } }) })
+                  try { db.siteSettings.refresh().catch(() => {}) } catch (e) {}
+                  toast({ title: 'クリアしました' })
+                } catch (e) {
+                  toast({ variant: 'destructive', title: 'クリアに失敗しました' })
+                }
+              }}>クリア</Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>SNSリンク</CardTitle>

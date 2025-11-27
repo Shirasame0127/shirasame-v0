@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Toaster } from "@/components/ui/toaster"
 import { useEffect, useState } from 'react'
 import { auth } from '@/lib/auth'
+import AdminLoading from '@/components/admin-loading'
 
 export default function AdminLayout({
   children,
@@ -50,11 +51,8 @@ export default function AdminLayout({
   }, [pathname, isLoginPage, router])
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p>読み込み中...</p>
-      </div>
-    )
+    // 管理画面読み込み中は固定で現在のローディングアニメーションを表示する
+    return <AdminLoading />
   }
 
   if (!isAuthenticated) {

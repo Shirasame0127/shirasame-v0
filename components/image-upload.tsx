@@ -4,6 +4,8 @@ import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { ImageCropper } from "@/components/image-cropper"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
 import { Upload, X } from "lucide-react"
 import Image from "next/image"
 
@@ -26,6 +28,9 @@ export function ImageUpload({
   onOpenChange,
   onUploadComplete,
 }: ImageUploadProps) {
+  const [selectedAspect, setSelectedAspect] = useState<string>(
+    aspectRatioType === "product" ? "1:1" : aspectRatioType === "header" ? "16:9" : "1:1",
+  )
   const [previewUrl, setPreviewUrl] = useState<string>("")
   const [tempImageUrl, setTempImageUrl] = useState<string>("")
   const [showCropper, setShowCropper] = useState(false)
@@ -48,7 +53,7 @@ export function ImageUpload({
     }
   }
 
-  const handleCropComplete = (croppedFile: File) => {
+  const handleCropComplete = async (croppedFile: File, aspectString?: string) => {
     const url = URL.createObjectURL(croppedFile)
     setPreviewUrl(url)
     // keep onChange for backward compatibility
@@ -165,7 +170,13 @@ export function ImageUpload({
               await fetch('/api/images/complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cf_id: (result as any).id, url: uploadedUrl, filename: croppedFile.name, target: completeTarget }),
+                body: JSON.stringify({
+                  cf_id: (result as any).id,
+                  url: uploadedUrl,
+                  filename: croppedFile.name,
+                  target: completeTarget,
+                  aspect: aspectString || selectedAspect,
+                }),
               })
             } catch (err) {
               console.warn('images/complete failed', err)
@@ -200,13 +211,30 @@ export function ImageUpload({
           <Upload className="w-4 h-4 mr-2" />
           画像を選択
         </Button>
-        <ImageCropper
-          open={showCropper}
-          onOpenChange={setShowCropper}
-          imageUrl={tempImageUrl}
-          onCropComplete={handleCropComplete}
-          aspectRatioType={aspectRatioType}
-        />
+        {aspectRatioType === 'product' && (
+          <div className="mt-2">
+            <Label className="text-xs sm:text-sm font-medium">画像比率</Label>
+            <Select value={selectedAspect} onValueChange={setSelectedAspect}>
+              <SelectTrigger className="text-xs sm:text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1:1" className="text-xs sm:text-sm">正方形 (1:1)</SelectItem>
+                <SelectItem value="4:3" className="text-xs sm:text-sm">横長 (4:3)</SelectItem>
+                <SelectItem value="16:9" className="text-xs sm:text-sm">横長ワイド (16:9)</SelectItem>
+                <SelectItem value="2:3" className="text-xs sm:text-sm">縦長 (2:3)</SelectItem>
+                <SelectItem value="3:4" className="text-xs sm:text-sm">縦長 (3:4)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+          <ImageCropper
+            open={showCropper}
+            onOpenChange={setShowCropper}
+            imageUrl={tempImageUrl}
+            onCropComplete={handleCropComplete}
+            aspectRatioType={aspectRatioType}
+          />
       </>
     )
   }
