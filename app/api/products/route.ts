@@ -54,45 +54,99 @@ export async function GET(req: Request) {
       query = query.eq('user_id', ownerUserId)
     }
 
-    const { data, error } = await query
+    const shallow = url.searchParams.get('shallow') === 'true' || url.searchParams.get('list') === 'true'
+    const limitParam = url.searchParams.get('limit')
+    const offsetParam = url.searchParams.get('offset')
+    const limit = limitParam ? Math.max(0, parseInt(limitParam, 10) || 0) : null
+    const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0
+
+    // If limit is provided, request exact count from Supabase and apply range for pagination
+    let data: any = null
+    let error: any = null
+    let count: number | null = null
+
+    if (limit && limit > 0) {
+      const res = await query.range(offset, offset + Math.max(0, (limit || 0) - 1)).select(baseSelect, { count: 'exact' })
+      data = res.data || null
+      error = res.error || null
+      // Supabase returns count when count option is used
+      // @ts-ignore
+      count = typeof res.count === 'number' ? res.count : null
+    } else {
+      const res = await query.select(baseSelect)
+      data = res.data || null
+      error = res.error || null
+    }
+
     if (error) {
       console.error('[api/products] GET error', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ error: error.message || String(error) }, { status: 500 })
     }
 
     // フロントの Product 型に合わせて整形
-    const transformed = (data || []).map((p: any) => ({
-      id: p.id,
-      userId: p.user_id,
-      title: p.title,
-      slug: p.slug,
-      shortDescription: p.short_description,
-      body: p.body,
-      tags: p.tags,
-      price: p.price,
-      published: p.published,
-      createdAt: p.created_at,
-      updatedAt: p.updated_at,
-      showPrice: p.show_price,
-      notes: p.notes,
-      relatedLinks: p.related_links,
-      images: Array.isArray(p.images)
-        ? p.images.map((img: any) => ({
-            id: img.id,
-            productId: img.product_id,
-            url: getPublicImageUrl(img.url) || img.url,
-            width: img.width,
-            height: img.height,
-            aspect: img.aspect,
-            role: img.role,
-          }))
-        : [],
-      affiliateLinks: Array.isArray(p.affiliateLinks)
-        ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label }))
-        : [],
-    }))
+    // When `shallow` is requested, return a lightweight shape suitable for listings.
+    const transformed = (data || []).map((p: any) => {
+      if (shallow) {
+        // For listing views avoid sending large blobs (e.g. data: URIs) or full bodies.
+        const firstImg = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : null
+        const imgUrl = firstImg && typeof firstImg.url === 'string' && !firstImg.url.startsWith('data:') ? getPublicImageUrl(firstImg.url) || firstImg.url : null
+        return {
+          id: p.id,
+          userId: p.user_id,
+          title: p.title,
+          slug: p.slug,
+          tags: p.tags,
+          price: p.price,
+          published: p.published,
+          createdAt: p.created_at,
+          updatedAt: p.updated_at,
+          // include only a single thumbnail-like url and basic image dims
+          image: imgUrl
+            ? { url: imgUrl, width: firstImg?.width || null, height: firstImg?.height || null, role: firstImg?.role || null }
+            : null,
+        }
+      }
 
-    return NextResponse.json({ data: transformed })
+      return {
+        id: p.id,
+        userId: p.user_id,
+        title: p.title,
+        slug: p.slug,
+        shortDescription: p.short_description,
+        body: p.body,
+        tags: p.tags,
+        price: p.price,
+        published: p.published,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+        showPrice: p.show_price,
+        notes: p.notes,
+        relatedLinks: p.related_links,
+        images: Array.isArray(p.images)
+          ? p.images.map((img: any) => ({
+              id: img.id,
+              productId: img.product_id,
+              url: getPublicImageUrl(img.url) || img.url,
+              width: img.width,
+              height: img.height,
+              aspect: img.aspect,
+              role: img.role,
+            }))
+          : [],
+        affiliateLinks: Array.isArray(p.affiliateLinks)
+          ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label }))
+          : [],
+      }
+    })
+
+    const meta: any = {}
+    if (typeof count === 'number') {
+      meta.total = count
+      meta.limit = limit || null
+      meta.offset = offset || 0
+    }
+
+    return NextResponse.json({ data: transformed, meta })
   } catch (e: any) {
     console.error('[api/products] GET exception', e)
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 })

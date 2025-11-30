@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useRef, useMemo } from "react"
 import { PublicNav } from "@/components/public-nav"
-import { ProfileCard } from "@/components/profile-card"
-import { ProductCardSimple } from "@/components/product-card-simple"
-import { ProductDetailModal } from "@/components/product-detail-modal"
-import { RecipeDisplay } from "@/components/recipe-display"
-import ProductMasonry from "@/components/product-masonry"
+import dynamic from 'next/dynamic'
+const ProfileCard = dynamic(() => import('@/components/profile-card').then((mod) => mod.ProfileCard), { ssr: false, loading: () => null })
+const ProductCardSimple = dynamic(() => import('@/components/product-card-simple').then((mod) => mod.ProductCardSimple), { ssr: false, loading: () => <div className="h-24 bg-muted" /> })
+const ProductDetailModal = dynamic(() => import('@/components/product-detail-modal').then((mod) => mod.ProductDetailModal), { ssr: false, loading: () => null })
+const RecipeDisplay = dynamic(() => import('@/components/recipe-display').then((mod) => mod.RecipeDisplay), { ssr: false, loading: () => <div className="h-48 bg-muted" /> })
+const ProductMasonry = dynamic(() => import('@/components/product-masonry').then((mod) => mod.default), { ssr: false, loading: () => <div className="h-32" /> })
 import { db } from "@/lib/db/storage"
 import type { Product } from "@/lib/db/schema"
 import Image from "next/image"
@@ -255,6 +256,14 @@ export default function HomePage() {
   const [searchText, setSearchText] = useState("")
   const [isGallerySearchSticky, setIsGallerySearchSticky] = useState(false)
 
+  // Pagination / infinite scroll state
+  const PAGE_DEFAULT_LIMIT = 24
+  const [pageLimit] = useState<number>(PAGE_DEFAULT_LIMIT)
+  const [pageOffset, setPageOffset] = useState<number>(0)
+  const [loadingMore, setLoadingMore] = useState<boolean>(false)
+  const [hasMore, setHasMore] = useState<boolean>(true)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+
   useEffect(() => {
     // initialize openGroups to all groups when tagGroups first loads
     if (openGroups === undefined && Object.keys(tagGroups).length > 0) {
@@ -262,14 +271,16 @@ export default function HomePage() {
     }
     ;(async () => {
       try {
-        // 公開商品をAPIから取得
-        const prodRes = await fetch("/api/products?published=true")
-        const prodJson = await prodRes.json().catch(() => ({ data: [] }))
-        const apiProducts = Array.isArray(prodJson.data) ? prodJson.data : []
+        // 公開商品・コレクションは並列に取得して待ち時間を短縮
+        const [prodRes, colRes] = await Promise.allSettled([
+          fetch(`/api/products?published=true&shallow=true&limit=${pageLimit}&offset=0`),
+          fetch("/api/collections"),
+        ])
 
-        // 公開コレクション（所属商品つき）をAPIから取得
-        const colRes = await fetch("/api/collections")
-        const colJson = await colRes.json().catch(() => ({ data: [] }))
+        const prodJson = prodRes.status === 'fulfilled' ? await prodRes.value.json().catch(() => ({ data: [] })) : { data: [] }
+        const colJson = colRes.status === 'fulfilled' ? await colRes.value.json().catch(() => ({ data: [] })) : { data: [] }
+
+        const apiProducts = Array.isArray(prodJson.data) ? prodJson.data : []
         const apiCollections = Array.isArray(colJson.data) ? colJson.data : []
 
         // レシピ・ユーザー・テーマは既存モックDBを継続利用
@@ -298,7 +309,36 @@ export default function HomePage() {
           loadedUser = db.user.get()
         }
 
-        setProducts(apiProducts.filter((p: any) => p.published))
+        // Normalize shallow listing shape to always provide `images` array for client components.
+        const normalizedProducts = apiProducts.map((p: any) => {
+          if (Array.isArray(p.images)) return p
+          if (p.image && p.image.url) {
+            return {
+              ...p,
+              images: [
+                {
+                  id: p.image.id || null,
+                  product_id: p.id,
+                  url: p.image.url,
+                  width: p.image.width || null,
+                  height: p.image.height || null,
+                  aspect: p.image.width && p.image.height ? p.image.width / p.image.height : p.image.aspect || null,
+                  role: p.image.role || 'main',
+                },
+              ],
+            }
+          }
+          return { ...p, images: [] }
+        })
+
+        setProducts(normalizedProducts.filter((p: any) => p.published))
+        // initialize pagination offset and hasMore
+        setPageOffset(normalizedProducts.length)
+        if (prodJson?.meta && typeof prodJson.meta.total === 'number') {
+          setHasMore(normalizedProducts.length < prodJson.meta.total)
+        } else {
+          setHasMore(normalizedProducts.length === pageLimit)
+        }
         setRecipes(loadedRecipes.filter((r: any) => r.published))
         setCollections(apiCollections)
         setUser(loadedUser || null)
@@ -400,6 +440,17 @@ export default function HomePage() {
     } catch {}
   }, [displayMode])
 
+  const thumbnailFor = (rawUrl: string | null | undefined, w: number) => {
+    if (!rawUrl) return '/placeholder.svg'
+    if (rawUrl.startsWith && rawUrl.startsWith('data:')) return rawUrl
+    try {
+      const pu = getPublicImageUrl(rawUrl) || rawUrl
+      return `/api/images/thumbnail?url=${encodeURIComponent(pu)}&w=${w}`
+    } catch {
+      return rawUrl
+    }
+  }
+
   // Set sensible default columns based on viewport: mobile=2, desktop=7
   useEffect(() => {
     try {
@@ -483,6 +534,7 @@ export default function HomePage() {
   // ギャラリー用アイテムは表示モード切り替え時のみシャッフル（入力などの再レンダーで並び替えない）
   // シャッフルはモード切り替え時のみ（shuffleKey変更時）行い、入力に応じたフィルタは順序を保持したまま適用する
   const galleryItemsShuffled = useMemo(() => {
+    if (displayMode !== 'gallery') return []
     return shuffleArray(
       products.flatMap((product) => {
         return (product.images || []).map((img: any, idx: number) => ({
@@ -495,7 +547,7 @@ export default function HomePage() {
         }))
       }),
     )
-  }, [shuffleKey, products])
+  }, [shuffleKey, products, displayMode])
 
   const productById = useMemo(() => {
     const m = new Map<string, Product>()
@@ -503,12 +555,72 @@ export default function HomePage() {
     return m
   }, [products])
 
+  // Load more products from the server (pagination)
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    try {
+      const res = await fetch(`/api/products?published=true&shallow=true&limit=${pageLimit}&offset=${pageOffset}`)
+      if (!res.ok) throw new Error('failed to fetch')
+      const js = await res.json().catch(() => ({ data: [], meta: undefined }))
+      const items = Array.isArray(js.data) ? js.data : []
+
+      const normalized = items.map((p: any) => {
+        if (Array.isArray(p.images)) return p
+        if (p.image && p.image.url) {
+          return {
+            ...p,
+            images: [
+              {
+                id: p.image.id || null,
+                product_id: p.id,
+                url: p.image.url,
+                width: p.image.width || null,
+                height: p.image.height || null,
+                aspect: p.image.width && p.image.height ? p.image.width / p.image.height : p.image.aspect || null,
+                role: p.image.role || 'main',
+              },
+            ],
+          }
+        }
+        return { ...p, images: [] }
+      }).filter((p: any) => p.published)
+
+      setProducts((prev) => [...prev, ...normalized])
+      setPageOffset((prev) => prev + items.length)
+
+      if (js?.meta && typeof js.meta.total === 'number') {
+        setHasMore((prevOffset) => pageOffset + items.length < js.meta.total)
+      } else {
+        setHasMore(items.length === pageLimit)
+      }
+    } catch (e) {
+      console.error('[v0] loadMore failed', e)
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
   const galleryItems = useMemo(() => {
     return galleryItemsShuffled.filter((item: any) => {
       const p = productById.get(item.productId)
       return p ? productMatches(p) : false
     })
   }, [galleryItemsShuffled, productById, searchText, selectedTags])
+  // Intersection observer for infinite scroll
+  useEffect(() => {
+    const node = sentinelRef.current
+    if (!node) return
+    const obs = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          loadMore()
+        }
+      }
+    }, { root: null, rootMargin: '400px', threshold: 0.1 })
+    obs.observe(node)
+    return () => obs.disconnect()
+  }, [loadingMore, hasMore, pageOffset])
 
   // 初期ロードが完了するまでローディングコンポーネントを表示する
   if (!isLoaded) {
@@ -783,7 +895,7 @@ export default function HomePage() {
                       aria-label={product.title}
                     >
                       <Image
-                        src={getPublicImageUrl(product.images?.[0]?.url) || "/placeholder.svg"}
+                        src={thumbnailFor(getPublicImageUrl(product.images?.[0]?.url) || product.images?.[0]?.url, 400)}
                         alt={product.title}
                         fill
                         className="object-cover rounded-lg transition duration-300 ease-out group-hover:brightness-105"
@@ -801,7 +913,7 @@ export default function HomePage() {
                     >
                       <div className="relative w-24 h-24 shrink-0">
                         <Image
-                          src={getPublicImageUrl(product.images[0]?.url) || "/placeholder.svg"}
+                          src={thumbnailFor(getPublicImageUrl(product.images[0]?.url) || product.images[0]?.url, 160)}
                           alt={product.title}
                           fill
                           className="object-cover rounded"
@@ -907,6 +1019,15 @@ export default function HomePage() {
               </div>
             </section>
           )}
+
+          {/* Infinite scroll sentinel */}
+          <div ref={sentinelRef as any} className="w-full flex items-center justify-center py-4">
+            {loadingMore ? (
+              <div className="text-sm text-muted-foreground">読み込み中...</div>
+            ) : !hasMore ? (
+              <div className="text-sm text-muted-foreground">ここまで</div>
+            ) : null}
+          </div>
 
           {/* プロフィールセクション */}
           <section id="profile" className="mb-16 scroll-mt-20">

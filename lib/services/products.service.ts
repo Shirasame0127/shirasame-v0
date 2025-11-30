@@ -24,7 +24,7 @@ export class ProductsService {
    */
   static async getPublished(): Promise<Product[]> {
     try {
-      const res = await fetch("/api/products?published=true")
+      const res = await fetch("/api/products?published=true&shallow=true")
       const json = await res.json()
       return json.data || []
     } catch (e) {
