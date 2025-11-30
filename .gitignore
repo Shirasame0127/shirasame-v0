@@ -12,3 +12,4 @@ next-env.d.ts
 .vscode/
 *.log
 .env.local
+.env.local
