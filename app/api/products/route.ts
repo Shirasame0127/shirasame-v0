@@ -65,13 +65,22 @@ export async function GET(req: Request) {
     let error: any = null
     let count: number | null = null
 
+    const wantCount = url.searchParams.get('count') === 'true'
     if (limit && limit > 0) {
-      const res = await query.range(offset, offset + Math.max(0, (limit || 0) - 1)).select(baseSelect, { count: 'exact' })
-      data = res.data || null
-      error = res.error || null
-      // Supabase returns count when count option is used
-      // @ts-ignore
-      count = typeof res.count === 'number' ? res.count : null
+      if (wantCount) {
+        // request exact count when explicitly asked — this is slower
+        const res = await query.range(offset, offset + Math.max(0, (limit || 0) - 1)).select(baseSelect, { count: 'exact' })
+        data = res.data || null
+        error = res.error || null
+        // Supabase returns count when count option is used
+        // @ts-ignore
+        count = typeof res.count === 'number' ? res.count : null
+      } else {
+        // faster path: do not ask for exact count; use range to limit results only
+        const res = await query.range(offset, offset + Math.max(0, (limit || 0) - 1)).select(baseSelect)
+        data = res.data || null
+        error = res.error || null
+      }
     } else {
       const res = await query.select(baseSelect)
       data = res.data || null
