@@ -42,11 +42,9 @@ export default function AdminLoading() {
           // eslint-disable-next-line @next/next/no-img-element
           <img src={gifUrl} alt="loading" className="w-full h-full object-cover" />
         ) : (
-          <svg className="w-12 h-12 text-primary" viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="25" cy="25" r="20" stroke="currentColor" strokeWidth="5" fill="none" strokeLinecap="round" strokeDasharray="31.415, 31.415">
-              <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite" />
-            </circle>
-          </svg>
+          // Fallback to static placeholder image when GIF not configured
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src="/placeholder.svg" alt="loading" className="w-12 h-12 object-contain" />
         )}
       </div>
     </div>

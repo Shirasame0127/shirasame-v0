@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import supabaseAdmin from "@/lib/supabase"
 import { getOwnerUserId } from '@/lib/owner'
+import crypto from 'crypto'
 
 // export const runtime = "edge" // Switch to Node.js runtime for better stability with FormData
 
@@ -129,6 +130,77 @@ export async function POST(req: Request) {
           console.log('[api/images/upload] supabase insert after r2 upload', { data, error })
         } catch (e) {
           console.error('[api/images/upload] failed to insert image metadata after r2 upload', e)
+        }
+
+        // After successful upload, proactively generate deterministic thumbnails
+        // (hash-based keys) for common sizes so they can be referenced by CDN
+        // URLs without requiring on-demand processing.
+        try {
+          if (!isGif) {
+            const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3')
+            const endpoint = `https://${r2Account}.r2.cloudflarestorage.com`
+            const s3write = new S3Client({ region: 'auto', endpoint, credentials: { accessKeyId: r2AccessKey, secretAccessKey: r2Secret } })
+            const sharpModule = await import('sharp')
+            const sharp = (sharpModule && (sharpModule as any).default) || sharpModule
+            const origBuf = Buffer.from(originalBuffer)
+            const sizes = [40, 100, 400]
+            const thumbUrls: Record<string, string> = {}
+            const thumbKeys: Record<string, string> = {}
+            for (const size of sizes) {
+              try {
+                const out = await sharp(origBuf).rotate().resize({ width: size, withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer()
+                // deterministic key matching thumbnail route's hash scheme
+                const srcForHash = storagePath ? `${endpoint}/${r2Bucket}/${storagePath}` : (preferredUrl || '')
+                const hash = crypto.createHash('sha256').update(`${srcForHash}|w=${size}|h=0`).digest('hex')
+                const thumbKey = `thumbnails/${hash}-${size}x0.jpg`
+
+                // retry/backoff for thumbnail upload
+                let attempt = 0
+                const maxAttempts = 3
+                let uploaded = false
+                while (attempt < maxAttempts && !uploaded) {
+                  try {
+                    await s3write.send(new PutObjectCommand({ Bucket: r2Bucket, Key: thumbKey, Body: out, ContentType: 'image/jpeg' }))
+                    uploaded = true
+                  } catch (upe) {
+                    attempt++
+                    const wait = 150 * Math.pow(2, attempt)
+                    console.warn('[api/images/upload] thumbnail upload attempt failed', { size, attempt, err: upe })
+                    await new Promise((r) => setTimeout(r, wait))
+                  }
+                }
+
+                if (uploaded) {
+                  const thumbUrl = `${endpoint}/${r2Bucket}/${thumbKey}`
+                  thumbUrls[String(size)] = thumbUrl
+                  thumbKeys[String(size)] = thumbKey
+                } else {
+                  console.warn('[api/images/upload] giving up uploading thumbnail for size', size)
+                }
+              } catch (te) {
+                console.warn('[api/images/upload] failed to generate/upload thumbnail size', size, te)
+              }
+            }
+
+            // If we have an images row from earlier insert, update it with thumbnail metadata
+            try {
+              // attempt to find the inserted row by matching the storage key or url
+              const keyMatch = storagePath || preferredUrl
+              if (keyMatch) {
+                const { data: found } = await supabaseAdmin.from('images').select('id').or(`metadata->>key.eq.${storagePath},url.eq.${preferredUrl}`).limit(1).maybeSingle()
+                const imgId = found?.id || null
+                if (imgId) {
+                  const updatePayload: any = { thumbnails: thumbUrls, thumbnail_keys: thumbKeys }
+                  const { data: upRes, error: upErr } = await supabaseAdmin.from('images').update(updatePayload).eq('id', imgId).select().maybeSingle()
+                  if (upErr) console.warn('[api/images/upload] failed to update image row with thumbnails', upErr)
+                }
+              }
+            } catch (uerr) {
+              console.warn('[api/images/upload] error updating image thumbnails metadata', uerr)
+            }
+          }
+        } catch (thumbErr) {
+          console.warn('[api/images/upload] thumbnail generation failed', thumbErr)
         }
 
         // update users record similar to previous logic

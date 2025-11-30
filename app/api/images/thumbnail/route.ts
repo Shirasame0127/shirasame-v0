@@ -7,11 +7,82 @@ export const runtime = 'nodejs'
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url)
-    const src = url.searchParams.get('url') || url.searchParams.get('key')
+    let src = url.searchParams.get('url') || url.searchParams.get('key')
     const w = parseInt(url.searchParams.get('w') || '200', 10)
     const h = parseInt(url.searchParams.get('h') || '0', 10)
 
     if (!src) return NextResponse.json({ error: 'url or key is required' }, { status: 400 })
+
+    // Normalize `src`: it may be percent-encoded or may itself point to the
+    // thumbnail endpoint (e.g. caller encoded a URL that already contained
+    // `/api/images/thumbnail?url=...`). Decode and iteratively unwrap any
+    // nested thumbnail URLs so we reach the original source. Limit the
+    // iterations to avoid infinite loops on malicious input.
+    try {
+      let decoded = src
+      // If the incoming value is percent-encoded, try decoding a few times
+      // (some callers double-encode URLs).
+      for (let i = 0; i < 3; i++) {
+        try {
+          const maybe = decodeURIComponent(decoded)
+          if (maybe === decoded) break
+          decoded = maybe
+        } catch (e) {
+          break
+        }
+      }
+
+      // Unwrap nested thumbnail endpoint URLs up to a small depth.
+      for (let i = 0; i < 5; i++) {
+        try {
+          const lower = String(decoded).toLowerCase()
+          if ((lower.startsWith('http') || lower.startsWith('https')) && lower.includes('/api/images/thumbnail')) {
+            // Parse and extract its inner `url` or `key` param
+            const inner = new URL(decoded)
+            const innerUrl = inner.searchParams.get('url') || inner.searchParams.get('key')
+            if (innerUrl) {
+              // set decoded to innerUrl and attempt to decode/unpack further
+              decoded = innerUrl
+              // continue loop to handle multiple nesting levels
+              continue
+            }
+          }
+        } catch (e) {
+          break
+        }
+        break
+      }
+
+      // Final decode attempt for any remaining percent-encoding
+      try {
+        decoded = decodeURIComponent(decoded)
+      } catch (e) {}
+
+      src = decoded
+    } catch (_) {}
+
+      // Validate host for remote URLs to avoid open-proxy behavior. Allowed hosts
+      // can be configured via `ALLOWED_IMAGE_HOSTS` (comma-separated) or will
+      // implicitly allow the project's configured R2 endpoint and PUBLIC_HOST.
+      try {
+        if (src.startsWith('http')) {
+          const parsed = new URL(src)
+          const host = parsed.hostname
+          const allowedEnv = (process.env.ALLOWED_IMAGE_HOSTS || '')
+          const allowedList = allowedEnv.split(',').map(s => s.trim()).filter(Boolean)
+          const PUBLIC_HOST = process.env.PUBLIC_HOST || process.env.NEXT_PUBLIC_PUBLIC_HOST || ''
+          const r2Account = process.env.CLOUDFLARE_ACCOUNT_ID || process.env.R2_ACCOUNT || ''
+          const r2Host = r2Account ? `${r2Account}.r2.cloudflarestorage.com` : null
+
+          const isAllowed = allowedList.includes(host) || (PUBLIC_HOST && host === PUBLIC_HOST) || (r2Host && host === r2Host)
+          if (!isAllowed) {
+            console.warn('[thumbnail] rejected remote src host not in allowlist', host)
+            return NextResponse.json({ error: 'source host not allowed' }, { status: 403 })
+          }
+        }
+      } catch (e) {
+        // if parsing fails, continue and let later fetch handle errors
+      }
 
     // Create a deterministic cache key
     const hash = crypto.createHash('sha256').update(`${src}|w=${w}|h=${h}`).digest('hex')
@@ -88,6 +159,14 @@ export async function GET(req: Request) {
           await s3.send(new PutObjectCommand({ Bucket: r2Bucket, Key: thumbKey, Body: outBuf, ContentType: 'image/jpeg' }))
         } catch (e) {
           console.warn('[thumbnail] failed to upload thumbnail to R2', e)
+        }
+
+        // If a CDN base URL is configured, redirect to the CDN-hosted URL (fast)
+        const CDN_BASE = process.env.CDN_BASE_URL || process.env.NEXT_PUBLIC_CDN_BASE || ''
+        if (CDN_BASE) {
+          const cdnBase = CDN_BASE.replace(/\/$/, '')
+          const cdnUrl = `${cdnBase}/${r2Bucket}/${thumbKey}`
+          return NextResponse.redirect(cdnUrl, 307)
         }
 
         // Return the generated thumbnail directly (avoid redirect to prevent ORB/CORS blocks)

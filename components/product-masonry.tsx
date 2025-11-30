@@ -76,10 +76,15 @@ export default function ProductMasonry({ items, className, columns = 7, fullWidt
 
   const outerClass = className ?? ""
 
+  const baseStyle = fullWidth ? { width: '100dvw', marginLeft: 'calc((100% - 100dvw) / 2)', boxSizing: 'border-box' } : {}
+  // Ensure both gallery sides have at least 5px and at most 50px padding,
+  // scaled responsively with viewport width using CSS clamp().
+  const containerStyle = { ...baseStyle, paddingInline: 'clamp(5px, 2vw, 50px)' }
+
   return (
     <div
       className={`${outerClass} ${fullWidth ? 'product-masonry-fullwidth' : ''}`}
-      style={fullWidth ? { width: '100dvw', marginLeft: 'calc((100% - 100dvw) / 2)', boxSizing: 'border-box' } : undefined}
+      style={containerStyle}
     >
       <div className={`${baseColsClass} ${responsiveClass} gap-4`}> 
         {items.map((it) => (

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import supabaseAdmin from "@/lib/supabase"
 import { getPublicImageUrl } from '@/lib/image-url'
+import crypto from 'crypto'
 
 export async function GET(req: Request) {
   try {
@@ -59,15 +60,25 @@ export async function GET(req: Request) {
 
     // If this is a public request and we resolved an owner user id, restrict
     // the query to that user's products so public pages only show the owner's data.
-    if (isPublicRequest && ownerUserId) {
+    // However, when requesting a specific product by `id` or `slug` we should
+    // not apply the owner filter — callers expect the exact resource they
+    // asked for (e.g. modal fetches). Apply owner restriction only for list
+    // style queries (no id/slug provided).
+    if (isPublicRequest && ownerUserId && !id && !slug) {
       query = query.eq('user_id', ownerUserId)
     }
 
     const shallow = url.searchParams.get('shallow') === 'true' || url.searchParams.get('list') === 'true'
     const limitParam = url.searchParams.get('limit')
     const offsetParam = url.searchParams.get('offset')
-    const limit = limitParam ? Math.max(0, parseInt(limitParam, 10) || 0) : null
+    // allow adjusting default listing size for shallow (faster initial loads)
+    let limit = limitParam ? Math.max(0, parseInt(limitParam, 10) || 0) : null
     const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0
+
+    // Default to a reasonable page size for public shallow listings to avoid huge payloads
+    if (shallow && (limit === null || limit === 0)) {
+      limit = 24
+    }
 
     // If limit is provided, request exact count from Supabase and apply range for pagination
     let data: any = null
@@ -85,6 +96,8 @@ export async function GET(req: Request) {
     }
 
     const wantCount = url.searchParams.get('count') === 'true'
+    // Measure DB query and transform timings for profiling
+    const tStart = Date.now()
     if (limit && limit > 0) {
       if (wantCount) {
         // request exact count when explicitly asked — this is slower
@@ -108,6 +121,7 @@ export async function GET(req: Request) {
       data = res.data || null
       error = res.error || null
     }
+    const tQueryEnd = Date.now()
 
     if (error) {
       console.error('[api/products] GET error', error)
@@ -116,11 +130,41 @@ export async function GET(req: Request) {
 
     // フロントの Product 型に合わせて整形
     // When `shallow` is requested, return a lightweight shape suitable for listings.
+    const tTransformStart = Date.now()
     const transformed = (data || []).map((p: any) => {
       if (shallow) {
         // For listing views avoid sending large blobs (e.g. data: URIs) or full bodies.
         const firstImg = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : null
-        const imgUrl = firstImg && typeof firstImg.url === 'string' && !firstImg.url.startsWith('data:') ? getPublicImageUrl(firstImg.url) || firstImg.url : null
+        // Return the canonical public image URL in shallow listings. The client
+        // can choose whether to call the thumbnail proxy (`/api/images/thumbnail`)
+        // or use the original URL directly. Returning the original URL here
+        // avoids embedding a thumbnail-proxy URL which could be double-encoded
+        // and cause recursive thumbnail calls.
+        const imgUrl = firstImg && typeof firstImg.url === 'string' && !firstImg.url.startsWith('data:')
+          ? getPublicImageUrl(firstImg.url) || firstImg.url
+          : null
+
+        // If a CDN base is configured and the image is hosted in R2, prefer
+        // returning the CDN-hosted pre-generated thumbnail URL for listings.
+        // This uses the same deterministic hash scheme as the thumbnail
+        // generator so clients can obtain cached thumbnails without on-demand processing.
+        let listingImageUrl: string | null = imgUrl
+        try {
+          const CDN_BASE = process.env.CDN_BASE_URL || process.env.NEXT_PUBLIC_CDN_BASE || ''
+          const r2Account = process.env.CLOUDFLARE_ACCOUNT_ID || process.env.R2_ACCOUNT || ''
+          const r2Bucket = process.env.R2_BUCKET || 'images'
+          if (CDN_BASE && imgUrl && (imgUrl.startsWith('http') || imgUrl.startsWith('https'))) {
+            const cdnBase = CDN_BASE.replace(/\/$/, '')
+            const srcForHash = imgUrl
+            const hash = crypto.createHash('sha256').update(`${srcForHash}|w=400|h=0`).digest('hex')
+            const thumbKey = `thumbnails/${hash}-400x0.jpg`
+            listingImageUrl = `${cdnBase}/${r2Bucket}/${thumbKey}`
+          }
+        } catch (e) {
+          // fallback to canonical imgUrl if any error
+          listingImageUrl = imgUrl
+        }
+
         return {
           id: p.id,
           userId: p.user_id,
@@ -131,9 +175,9 @@ export async function GET(req: Request) {
           published: p.published,
           createdAt: p.created_at,
           updatedAt: p.updated_at,
-          // include only a single thumbnail-like url and basic image dims
-          image: imgUrl
-            ? { url: imgUrl, width: firstImg?.width || null, height: firstImg?.height || null, role: firstImg?.role || null }
+          // include only a single canonical image url and basic image dims
+          image: listingImageUrl
+            ? { url: listingImageUrl, width: firstImg?.width || null, height: firstImg?.height || null, role: firstImg?.role || null }
             : null,
         }
       }
@@ -169,6 +213,14 @@ export async function GET(req: Request) {
           : [],
       }
     })
+    const tTransformEnd = Date.now()
+
+    // Log simple profiling info — visible in server logs to spot slow spots
+    try {
+      const qms = (tQueryEnd - tStart)
+      const tms = (tTransformEnd - tTransformStart)
+      console.info('[api/products] timings (ms)', { queryMs: qms, transformMs: tms, countRequested: wantCount, shallow })
+    } catch {}
 
     const meta: any = {}
     if (typeof count === 'number') {

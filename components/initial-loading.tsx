@@ -4,19 +4,13 @@ import React, { useEffect, useState } from 'react'
 import { getPublicImageUrl } from '@/lib/image-url'
 
 export default function InitialLoading() {
-  const [show, setShow] = useState(true)
+  const [mountedVisible, setMountedVisible] = useState(true) // DOM present
+  const [fadeOut, setFadeOut] = useState(false) // controls opacity transition
   const [gifUrl, setGifUrl] = useState<string | null>(null)
 
   useEffect(() => {
     let mounted = true
     const start = Date.now()
-    // mark global flag so other components can hide their textual placeholders
-    try {
-      ;(window as any).__v0_initial_loading = true
-      try {
-        window.dispatchEvent(new CustomEvent('v0-initial-loading', { detail: true }))
-      } catch (e) {}
-    } catch (e) {}
 
     ;(async () => {
       try {
@@ -29,7 +23,7 @@ export default function InitialLoading() {
         else if (typeof raw === 'string') url = raw
         else if (typeof raw === 'object') url = raw?.url || null
 
-        // Normalize keys/paths to public URL when possible
+        // Normalize to public URL when possible
         try {
           const normalized = getPublicImageUrl(url) || url
           if (mounted) setGifUrl(normalized)
@@ -39,48 +33,70 @@ export default function InitialLoading() {
       } catch (e) {
         // ignore — no gif available
       } finally {
+        // ensure the loading screen is visible at least 1s for UX stability
         const elapsed = Date.now() - start
         const remaining = Math.max(0, 1000 - elapsed)
         setTimeout(() => {
-          if (mounted) setShow(false)
+          if (!mounted) return
+          // start fade-out animation, then remove from DOM after transition
+            setFadeOut(true)
+            setTimeout(() => {
+              if (!mounted) return
+              setMountedVisible(false)
+            }, 500)
         }, remaining)
       }
     })()
 
     return () => {
       mounted = false
-      try {
-        ;(window as any).__v0_initial_loading = false
-        try {
-          window.dispatchEvent(new CustomEvent('v0-initial-loading', { detail: false }))
-        } catch (e) {}
-      } catch (e) {}
     }
   }, [])
 
-  if (!show) return null
+  if (!mountedVisible) return null
+
+  // Determine whether this is a public page. For public pages we show the
+  // full-screen pale-blue background with centered GIF that fades out.
+  let isPublic = true
+  try {
+    const cookieHeader = typeof document !== 'undefined' ? document.cookie : ''
+    const hasAccessCookie = cookieHeader.includes('sb-access-token')
+    const PUBLIC_HOST = process.env.NEXT_PUBLIC_PUBLIC_HOST || ''
+    const isHostPublic = PUBLIC_HOST ? (typeof window !== 'undefined' && window.location.hostname === PUBLIC_HOST) : false
+    isPublic = (PUBLIC_HOST ? isHostPublic : !hasAccessCookie) || !hasAccessCookie
+  } catch (e) {
+    isPublic = true
+  }
+
+  // Use solid pale-blue while visible; fade-out will animate opacity to transparent.
+  const bgStyle = isPublic ? { backgroundColor: '#add8e6' } : undefined
+  const transitionStyle = { transition: 'opacity 500ms ease' }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-36 h-36 flex items-center justify-center rounded-md bg-white/90 overflow-hidden">
-        {gifUrl ? (
-          // show uploaded GIF (fit 1:1)
+    <div
+      className={`fixed inset-0 flex items-center justify-center ${fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+      style={{ zIndex: 99999, ...(bgStyle || { backgroundColor: 'rgba(0,0,0,0.4)' }), ...transitionStyle }}
+    >
+      {isPublic ? (
+        // Public pages: show GIF centered on pale-blue full-screen background
+        // If gifUrl is not yet available, do not render a boxed placeholder
+        // (avoids showing a white square). The background remains visible.
+        gifUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={gifUrl} alt="loading" className="w-full h-full object-cover" />
-        ) : (
-          // built-in fallback spinner
-          <svg className="w-12 h-12 text-primary" viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="25" cy="25" r="20" stroke="currentColor" strokeWidth="5" fill="none" strokeLinecap="round" strokeDasharray="31.415, 31.415">
-              <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite" />
-            </circle>
-          </svg>
-        )}
-      </div>
+          <img src={gifUrl} alt="loading" className="w-40 h-40 object-contain" />
+        ) : null
+      ) : (
+        // Non-public (admin) pages: preserve previous boxed look
+        <div className="w-36 h-36 flex items-center justify-center rounded-md bg-white/90 overflow-hidden">
+          {gifUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={gifUrl} alt="loading" className="w-full h-full object-cover" />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src="/placeholder.svg" alt="loading" className="w-12 h-12 object-contain" />
+          )}
+        </div>
+      )}
     </div>
   )
 }
-
-// Ensure global flag cleared on module load (safety)
-try {
-  if (typeof window !== 'undefined') (window as any).__v0_initial_loading = true
-} catch (e) {}

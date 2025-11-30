@@ -476,10 +476,31 @@ export default function HomePage() {
     } catch {}
   }, [])
 
-  const handleProductClick = (product: Product, imageUrl?: string) => {
+  const handleProductClick = async (product: Product, imageUrl?: string) => {
+    // Open modal immediately with the shallow product so UX is snappy,
+    // then fetch full product details (including affiliateLinks) if missing.
     setSelectedProduct(product)
     setSelectedImageUrl(imageUrl ?? null)
     setIsModalOpen(true)
+
+    // Always attempt to fetch full product details in background and update
+    // the modal when available. This prevents cases where only shallow fields
+    // (title/tags/images) are shown because the shallow listing omitted full
+    // fields like `body`, `shortDescription`, or `affiliateLinks`.
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/products?id=${encodeURIComponent(product.id)}`)
+        if (res.ok) {
+          const js = await res.json().catch(() => ({ data: [] }))
+          const full = Array.isArray(js.data) && js.data.length > 0 ? js.data[0] : null
+          if (full) {
+            setSelectedProduct(full)
+          }
+        }
+      } catch (e) {
+        console.error('[v0] failed to load full product for modal', e)
+      }
+    })()
   }
 
   const toggleTag = (tag: string) => {

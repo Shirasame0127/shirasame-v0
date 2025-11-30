@@ -17,11 +17,12 @@ interface ProductDetailModalProps {
   initialImageUrl?: string
 }
 
-function detectLinkType(url: string): 'youtube' | 'tiktok' | 'twitter' | 'instagram' | 'other' {
+function detectLinkType(url: string): 'youtube' | 'tiktok' | 'twitter' | 'instagram' | 'twitch' | 'other' {
   if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube'
   if (url.includes('tiktok.com')) return 'tiktok'
   if (url.includes('twitter.com') || url.includes('x.com')) return 'twitter'
   if (url.includes('instagram.com')) return 'instagram'
+  if (url.includes('twitch.tv') || url.includes('clips.twitch.tv')) return 'twitch'
   return 'other'
 }
 
@@ -38,8 +39,11 @@ function extractYouTubeId(url: string): string | null {
 }
 
 function extractTikTokId(url: string): string | null {
+  // Match full form: https://www.tiktok.com/@user/video/123456789
   const match = url.match(/tiktok\.com\/@[^\/]+\/video\/(\d+)/)
-  return match ? match[1] : null
+  if (match) return match[1]
+  // Short URLs (vt.tiktok.com / vm.tiktok.com) cannot reliably provide id here
+  return null
 }
 
 function extractTwitterId(url: string): string | null {
@@ -52,31 +56,95 @@ function extractInstagramId(url: string): string | null {
   return match ? match[1] : null
 }
 
+type TwitchInfo = { kind: 'video' | 'clip' | 'channel'; id: string } | null
+function extractTwitchInfo(url: string): TwitchInfo {
+  let m = url.match(/clips\.twitch\.tv\/([^\/?#]+)/)
+  if (m) return { kind: 'clip', id: m[1] }
+  m = url.match(/twitch\.tv\/videos\/(\d+)/)
+  if (m) return { kind: 'video', id: m[1] }
+  m = url.match(/twitch\.tv\/([^\/?#]+)/)
+  if (m) return { kind: 'channel', id: m[1] }
+  return null
+}
+
+function TikTokIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 256 256" width="20" height="20" className={className} aria-hidden>
+      <path fill="#010101" d="M0 0h256v256H0z" fillOpacity="0" />
+      <path d="M189.7 70.8c-6.7-.4-13.1-1.9-19-4.4v70.8c0 23.6-19.1 42.7-42.7 42.7-23.6 0-42.7-19.1-42.7-42.7s19.1-42.7 42.7-42.7c4.6 0 9 .7 13.1 2V62.2c-6.1-2-12.6-3.2-19.3-3.6V28.3c12.3 1 23.9 5.1 33.9 11.8 0 0 0 38.3 33.7 44.5V70.8z" fill="#69C9D0" />
+      <path d="M189.7 70.8v.1c-6.7-.4-13.1-1.9-19-4.4v70.8c0 23.6-19.1 42.7-42.7 42.7-12.9 0-24.4-5.6-32.7-14.6v-28.1c7.4 7.4 17.7 11.9 28.7 11.9 23.6 0 42.7-19.1 42.7-42.7V38.8c6.6 6.7 15 11.5 24 14.7z" fill="#EE1D52" />
+      <path d="M189.7 70.8c0 .1 0 .1 0 .2v36.7c-6.1-2-12.6-3.2-19.3-3.6V57.2c6.1 2 12.6 3.2 19.3 3.6z" fill="#010101" />
+    </svg>
+  )
+}
+
 function EmbeddedLink({ url }: { url: string }) {
   const type = detectLinkType(url)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let mounted = true
+    let obs: MutationObserver | null = null
+
+    const loadScript = (src: string) => {
+      const s = document.createElement('script')
+      s.async = true
+      s.src = src
+      document.body.appendChild(s)
+      return s
+    }
+
     if (type === 'twitter') {
-      const script = document.createElement('script')
-      script.src = 'https://platform.twitter.com/widgets.js'
-      script.async = true
-      document.body.appendChild(script)
+      loadScript('https://platform.twitter.com/widgets.js')
     }
     if (type === 'instagram') {
-      const script = document.createElement('script')
-      script.src = 'https://www.instagram.com/embed.js'
-      script.async = true
-      document.body.appendChild(script)
+      const s = loadScript('https://www.instagram.com/embed.js')
+      // instagram's script will process embeds; observe for iframe insertion
+      if (containerRef.current) {
+        obs = new MutationObserver((mutations) => {
+          for (const m of mutations) {
+            if (!mounted) return
+            if (m.addedNodes && m.addedNodes.length > 0) {
+              // check for iframe in subtree
+              const iframe = containerRef.current?.querySelector('iframe') as HTMLIFrameElement | null
+              if (iframe) {
+                iframe.addEventListener('load', () => mounted && setLoading(false))
+                obs?.disconnect()
+              }
+            }
+          }
+        })
+        obs.observe(containerRef.current, { childList: true, subtree: true })
+      }
+      // if already available, process instantly
       // @ts-ignore
-      if (window.instgrm) window.instgrm.Embeds.process()
+      if ((window as any).instgrm && (window as any).instgrm.Embeds) try { (window as any).instgrm.Embeds.process() } catch {}
     }
-  }, [type])
+
+    // Do not auto-load TikTok embed script. TikTok short URLs and embed scripts
+    // can be fragile and slow; we'll render a simple link button instead.
+
+    // cleanup
+    return () => { mounted = false; obs?.disconnect() }
+  }, [type, url])
+
+  // Helper spinner element
+  const Spinner = () => (
+    <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10">
+      <svg className="w-10 h-10 text-white" viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+        {/* Static circular indicator (no rotation) */}
+        <circle cx="25" cy="25" r="20" stroke="currentColor" strokeWidth="5" fill="none" strokeLinecap="round" strokeDasharray="31.415, 31.415" opacity="0.9" />
+      </svg>
+    </div>
+  )
 
   if (type === 'youtube') {
     const videoId = extractYouTubeId(url)
     if (videoId) {
       return (
-        <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black">
+        <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
+          {loading && <Spinner />}
           <iframe
             width="100%"
             height="100%"
@@ -85,7 +153,8 @@ function EmbeddedLink({ url }: { url: string }) {
             frameBorder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
-            className="absolute inset-0"
+            className="absolute inset-0 w-full h-full"
+            onLoad={() => setLoading(false)}
           />
         </div>
       )
@@ -93,32 +162,74 @@ function EmbeddedLink({ url }: { url: string }) {
   }
 
   if (type === 'tiktok') {
-    const videoId = extractTikTokId(url)
-    if (videoId) {
-      return (
-        <div className="flex justify-center">
-          <blockquote
-            className="tiktok-embed"
-            cite={url}
-            data-video-id={videoId}
-            style={{ maxWidth: '605px', minWidth: '325px' }}
-          >
-            <section>
-              <a
-                target="_blank"
-                rel="noopener noreferrer"
-                href={url}
-              >
-                TikTokで見る
-              </a>
-            </section>
-          </blockquote>
-          <script async src="https://www.tiktok.com/embed.js"></script>
-        </div>
-      )
+    // Render a dedicated TikTok link button (no embed preview)
+    return (
+      <Button asChild variant="outline" size="sm" className="w-full justify-start text-xs">
+        <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+          <TikTokIcon className="w-4 h-4 shrink-0" />
+          <span className="truncate">TikTokで見る</span>
+        </a>
+      </Button>
+    )
+  }
+
+  // Twitch handling (info extraction) - attach onLoad to iframe
+  if (type === 'twitch') {
+    const info = extractTwitchInfo(url)
+    const parent = typeof window !== 'undefined' ? window.location.hostname : ''
+    if (info) {
+      if (info.kind === 'clip') {
+        const clipId = info.id
+        return (
+          <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
+            {loading && <Spinner />}
+            <iframe
+              src={`https://clips.twitch.tv/embed?clip=${encodeURIComponent(clipId)}&parent=${encodeURIComponent(parent)}`}
+              title="Twitch clip"
+              frameBorder="0"
+              allowFullScreen
+              className="absolute inset-0 w-full h-full"
+              onLoad={() => setLoading(false)}
+            />
+          </div>
+        )
+      }
+      if (info.kind === 'video') {
+        const videoId = info.id
+        return (
+          <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
+            {loading && <Spinner />}
+            <iframe
+              src={`https://player.twitch.tv/?video=${encodeURIComponent(videoId)}&parent=${encodeURIComponent(parent)}&autoplay=false`}
+              title="Twitch video player"
+              frameBorder="0"
+              allowFullScreen
+              className="absolute inset-0 w-full h-full"
+              onLoad={() => setLoading(false)}
+            />
+          </div>
+        )
+      }
+      if (info.kind === 'channel') {
+        const channel = info.id
+        return (
+          <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
+            {loading && <Spinner />}
+            <iframe
+              src={`https://player.twitch.tv/?channel=${encodeURIComponent(channel)}&parent=${encodeURIComponent(parent)}&autoplay=false`}
+              title="Twitch channel player"
+              frameBorder="0"
+              allowFullScreen
+              className="absolute inset-0 w-full h-full"
+              onLoad={() => setLoading(false)}
+            />
+          </div>
+        )
+      }
     }
   }
 
+  // Twitter embed block (script inserted in effect will process this)
   if (type === 'twitter') {
     const tweetId = extractTwitterId(url)
     if (tweetId) {
@@ -132,6 +243,7 @@ function EmbeddedLink({ url }: { url: string }) {
     }
   }
 
+  // Instagram embed block
   if (type === 'instagram') {
     const postId = extractInstagramId(url)
     if (postId) {
@@ -357,6 +469,28 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl }
                     label = '購入リンク'
                   }
                 }
+
+                const isTikTok = typeof link.url === 'string' && /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com|vm.tiktok.com|vt.tiktok.com)/i.test(link.url)
+
+                if (isTikTok) {
+                  // Render a TikTok-specific button label for better UX
+                  const tLabel = link.label || 'TikTokで見る'
+                  return (
+                    <Button key={index} asChild variant="default" size="lg" className="w-full">
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2"
+                      >
+                        <TikTokIcon className="w-5 h-5" />
+                        <span className="truncate">{tLabel}</span>
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    </Button>
+                  )
+                }
+
                 return (
                   <Button key={index} asChild variant="default" size="lg" className="w-full">
                     <a

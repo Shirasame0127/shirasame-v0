@@ -848,7 +848,7 @@ export default function AdminSettingsPage() {
                           title="アカウントを確認"
                         >
                           {status === "checking" ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <Loader2 className="w-4 h-4" />
                           ) : status === "valid" ? (
                             <CheckCircle2 className="w-4 h-4 text-green-500" />
                           ) : status === "invalid" ? (
