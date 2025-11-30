@@ -160,3 +160,13 @@ html {
   opacity: 0.9;
   border-radius: 1px;
 }
+
+/* Product masonry full-bleed padding: desktop 50px each side, mobile 5px each side */
+.product-masonry-fullwidth {
+  padding-inline: 50px;
+}
+@media (max-width: 639px) {
+  .product-masonry-fullwidth {
+    padding-inline: 5px;
+  }
+}

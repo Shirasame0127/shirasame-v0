@@ -78,12 +78,8 @@ export default function ProductMasonry({ items, className, columns = 7, fullWidt
 
   return (
     <div
-      className={outerClass}
-      style={
-        fullWidth
-          ? { width: '100dvw', marginLeft: 'calc((100% - 100dvw) / 2)', paddingInline: '50px', boxSizing: 'border-box' }
-          : undefined
-      }
+      className={`${outerClass} ${fullWidth ? 'product-masonry-fullwidth' : ''}`}
+      style={fullWidth ? { width: '100dvw', marginLeft: 'calc((100% - 100dvw) / 2)', boxSizing: 'border-box' } : undefined}
     >
       <div className={`${baseColsClass} ${responsiveClass} gap-4`}> 
         {items.map((it) => (

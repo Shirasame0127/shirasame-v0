@@ -510,9 +510,9 @@ export default function HomePage() {
     })
   }, [galleryItemsShuffled, productById, searchText, selectedTags])
 
-  // 初期ロードが完了するまで何も描画しない（全フックを評価した後に早期リターンし、フック順序を安定化）
+  // 初期ロードが完了するまでローディングコンポーネントを表示する
   if (!isLoaded) {
-    return null
+    return <InitialLoading />
   }
 
   const changeDisplayMode = (mode: 'normal' | 'gallery') => {
@@ -595,9 +595,9 @@ export default function HomePage() {
                 <div
                   id="global-gallery-search"
                   className={`${isModalOpen ? 'z-0' : 'z-40'} mb-6 ${isGallerySearchSticky ? 'bg-white rounded-b-2xl shadow-md' : ''}`}
-                  style={{ width: 'calc(100dvw - 5px)', maxWidth: '80rem', boxSizing: 'border-box', marginInline: 'auto' }}
+                  style={{ width: 'calc(100dvw - 10px)', maxWidth: '80rem', boxSizing: 'border-box', marginInline: 'auto' }}
                 >
-                  <div className="relative rounded-full border bg-background/80 backdrop-blur-sm shadow-sm overflow-hidden" role="search" aria-label="ギャラリー検索" style={{ width: 'calc(100% - 5px)', marginInline: 'auto', maxWidth: '80rem' }}>
+                  <div className="relative rounded-full border bg-background/80 backdrop-blur-sm shadow-sm overflow-hidden" role="search" aria-label="ギャラリー検索" style={{ width: 'calc(100% - 10px)', marginInline: 'auto', maxWidth: '80rem' }}>
                   <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-muted-foreground">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                   </div>
