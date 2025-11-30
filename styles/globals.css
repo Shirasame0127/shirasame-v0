@@ -141,3 +141,22 @@ html {
   /* fixed header (h-16) を避けるための余白 */
   scroll-margin-top: 64px;
 }
+
+/* 見出しの上に細い縦線を表示するユーティリティ
+   使い方: 見出し要素に `heading-with-vertical` を付与します。 */
+.heading-with-vertical {
+  position: relative;
+  display: inline-block;
+}
+.heading-with-vertical::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: -1rem; /* 見出し上に少し余白を持たせる */
+  width: 1px;
+  height: 1rem; /* 縦線の長さ */
+  background: var(--muted-foreground);
+  opacity: 0.9;
+  border-radius: 1px;
+}

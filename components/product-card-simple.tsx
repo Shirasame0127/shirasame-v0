@@ -27,19 +27,20 @@ export function ProductCardSimple({ product, onClick }: ProductCardSimpleProps) 
 
   return (
     // カード全体をボタンとして機能させる
-    <button onClick={onClick} className="group block w-full text-left">
+    <button
+      onClick={onClick}
+      className="group block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-lg"
+    >
       {/* 画像コンテナ */}
       {/* aspect-square: 正方形のアスペクト比を維持 */}
-      {/* rounded-md: 角丸の大きさ（sm, md, lg, xlから選択） */}
-      {/* hover:shadow-md: ホバー時の影の大きさ */}
-      <div className="relative aspect-square overflow-hidden rounded-md bg-muted transform transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
+      {/* rounded-lg: 角丸をやや大きく */}
+      {/* ホバー時に僅かに拡大＋明るさアップ */}
+      <div className="relative aspect-square overflow-hidden rounded-lg bg-muted transform transition-transform duration-300 ease-out motion-safe:will-change-transform hover:scale-[1.02] hover:shadow-md">
         <Image
           src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg"}
           alt={product.title}
           fill
-          // group-hover:scale-105: ホバー時に1.05倍に拡大
-          // 数値を変更すると拡大率が変わります（例: scale-110で1.1倍）
-          className="object-cover group-hover:scale-105 transition-transform duration-300"
+          className="object-cover rounded-lg transition duration-300 ease-out group-hover:brightness-105"
         />
       </div>
     </button>

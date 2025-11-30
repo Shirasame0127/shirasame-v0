@@ -9,6 +9,29 @@ import { Label } from "@/components/ui/label"
 import { Upload, X } from "lucide-react"
 import Image from "next/image"
 
+// Lightweight client-side compression utility (skip GIFs)
+async function maybeCompressClientFile(file: File) {
+  try {
+    const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')
+    if (isGif) return file
+    // dynamic import to avoid bundling issues if package not installed in some environments
+    const mod = await import('browser-image-compression')
+    const imageCompression = (mod && (mod as any).default) || mod
+    if (!imageCompression) return file
+    const options = {
+      maxWidthOrHeight: 3840,
+      maxSizeMB: 3,
+      useWebWorker: true,
+      initialQuality: 0.9,
+    }
+    const compressed = await imageCompression(file, options)
+    return compressed || file
+  } catch (e) {
+    // if compression fails, return original file to avoid blocking upload
+    return file
+  }
+}
+
 interface ImageUploadProps {
   value?: string
   onChange: (file: File) => void
@@ -48,6 +71,133 @@ export function ImageUpload({
     const file = e.target.files?.[0]
     if (file) {
       const url = URL.createObjectURL(file)
+      // If the selected file is a GIF, skip the cropper (cropping converts to JPEG and loses animation)
+      const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')
+      if (isGif) {
+        setPreviewUrl(url)
+        // keep onChange for backward compatibility
+        onChange(file)
+
+        ;(async () => {
+          // reuse the same upload logic as handleCropComplete for GIFs (upload original)
+          const trySignedUpload = async (fileToUpload: File) => {
+            try {
+              const signRes = await fetch('/api/images/direct-upload', { method: 'POST' })
+              if (!signRes.ok) throw new Error('Failed to get direct upload URL')
+              const signJson = await signRes.json()
+              const uploadURL: string | undefined = signJson?.result?.uploadURL
+              const cfId: string | undefined = signJson?.result?.id
+              if (!uploadURL || !cfId) throw new Error('Invalid direct upload response')
+
+              const maxAttempts = 3
+              let attempt = 0
+              let lastErr: any = null
+              while (attempt < maxAttempts) {
+                try {
+                  const putRes = await fetch(uploadURL, { method: 'PUT', body: fileToUpload })
+                  if (!putRes.ok) throw new Error(`PUT failed: ${putRes.status}`)
+                  const account = (window as any).__env__?.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.CLOUDFLARE_ACCOUNT_ID || ''
+                  const publicUrl = account ? `https://imagedelivery.net/${account}/${cfId}/public` : undefined
+                  return { id: cfId, url: publicUrl }
+                } catch (err) {
+                  lastErr = err
+                  attempt++
+                  const backoff = 200 * Math.pow(2, attempt)
+                  await new Promise((r) => setTimeout(r, backoff))
+                }
+              }
+              throw lastErr
+            } catch (err) {
+              throw err
+            }
+          }
+
+          const fallbackProxyUpload = async (fileToUpload: File) => {
+            const fd = new FormData()
+            fd.append('file', fileToUpload)
+            const target = aspectRatioType === 'profile'
+              ? 'profile'
+              : aspectRatioType === 'header'
+              ? 'header'
+              : aspectRatioType === 'background'
+              ? 'background'
+              : aspectRatioType === 'recipe'
+              ? 'recipe'
+              : aspectRatioType === 'product'
+              ? 'product'
+              : 'other'
+            fd.append('target', target)
+            const res = await fetch('/api/images/upload', { method: 'POST', body: fd })
+            if (!res.ok) {
+              let errData: any = null
+              try { errData = await res.json() } catch (e) { try { const txt = await res.text(); errData = { error: txt } } catch (e2) { errData = { error: 'unknown' } } }
+              console.error('Proxy upload failed:', res.status, errData)
+              throw new Error(errData?.error || `Proxy upload failed (status ${res.status})`)
+            }
+            const json = await res.json().catch(() => ({}))
+            const variants: string[] | undefined = json?.result?.variants
+            const originalUrl: string | undefined = json?.result?.url || json?.result?.publicUrl || json?.result?.url
+            let uploadedUrl: string | undefined
+            try {
+              // for GIFs prefer originalUrl if available
+              uploadedUrl = originalUrl || (Array.isArray(variants) ? variants.find((v) => v.toLowerCase().endsWith('.gif')) : undefined) || variants?.[0]
+            } catch (e) {
+              uploadedUrl = (Array.isArray(variants) && variants[0]) || originalUrl
+            }
+            return { url: uploadedUrl }
+          }
+
+          try {
+            let result
+            const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+            const forceProxy = typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_FORCE_PROXY_UPLOAD === 'true')
+
+            if (isLocalhost || forceProxy) {
+              result = await fallbackProxyUpload(file)
+            } else {
+              try {
+                result = await trySignedUpload(file)
+              } catch (err) {
+                console.warn('Signed upload failed, falling back to proxy upload', err)
+                result = await fallbackProxyUpload(file)
+              }
+            }
+
+            const uploadedUrl = result?.url
+            if ((result as any)?.id) {
+              try {
+                const completeTarget = aspectRatioType === 'profile'
+                  ? 'profile'
+                  : aspectRatioType === 'header'
+                  ? 'header'
+                  : aspectRatioType === 'background'
+                  ? 'background'
+                  : aspectRatioType === 'recipe'
+                  ? 'recipe'
+                  : aspectRatioType === 'product'
+                  ? 'product'
+                  : 'other'
+                await fetch('/api/images/complete', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ cf_id: (result as any).id, url: uploadedUrl, filename: file.name, target: completeTarget, aspect: '1:1' }),
+                })
+              } catch (err) {
+                console.warn('images/complete failed', err)
+              }
+            }
+
+            if (uploadedUrl && onUploadComplete) onUploadComplete(uploadedUrl)
+          } catch (e) {
+            console.error('upload failed', e)
+          }
+        })()
+
+        // do not open cropper for GIFs
+        setTempImageUrl("")
+        return
+      }
+
       setTempImageUrl(url)
       setShowCropper(true)
     }
@@ -129,7 +279,20 @@ export function ImageUpload({
            throw new Error(errData?.error || `Proxy upload failed (status ${res.status})`)
         }
         const json = await res.json().catch(() => ({}))
-        const uploadedUrl = json?.result?.variants?.[0] || json?.result?.url || json?.result?.publicUrl || json?.result?.url
+        // Prefer original URL for GIFs (to preserve animation). Variants may be transformed/static.
+        const variants: string[] | undefined = json?.result?.variants
+        const originalUrl: string | undefined = json?.result?.url || json?.result?.publicUrl || json?.result?.url
+        let uploadedUrl: string | undefined
+        try {
+          const isGif = file?.type === 'image/gif' || (file?.name && file.name.toLowerCase().endsWith('.gif'))
+          if (isGif) {
+            uploadedUrl = originalUrl || (Array.isArray(variants) ? variants.find((v) => v.toLowerCase().endsWith('.gif')) : undefined) || variants?.[0]
+          } else {
+            uploadedUrl = (Array.isArray(variants) && variants[0]) || originalUrl
+          }
+        } catch (e) {
+          uploadedUrl = (Array.isArray(variants) && variants[0]) || originalUrl
+        }
         return { url: uploadedUrl }
       }
 
@@ -138,17 +301,26 @@ export function ImageUpload({
           const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
           const forceProxy = typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_FORCE_PROXY_UPLOAD === 'true')
 
+          // Compress on the client before upload (skip GIFs).
+          let fileToUpload = croppedFile
+          try {
+            fileToUpload = await maybeCompressClientFile(croppedFile)
+          } catch (e) {
+            console.warn('Client compression failed, using original file', e)
+            fileToUpload = croppedFile
+          }
+
           if (isLocalhost || forceProxy) {
             // In dev (localhost) some third-party signed upload endpoints block PUT via CORS.
             // Use the server proxy upload to avoid CORS issues.
             console.log('ImageUpload: using proxy upload due to localhost/force proxy setting')
-            result = await fallbackProxyUpload(croppedFile)
+            result = await fallbackProxyUpload(fileToUpload)
           } else {
             try {
-              result = await trySignedUpload(croppedFile)
+              result = await trySignedUpload(fileToUpload)
             } catch (err) {
               console.warn('Signed upload failed, falling back to proxy upload', err)
-              result = await fallbackProxyUpload(croppedFile)
+              result = await fallbackProxyUpload(fileToUpload)
             }
           }
 

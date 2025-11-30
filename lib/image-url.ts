@@ -1,6 +1,10 @@
 export function getPublicImageUrl(raw?: string | null): string | null {
   if (!raw) return null
 
+  // If it's already a data URI (base64 inline image), return as-is.
+  // Avoid treating data: URIs as storage keys and prepending the public root.
+  if (raw.startsWith('data:')) return raw
+
   // Prefer client-exposed env var (Next.js) but allow server-side var too
   const pubRoot = (process.env.NEXT_PUBLIC_R2_PUBLIC_URL || process.env.R2_PUBLIC_URL || "").replace(/\/$/, "")
 

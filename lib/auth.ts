@@ -43,7 +43,13 @@ export const auth = {
       const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password })
       if (error) {
         console.warn('[auth] signIn error', error)
-        return { success: false, error: error.message }
+        const msg = error.message || ''
+        const mapped =
+          msg.includes('Invalid login credentials') ? 'メールアドレスまたはパスワードが正しくありません' :
+          msg.includes('Email not confirmed') ? 'メールアドレスがまだ確認されていません。確認メールをご確認ください' :
+          msg.includes('For security purposes, you can only request this once every 60 seconds') ? '再試行が多すぎます。少し待ってからもう一度お試しください' :
+          msg
+        return { success: false, error: mapped }
       }
       const user = data?.user
       if (!user) return { success: false, error: '認証に失敗しました' }
@@ -102,7 +108,13 @@ export const auth = {
       const { data, error } = await supabaseClient.auth.signUp({ email, password })
       if (error) {
         console.warn('[auth] signUp error', error)
-        return { success: false, error: error.message }
+        const msg = error.message || ''
+        const mapped =
+          msg.includes('User already registered') ? 'このメールアドレスは既に登録済みです' :
+          msg.includes('Email not confirmed') ? '確認メールを送信しました。メール内リンクで確認後ログインしてください' :
+          msg.includes('Password should be at least') ? 'パスワードが短すぎます。十分な長さにしてください' :
+          msg
+        return { success: false, error: mapped }
       }
       const user = data?.user
       if (!user) return { success: false, error: 'サインアップに失敗しました' }

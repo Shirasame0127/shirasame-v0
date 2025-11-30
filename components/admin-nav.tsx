@@ -1,134 +1,406 @@
 "use client"
 
+import Image from "next/image"
 import Link from "next/link"
-import { usePathname, useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { usePathname, useRouter } from "next/navigation"
+import { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
-import { Home, Package, Camera, Layout, Settings, Palette, Tag, Calendar, LogOut, Menu, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { auth } from '@/lib/auth'
+import {
+  Home,
+  Package,
+  Camera,
+  Layout,
+  Settings,
+  Palette,
+  Tag,
+  Calendar,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
+  X,
+  ExternalLink,
+  type LucideIcon
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { auth } from "@/lib/auth"
 
-const navItems = [
-  { href: "/admin", icon: Home, label: "ダッシュボード" },
-  { href: "/admin/products", icon: Package, label: "商品管理" },
-  { href: "/admin/recipes", icon: Camera, label: "レシピ管理" },
-  { href: "/admin/collections", icon: Layout, label: "コレクション" },
-  { href: "/admin/tags", icon: Tag, label: "タグ管理" },
-  { href: "/admin/amazon-sales", icon: Calendar, label: "セールスケジュール" },
-  { href: "/admin/theme", icon: Palette, label: "テーマ" },
-  { href: "/admin/settings", icon: Settings, label: "設定" },
+type NavItem = {
+  href: string
+  icon: LucideIcon
+  label: string
+}
+
+type NavSection = {
+  title: string
+  items: NavItem[]
+}
+
+const navSections: NavSection[] = [
+  {
+    title: "OVERVIEW",
+    items: [{ href: "/admin", icon: Home, label: "ダッシュボード" }]
+  },
+  {
+    title: "コンテンツ",
+    items: [
+      { href: "/admin/products", icon: Package, label: "商品管理" },
+      { href: "/admin/recipes", icon: Camera, label: "レシピ管理" },
+      { href: "/admin/collections", icon: Layout, label: "コレクション" },
+      { href: "/admin/tags", icon: Tag, label: "タグ管理" }
+    ]
+  },
+  {
+    title: "運用・設定",
+    items: [
+      { href: "/admin/amazon-sales", icon: Calendar, label: "セールスケジュール" },
+      { href: "/admin/theme", icon: Palette, label: "テーマ" },
+      { href: "/admin/settings", icon: Settings, label: "設定" }
+    ]
+  }
 ]
+
+const STORAGE_KEY = "v0-admin-sidebar"
 
 export function AdminNav() {
   const pathname = usePathname()
   const router = useRouter()
-  const [openMenu, setOpenMenu] = useState(false)
-  
+  const [isExpanded, setIsExpanded] = useState(true)
+  const [isHydrated, setIsHydrated] = useState(false)
+  const [isMobileOpen, setIsMobileOpen] = useState(false)
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    setIsHydrated(true)
+    if (typeof window === "undefined") return
+    const stored = window.localStorage.getItem(STORAGE_KEY)
+    if (stored === "collapsed") {
+      setIsExpanded(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isHydrated || typeof window === "undefined") return
+    window.localStorage.setItem(STORAGE_KEY, isExpanded ? "expanded" : "collapsed")
+  }, [isExpanded, isHydrated])
+
+  useEffect(() => {
+    let active = true
+    const loadProfileImage = async () => {
+      try {
+        const res = await fetch("/api/profile", { cache: "no-store" })
+        if (!res.ok) return
+        const json = await res.json().catch(() => null)
+        const image = json?.data?.profileImage || json?.data?.avatarUrl || null
+        if (active) {
+          setProfileImageUrl(image || null)
+        }
+      } catch (error) {
+        console.warn("[admin-nav] failed to load profile image", error)
+      }
+    }
+    loadProfileImage()
+    return () => {
+      active = false
+    }
+  }, [])
+
   const handleLogout = () => {
-    auth.logout()
-    router.push('/admin/login')
-    router.refresh()
+    void auth.logout()
   }
 
   const currentUser = auth.getCurrentUser()
+  const userLabel = currentUser?.username || currentUser?.email || "ログインユーザー"
 
-  return (
-    <nav className="border-b bg-card relative">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          <Link href="/admin" className="font-bold text-xl">
-            管理画面
-          </Link>
-          <div className="flex items-center gap-4">
-            {currentUser && (
-              <span className="hidden sm:inline text-sm text-muted-foreground">
-                {currentUser.username}
-              </span>
-            )}
-            <Link href="/" className="hidden sm:inline text-sm text-muted-foreground hover:text-foreground transition-colors">
-              公開ページを見る →
-            </Link>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className="hidden sm:inline gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              ログアウト
-            </Button>
+  const initials = useMemo(() => {
+    if (!currentUser) return "?"
+    const name = currentUser.username || currentUser.email || ""
+    const sanitized = name.includes("@") ? name.split("@")[0] : name
+    return (
+      sanitized
+        .split(" ")
+        .map((part) => part[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase() || "?"
+    )
+  }, [currentUser])
 
-            {/* モバイル: ダッシュボードアイコン（ハンバーガーの左） */}
-            <Link
-              href="/admin"
-              onClick={() => setOpenMenu(false)}
-              className="inline-flex items-center justify-center p-2 rounded-md sm:hidden text-muted-foreground hover:text-foreground"
-              aria-label="Dashboard"
-            >
-              <Home className="w-5 h-5" />
-            </Link>
-
-            {/* ハンバーガー: スマホ時は右端に配置 */}
-            <button
-              onClick={() => setOpenMenu(s => !s)}
-              className="inline-flex items-center justify-center p-2 rounded-md sm:hidden"
-              aria-label="Open menu"
-            >
-              {openMenu ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
+  const renderNavItems = (showLabels: boolean, closeOnClick?: boolean) => (
+    <div className="space-y-6">
+      {navSections.map((section) => (
+        <div key={section.title}>
+          {showLabels && (
+            <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
+              {section.title}
+            </p>
+          )}
+          <div className="mt-2 space-y-1">
+            {section.items.map((item) => {
+              const Icon = item.icon
+              const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`)
+              const isDashboard = item.href === "/admin"
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  title={item.label}
+                  className={cn(
+                    "group relative flex items-center gap-3 text-sm font-medium transition-colors",
+                    showLabels ? "w-full rounded-lg px-3 py-2" : "h-12 w-12 justify-center rounded-xl",
+                    isActive
+                      ? isDashboard
+                        ? "bg-primary/15 text-primary border border-primary/30"
+                        : "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                  onClick={() => {
+                    if (closeOnClick) {
+                      setIsMobileOpen(false)
+                    }
+                  }}
+                >
+                  <Icon className={cn("h-5 w-5", !showLabels && "h-6 w-6")} />
+                  {showLabels && <span>{item.label}</span>}
+                </Link>
+              )
+            })}
           </div>
         </div>
+      ))}
+    </div>
+  )
 
-        {/* デスクトップ: 横並びメニュー */}
-        <div className="hidden sm:flex gap-1 overflow-x-auto pb-px -mb-px">
-          {navItems.map((item) => {
-            const Icon = item.icon
-            const isActive = pathname === item.href
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
-                  isActive
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Icon className="w-4 h-4" />
-                {item.label}
-              </Link>
-            )
-          })}
-        </div>
-
-        {/* モバイルメニューのドロップダウン */}
-        {openMenu && (
-          <div className="sm:hidden absolute right-4 top-16 z-50 w-56 bg-card border rounded-md shadow-lg">
-            <div className="flex flex-col">
-              {navItems.map((item) => {
-                const Icon = item.icon
-                const isActive = pathname === item.href
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setOpenMenu(false)}
-                    className={cn(
-                      "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b transition-colors",
-                      isActive ? "bg-zinc-100 text-foreground" : "text-muted-foreground hover:bg-zinc-50",
-                    )}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {item.label}
-                  </Link>
-                )
-              })}
-              <button onClick={handleLogout} className="text-left px-4 py-3 text-sm text-muted-foreground hover:bg-zinc-50">ログアウト</button>
+  const desktopSidebar = (
+    <div className="flex h-full flex-col">
+      <div className="flex h-16 items-center justify-between border-b px-3">
+        <div className="flex items-center gap-2">
+          {profileImageUrl ? (
+            <Image
+              src={profileImageUrl}
+              alt="プロフィール画像"
+              width={40}
+              height={40}
+              className="h-10 w-10 rounded-full border border-primary/20 object-cover"
+            />
+          ) : (
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+              {initials !== "?" ? initials : "Sh"}
             </div>
+          )}
+          {isExpanded && (
+            <div>
+              <p className="text-sm font-semibold">Samehome Console</p>
+              <p className="text-xs text-muted-foreground">管理ページ</p>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-2 py-4">{renderNavItems(isExpanded)}</div>
+      <div className={cn("border-t px-3 py-4", !isExpanded && "px-2")}>
+        {currentUser ? (
+          <div
+            className={cn("flex items-center gap-3", !isExpanded && "justify-center")}
+          >
+            {profileImageUrl ? (
+              <Image
+                src={profileImageUrl}
+                alt="プロフィール画像"
+                width={40}
+                height={40}
+                className="h-10 w-10 rounded-full border border-border object-cover"
+              />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
+                {initials}
+              </div>
+            )}
+            {isExpanded && (
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{userLabel}</p>
+                {currentUser.email && <p className="truncate text-xs text-muted-foreground">{currentUser.email}</p>}
+              </div>
+            )}
+          </div>
+        ) : (
+          <Link
+            href="/admin/login"
+            className={cn(
+              "flex items-center gap-3 text-sm text-muted-foreground",
+              !isExpanded && "justify-center"
+            )}
+          >
+            {profileImageUrl ? (
+              <Image
+                src={profileImageUrl}
+                alt="プロフィール画像"
+                width={40}
+                height={40}
+                className="h-10 w-10 rounded-full border border-border object-cover"
+              />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">?</div>
+            )}
+            {isExpanded && <span>ログイン</span>}
+          </Link>
+        )}
+        <Button
+          variant="outline"
+          size={isExpanded ? "sm" : "icon"}
+          className={cn(
+            "mt-4 transition-all",
+            isExpanded ? "w-full justify-start gap-2" : "mx-auto h-10 w-10 justify-center rounded-lg"
+          )}
+          aria-label={isExpanded ? "サイドバーを折りたたむ" : "サイドバーを展開する"}
+          title={isExpanded ? "サイドバーを折りたたむ" : "サイドバーを展開する"}
+          onClick={() => setIsExpanded((prev) => !prev)}
+        >
+          {isExpanded ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          {isExpanded && <span>サイドバーを折りたたむ</span>}
+        </Button>
+        <div className="mt-4 space-y-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2"
+            onClick={() => router.push("/")}
+          >
+            <ExternalLink className="h-4 w-4" />
+            {isExpanded && <span>公開ページを見る</span>}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+            onClick={handleLogout}
+          >
+            <LogOut className="h-4 w-4" />
+            {isExpanded && <span>ログアウト</span>}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+
+  const mobileHeader = (
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-background/95 px-4 py-3 backdrop-blur md:hidden">
+      <div className="flex items-center gap-3">
+        {profileImageUrl ? (
+          <Image
+            src={profileImageUrl}
+            alt="プロフィール画像"
+            width={40}
+            height={40}
+            className="h-10 w-10 rounded-full border border-primary/20 object-cover"
+          />
+        ) : (
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+            {initials !== "?" ? initials : "Sh"}
           </div>
         )}
+        <div className="leading-tight">
+          <p className="text-sm font-semibold">Samehome Console</p>
+          <p className="text-xs text-muted-foreground">管理ページ</p>
+        </div>
       </div>
-    </nav>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Open menu"
+        onClick={() => setIsMobileOpen(true)}
+      >
+        <Menu className="h-5 w-5" />
+      </Button>
+    </header>
+  )
+
+  const mobileSidebar = (
+    <div className="flex h-full flex-col">
+      <div className="flex h-16 items-center justify-between border-b px-4">
+        <div className="flex items-center gap-3">
+          {profileImageUrl ? (
+            <Image
+              src={profileImageUrl}
+              alt="プロフィール画像"
+              width={36}
+              height={36}
+              className="h-9 w-9 rounded-full border border-border object-cover"
+            />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+              {initials !== "?" ? initials : "Sh"}
+            </div>
+          )}
+          <div className="leading-tight">
+            <p className="text-sm font-semibold">Samehome Console</p>
+            <p className="text-xs text-muted-foreground">管理ページ</p>
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Close menu"
+          onClick={() => setIsMobileOpen(false)}
+        >
+          <X className="h-5 w-5" />
+        </Button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 py-4">{renderNavItems(true, true)}</div>
+      <div className="border-t px-4 py-4 space-y-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2"
+          onClick={() => {
+            router.push("/")
+            setIsMobileOpen(false)
+          }}
+        >
+          <ExternalLink className="h-4 w-4" />
+          公開ページを見る
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+          onClick={() => {
+            setIsMobileOpen(false)
+            handleLogout()
+          }}
+        >
+          <LogOut className="h-4 w-4" />
+          ログアウト
+        </Button>
+      </div>
+    </div>
+  )
+
+  return (
+    <>
+      {mobileHeader}
+      <aside
+        className={cn(
+          "hidden md:flex sticky top-0 self-start shrink-0 border-r bg-card shadow-sm transition-[width] duration-300 min-h-screen",
+          isExpanded ? "w-68" : "w-17"
+        )}
+      >
+        {desktopSidebar}
+      </aside>
+
+      <div
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 w-72 transform bg-card shadow-xl transition-transform md:hidden",
+          isMobileOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {mobileSidebar}
+      </div>
+      {isMobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm md:hidden"
+          onClick={() => setIsMobileOpen(false)}
+        />
+      )}
+    </>
   )
 }

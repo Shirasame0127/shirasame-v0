@@ -97,7 +97,13 @@ export async function POST(req: Request) {
               }
 
               cfResult = cfJson?.result || null
-              finalUrl = Array.isArray(cfResult?.variants) ? cfResult.variants[0] : cfResult?.url || finalUrl
+              // Prefer original URL for GIFs to preserve animation; otherwise use optimized variant
+              const cfVariants = Array.isArray(cfResult?.variants) ? cfResult.variants : undefined
+              const originalCfUrl = cfResult?.url || (cfAccount && cfResult?.id ? `https://imagedelivery.net/${cfAccount}/${cfResult?.id}/public` : null)
+              const isGifMime = typeof mime === 'string' && mime.toLowerCase().includes('gif')
+              const isGifName = fileName.toLowerCase().endsWith('.gif')
+              const isGif = isGifMime || isGifName
+              finalUrl = isGif ? (originalCfUrl || (cfVariants ? cfVariants.find((v: string) => v.toLowerCase().endsWith('.gif')) : undefined) || cfVariants?.[0]) : (cfVariants?.[0] || originalCfUrl || finalUrl)
             }
           }
         } catch (e) {

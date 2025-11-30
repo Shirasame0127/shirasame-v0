@@ -68,37 +68,40 @@ export async function middleware(req: NextRequest) {
 
   try {
     const userUrl = `${SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`
+    const anonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    const headers: Record<string,string> = { Authorization: `Bearer ${token}` }
+    if (anonKey) headers.apikey = anonKey
     const resp = await fetch(userUrl, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
       cache: 'no-store',
     })
 
     if (!resp.ok) {
       console.warn('[middleware] remote /auth/v1/user returned non-ok:', resp.status)
 
-      // Try server-side refresh using the refresh token cookie before forcing logout.
-      try {
-        const refreshUrl = new URL('/api/auth/refresh', req.url).toString()
-        console.log('[middleware] attempting server-side refresh at', refreshUrl)
-        const refreshResp = await fetch(refreshUrl, {
-          method: 'POST',
-          headers: {
-            // forward cookies so the refresh endpoint can read sb-refresh-token
-            cookie: req.headers.get('cookie') || '',
-          },
-          cache: 'no-store',
-        })
-
-        if (refreshResp.ok) {
-          try { console.log('[middleware] server-side refresh succeeded, allowing request') } catch {}
-          return NextResponse.next()
+      // Avoid無限再試行: まだリフレッシュ未試行の場合だけ1度だけ試す
+      const attempted = req.cookies.get('sb-refresh-attempted')?.value === '1'
+      if (!attempted) {
+        try {
+          const refreshUrl = new URL('/api/auth/refresh', req.url).toString()
+          console.log('[middleware] attempting single server-side refresh at', refreshUrl)
+          const refreshResp = await fetch(refreshUrl, {
+            method: 'POST',
+            headers: { cookie: req.headers.get('cookie') || '' },
+            cache: 'no-store',
+          })
+          if (refreshResp.ok) {
+            try { console.log('[middleware] refresh succeeded; continuing request') } catch {}
+            // マーカーCookieをクリアするためレスポンスで上書き（Max-Age=0）
+            const passNext = NextResponse.next()
+            passNext.cookies.set('sb-refresh-attempted', '0', { path: '/', maxAge: 0 })
+            return passNext
+          }
+          console.warn('[middleware] single refresh failed, status=', refreshResp.status)
+        } catch (e) {
+          console.warn('[middleware] single refresh attempt error', e)
         }
-        console.warn('[middleware] server-side refresh failed, status=', refreshResp.status)
-      } catch (e) {
-        console.warn('[middleware] server-side refresh attempt error', e)
       }
 
       const url = req.nextUrl.clone()
@@ -106,6 +109,8 @@ export async function middleware(req: NextRequest) {
       const res = NextResponse.redirect(url)
       res.cookies.delete('sb-access-token')
       res.cookies.delete('sb-refresh-token')
+      // 以後同一セッションで再試行しない印としてマーカー
+      res.cookies.set('sb-refresh-attempted', '1', { path: '/', httpOnly: true })
       return res
     }
 

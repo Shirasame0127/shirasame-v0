@@ -14,6 +14,7 @@ interface ProductDetailModalProps {
   product: Product | null
   isOpen: boolean
   onClose: () => void
+  initialImageUrl?: string
 }
 
 function detectLinkType(url: string): 'youtube' | 'tiktok' | 'twitter' | 'instagram' | 'other' {
@@ -171,7 +172,7 @@ function EmbeddedLink({ url }: { url: string }) {
   )
 }
 
-export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailModalProps) {
+export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl }: ProductDetailModalProps) {
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden"
@@ -220,7 +221,9 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
 
   // Guard against product.images being undefined (some products may not have images)
   const images = product.images || []
-  const mainImage = images.find((img) => img.role === "main") || images[0] || null
+  // Prefer the image user clicked in gallery if provided; otherwise fall back to main → first
+  const preferred = initialImageUrl ? images.find((img) => getPublicImageUrl(img.url) === getPublicImageUrl(initialImageUrl)) : null
+  const mainImage = preferred || images.find((img) => img.role === "main") || images[0] || null
   const attachmentImages = (images.filter ? images.filter((img) => img.role === "attachment") : []).slice(0, 4)
 
   const hasTags = product.tags && product.tags.length > 0
@@ -251,7 +254,7 @@ export function ProductDetailModal({ product, isOpen, onClose }: ProductDetailMo
 
   const leftImageClassName = useVerticalLayout
     ? 'flex-shrink-0 w-full p-4 flex items-center justify-center'
-    : 'flex-shrink-0 sm:w-1/2 p-6 sm:border-r flex items-center justify-center sm:sticky sm:top-0 sm:self-start'
+    : 'flex-shrink-0 sm:w-1/2 p-6 sm:border-r flex items-center justify-center sm:h-full'
 
   const innerImageClassName = useVerticalLayout
     ? 'relative w-full max-w-sm aspect-square mx-auto rounded-lg overflow-hidden bg-muted shadow-sm'

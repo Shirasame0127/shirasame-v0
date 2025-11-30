@@ -22,27 +22,25 @@ export async function POST(req: Request) {
     try { console.log('[api/auth/refresh] incoming cookie header:', cookieHeader ? cookieHeader.split(';').map(s=>s.trim())[0] : '<none>') } catch {}
     try { console.log('[api/auth/refresh] refresh token preview:', refreshToken ? `${refreshToken.slice(0,8)}... len=${refreshToken.length}` : '<none>') } catch {}
 
-    if (!refreshToken) return NextResponse.json({ ok: false, error: 'no refresh token' }, { status: 400 })
-
-    const SUPABASE_URL = process.env.SUPABASE_URL || ''
-    const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-    if (!SUPABASE_URL || !SERVICE_ROLE) {
-      return NextResponse.json({ ok: false, error: 'missing supabase config' }, { status: 500 })
+    if (!refreshToken) {
+      return NextResponse.json({ ok: false, error: 'refresh token cookie missing' }, { status: 400 })
     }
 
-    // Exchange refresh token for new session via Supabase Auth API
-    const tokenUrl = `${SUPABASE_URL.replace(/\/$/, '')}/auth/v1/token`
-    const body = `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`
+    const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+    const ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    if (!SUPABASE_URL || !ANON_KEY) {
+      return NextResponse.json({ ok: false, error: 'supabase url or anon key missing' }, { status: 500 })
+    }
+
+    // Supabase公式仕様: refresh は /auth/v1/token?grant_type=refresh_token へ JSON { refresh_token }
+    const tokenUrl = `${SUPABASE_URL.replace(/\/$/, '')}/auth/v1/token?grant_type=refresh_token`
     const resp = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Bearer ${SERVICE_ROLE}`,
-        // Supabase requires an `apikey` header (or url param) for the token endpoint
-        // include the service role key here so the request is accepted server-side
-        'apikey': SERVICE_ROLE,
+        'Content-Type': 'application/json',
+        'apikey': ANON_KEY,
       },
-      body,
+      body: JSON.stringify({ refresh_token: refreshToken }),
     })
 
     const json = await resp.json().catch(() => ({}))
@@ -53,7 +51,7 @@ export async function POST(req: Request) {
 
     if (!resp.ok) {
       console.warn('[api/auth/refresh] supabase token refresh failed', json)
-      const failRes = NextResponse.json({ ok: false, error: 'refresh failed', detail: json }, { status: 401 })
+      const failRes = NextResponse.json({ ok: false, error: 'refresh failed', detail: json }, { status: resp.status === 400 ? 400 : 401 })
       failRes.headers.append('Set-Cookie', deleteAccess)
       failRes.headers.append('Set-Cookie', deleteRefresh)
       try { console.log('[api/auth/refresh] cleared cookies due to refresh failure') } catch {}

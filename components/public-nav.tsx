@@ -19,7 +19,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
   const [initialLoading, setInitialLoading] = useState(false)
 
   useEffect(() => {
-    const loadedCollections = db.collections.getAll().filter((c) => c.visibility === "public")
+    const loadedCollections = db.collections.getAll().filter((c: Collection) => c.visibility === "public")
     setCollections(loadedCollections)
   }, [])
 
@@ -53,29 +53,24 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
   return (
     <>
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
-        <div className="flex h-16 items-center justify-between px-2">
-          <Link href="/" className="flex items-center gap-3">
+        <div className="relative flex h-16 items-center justify-center px-2">
+          {/* 中央固定ロゴ */}
+          <Link href="/" className="absolute left-1/2 -translate-x-1/2 flex items-center">
             <div className="relative h-12 w-auto">
               <Image
                 src="/images/shirasame-logo.png"
                 alt={siteName}
                 width={180}
                 height={48}
-                className="ml-3 h-10 w-auto object-contain mx-3"
+                className="h-10 w-auto object-contain"
                 priority
               />
             </div>
-            <span className="text-sm font-medium text-muted-foreground"> のコレクション</span>
           </Link>
 
-          <div className="flex items-center gap-2">
-            <Link href="/admin">
-              <Button variant="outline" size="sm">
-                <Settings className="w-4 h-4 mr-2" />
-                管理画面
-              </Button>
-            </Link>
-            <Button variant="ghost" size="icon" onClick={() => setIsMenuOpen(!isMenuOpen)} className="ml-auto">
+          {/* 右側操作群（管理画面ボタン除去） */}
+          <div className="absolute right-2 flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={() => setIsMenuOpen(!isMenuOpen)}>
               {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </Button>
           </div>

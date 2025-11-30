@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
+  // Turbopack root を明示してルート推定の警告を抑止
+  turbopack: {
+    root: 'c:/Users/celes/Documents/shirasameProject/v0-samehome',
   },
   typescript: {
     ignoreBuildErrors: true,

@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { AdminNav } from "@/components/admin-nav"
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { Toaster } from "@/components/ui/toaster"
 import { useEffect, useState } from 'react'
 import { auth } from '@/lib/auth'
@@ -14,7 +14,6 @@ export default function AdminLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
-  const router = useRouter()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const isRecipeEditPage = pathname?.includes('/admin/recipes/') && pathname?.includes('/edit')
@@ -48,7 +47,7 @@ export default function AdminLayout({
       setIsAuthenticated(true)
     }
     setIsLoading(false)
-  }, [pathname, isLoginPage, router])
+  }, [pathname, isLoginPage])
 
   if (isLoading) {
     // 管理画面読み込み中は固定で現在のローディングアニメーションを表示する
@@ -70,10 +69,20 @@ export default function AdminLayout({
     )
   }
 
+  const useStandardShell = !isRecipeEditPage && !isLoginPage
+
   return (
     <div className={`min-h-screen bg-muted/30 ${isRecipeEditPage ? 'overflow-hidden' : ''}`}>
-      {!isRecipeEditPage && !isLoginPage && <AdminNav />}
-      <main className={isRecipeEditPage ? 'h-screen' : ''}>{children}</main>
+      {useStandardShell ? (
+        <div className="flex min-h-screen flex-col md:flex-row md:items-stretch">
+          <AdminNav />
+          <main className="flex-1 min-h-screen px-4 py-6 md:px-10 md:py-10 lg:px-12">
+            {children}
+          </main>
+        </div>
+      ) : (
+        <main className={isRecipeEditPage ? 'h-screen' : 'min-h-screen'}>{children}</main>
+      )}
       <Toaster />
     </div>
   )

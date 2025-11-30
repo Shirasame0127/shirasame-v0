@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useEffect, useState } from 'react'
+import { getPublicImageUrl } from '@/lib/image-url'
 
 export default function InitialLoading() {
   const [show, setShow] = useState(true)
@@ -22,8 +23,19 @@ export default function InitialLoading() {
         const res = await fetch('/api/site-settings')
         if (!res.ok) throw new Error('failed')
         const json = await res.json()
-        const url = json?.data?.loading_animation?.url || null
-        if (mounted) setGifUrl(url)
+        const raw = json?.data?.loading_animation
+        let url: string | null = null
+        if (!raw) url = null
+        else if (typeof raw === 'string') url = raw
+        else if (typeof raw === 'object') url = raw?.url || null
+
+        // Normalize keys/paths to public URL when possible
+        try {
+          const normalized = getPublicImageUrl(url) || url
+          if (mounted) setGifUrl(normalized)
+        } catch (e) {
+          if (mounted) setGifUrl(url)
+        }
       } catch (e) {
         // ignore — no gif available
       } finally {

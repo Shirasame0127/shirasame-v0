@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useMemo } from "react"
 import { PublicNav } from "@/components/public-nav"
 import { ProfileCard } from "@/components/profile-card"
 import { ProductCardSimple } from "@/components/product-card-simple"
@@ -100,86 +100,52 @@ function FilterContent({
   }
 
   return (
-    <div className={`space-y-4 ${isMobile ? "text-sm" : ""}`}>
+    <div className={`space-y-8 ${isMobile ? 'text-sm' : ''}`}>
+      {/* テキスト検索 */}
       <div className="space-y-2">
-        <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>テキスト検索</Label>
+        <Label className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold`}>テキスト検索</Label>
         <Input
           placeholder="商品名・説明文で検索"
           value={localQuery}
           onChange={(e: any) => setLocalQuery(e.target.value)}
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
-          className={isMobile ? "text-xs h-9" : ""}
+            onKeyDown={(e: any) => { if (e.key === 'Enter') { e.preventDefault(); setSearchText(localQuery) } }}
+          className={isMobile ? 'text-xs h-9' : ''}
         />
       </div>
 
-      <div className="space-y-2">
-        <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>表示設定</Label>
-        <div className="flex flex-wrap gap-2">
-          <div className="flex gap-2">
-            <Button
-              variant={viewMode === "grid" ? "default" : "outline"}
-              size={isMobile ? "sm" : "sm"}
-              onClick={() => setViewMode("grid")}
-              className={isMobile ? "text-xs h-8" : ""}
-            >
-              <Grid3x3 className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-1`} />
-              グリッド
-            </Button>
-            <Button
-              variant={viewMode === "list" ? "default" : "outline"}
-              size={isMobile ? "sm" : "sm"}
-              onClick={() => setViewMode("list")}
-              className={isMobile ? "text-xs h-8" : ""}
-            >
-              <List className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-1`} />
-              リスト
-            </Button>
-          </div>
-
-          {viewMode === "grid" && (
-            <Select value={String(gridColumns)} onValueChange={(v) => setGridColumns(Number(v))}>
-              <SelectTrigger className={`w-24 ${isMobile ? "text-xs h-8" : ""}`}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="2">2列</SelectItem>
-                <SelectItem value="3">3列</SelectItem>
-                <SelectItem value="4">4列</SelectItem>
-                <SelectItem value="5">5列</SelectItem>
-                <SelectItem value="6">6列</SelectItem>
-                <SelectItem value="7">7列</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-          {viewMode === "grid" && (
-            <div className="flex items-center gap-2 ml-2">
-              <Button
-                size={isMobile ? "sm" : "sm"}
-                variant={layoutStyle === "masonry" ? "default" : "outline"}
-                onClick={() => setLayoutStyle("masonry")}
-                className={isMobile ? "text-xs h-8" : ""}
-              >
-                ピンタレスト
-              </Button>
-              <Button
-                size={isMobile ? "sm" : "sm"}
-                variant={layoutStyle === "square" ? "default" : "outline"}
-                onClick={() => setLayoutStyle("square")}
-                className={isMobile ? "text-xs h-8" : ""}
-              >
-                正方形
-              </Button>
-            </div>
-          )}
+      {/* グリッド列数選択 */}
+      {viewMode === 'grid' && (
+        <div className="space-y-2">
+          <Label className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold`}>列数</Label>
+          <Select value={String(gridColumns)} onValueChange={(v) => setGridColumns(Number(v))}>
+            <SelectTrigger className={`w-24 ${isMobile ? 'text-xs h-8' : ''}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {isMobile ? (
+                <>
+                  <SelectItem value="2">2列</SelectItem>
+                  <SelectItem value="3">3列</SelectItem>
+                </>
+              ) : (
+                <>
+                  <SelectItem value="4">4列</SelectItem>
+                  <SelectItem value="5">5列</SelectItem>
+                </>
+              )}
+            </SelectContent>
+          </Select>
         </div>
-      </div>
+      )}
 
+      {/* 並び替え */}
       <div className="space-y-2">
-        <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>並び替え</Label>
+        <Label className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold`}>並び替え</Label>
         <Select value={sortMode} onValueChange={(v: any) => setSortMode(v)}>
-          <SelectTrigger className={`w-full ${isMobile ? "text-xs h-9" : ""}`}>
-            <SortAsc className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-2`} />
+          <SelectTrigger className={`w-full ${isMobile ? 'text-xs h-9' : ''}`}>
+            <SortAsc className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} mr-2`} />
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -191,16 +157,17 @@ function FilterContent({
         </Select>
       </div>
 
+      {/* タグ絞り込み */}
       {Object.keys(tagGroups).length > 0 && (
         <div className="space-y-2">
-          <Label className={`${isMobile ? "text-xs" : "text-sm"} font-semibold`}>タグで絞り込み</Label>
+          <Label className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold`}>タグで絞り込み</Label>
           {selectedTags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 p-2 bg-muted rounded-lg">
               {selectedTags.map((tag) => (
                 <Badge
                   key={tag}
                   variant="default"
-                  className={`cursor-pointer ${isMobile ? "text-[10px] px-2 py-0.5" : ""}`}
+                  className={`cursor-pointer ${isMobile ? 'text-[10px] px-2 py-0.5' : ''}`}
                   onClick={() => toggleTag(tag)}
                 >
                   {tag} <X className="w-3 h-3 ml-1" />
@@ -208,44 +175,51 @@ function FilterContent({
               ))}
             </div>
           )}
-          <Accordion type="multiple" className="w-full" value={openGroups} onValueChange={(v) => setOpenGroups(Array.isArray(v) ? v : [v])}>
-            {Object.entries(tagGroups).map(([groupName, tags]) => (
-              <AccordionItem key={groupName} value={groupName}>
-                <AccordionTrigger className={isMobile ? "text-xs py-2" : "text-sm"}>
-                  {groupName}
-                  {selectedTags.some((t) => tags.includes(t)) && (
-                    <Badge variant="secondary" className={`ml-2 ${isMobile ? "text-[10px] px-1.5 py-0" : ""}`}>
-                      {selectedTags.filter((t) => tags.includes(t)).length}
-                    </Badge>
-                  )}
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="flex flex-wrap gap-1.5 pt-2">
-                    {tags.map((tag) => (
-                      <Badge
-                        key={tag}
-                        variant={selectedTags.includes(tag) ? "default" : "outline"}
-                        className={`cursor-pointer hover:scale-105 transition-transform ${
-                          isMobile ? "text-[10px] px-2 py-0.5" : ""
-                        }`}
-                        onClick={() => toggleTag(tag)}
-                      >
-                        {tag}
+          <div className={`${isMobile ? 'max-h-[38vh] overflow-y-auto pr-1 -mr-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded' : ''}`}>
+            <Accordion
+              type="multiple"
+              className="w-full"
+              value={openGroups}
+              onValueChange={(v) => setOpenGroups(Array.isArray(v) ? v : [v])}
+            >
+              {Object.entries(tagGroups).map(([groupName, tags]) => (
+                <AccordionItem key={groupName} value={groupName}>
+                  <AccordionTrigger className={isMobile ? 'text-xs py-2' : 'text-sm'}>
+                    {groupName}
+                    {selectedTags.some((t) => tags.includes(t)) && (
+                      <Badge variant="secondary" className={`ml-2 ${isMobile ? 'text-[10px] px-1.5 py-0' : ''}`}>
+                        {selectedTags.filter((t) => tags.includes(t)).length}
                       </Badge>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
+                    )}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="flex flex-wrap gap-1.5 pt-2">
+                      {tags.map((tag) => (
+                        <Badge
+                          key={tag}
+                          variant={selectedTags.includes(tag) ? 'default' : 'outline'}
+                          className={`cursor-pointer hover:scale-105 transition-transform ${
+                            isMobile ? 'text-[10px] px-2 py-0.5' : ''
+                          }`}
+                          onClick={() => toggleTag(tag)}
+                        >
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </div>
           {selectedTags.length > 0 && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setSelectedTags([])}
-              className={`w-full ${isMobile ? "text-xs h-8" : ""}`}
+              className={`w-full ${isMobile ? 'text-xs h-8' : ''}`}
             >
-              <X className={`${isMobile ? "w-3 h-3" : "w-4 h-4"} mr-1`} />
+              <X className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} mr-1`} />
               絞り込みを解除
             </Button>
           )}
@@ -262,10 +236,14 @@ export default function HomePage() {
   const [user, setUser] = useState<any>(db.user.get() || null)
   const [theme, setTheme] = useState<any>(null)
   const [isLoaded, setIsLoaded] = useState(false)
+  const [displayMode, setDisplayMode] = useState<'normal' | 'gallery'>('normal')
+  const [isTransitioning, setIsTransitioning] = useState(false)
+  const [shuffleKey, setShuffleKey] = useState(0)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
-  const [gridColumns, setGridColumns] = useState(7) // PCのデフォルト列数を7列に変更
+      const [gridColumns, setGridColumns] = useState(5) // PCのデフォルト列数を5列に変更
   const [layoutStyle, setLayoutStyle] = useState<"masonry" | "square">("masonry")
   const [sortMode, setSortMode] = useState<"newest" | "clicks" | "price-asc" | "price-desc">("newest")
   const [selectedTags, setSelectedTags] = useState<string[]>([])
@@ -275,6 +253,7 @@ export default function HomePage() {
   const [showFilters, setShowFilters] = useState(false)
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false)
   const [searchText, setSearchText] = useState("")
+  const [isGallerySearchSticky, setIsGallerySearchSticky] = useState(false)
 
   useEffect(() => {
     // initialize openGroups to all groups when tagGroups first loads
@@ -300,10 +279,16 @@ export default function HomePage() {
         // Profile: prefer server API (cloud-first). Fall back to in-memory cache if API not available yet.
         let loadedUser: any = null
         try {
-          const profileRes = await fetch('/api/profile')
-          if (profileRes.ok) {
-            const pj = await profileRes.json().catch(() => null)
-            loadedUser = pj?.data || pj || null
+          // 初回（まだ認証クッキーなし）判定: アクセストークンクッキーが無ければプロフィール取得をスキップ
+          const hasAccessCookie = typeof document !== 'undefined' && document.cookie.includes('sb-access-token=')
+          if (hasAccessCookie) {
+            const profileRes = await fetch('/api/profile', { credentials: 'include' })
+            if (profileRes.ok) {
+              const pj = await profileRes.json().catch(() => null)
+              loadedUser = pj?.data || pj || null
+            } else if (profileRes.status === 401) {
+              // 401 でも初回未ログイン状態として扱い、強制遷移は行わない
+            }
           }
         } catch (e) {
           // ignore and fallback to cache
@@ -396,8 +381,51 @@ export default function HomePage() {
     })()
   }, [])
 
-  const handleProductClick = (product: Product) => {
+  // Adjust default gridColumns automatically when switching display modes (gallery vs normal)
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const updateCols = () => {
+          const isMobileViewport = window.innerWidth < 640
+          if (displayMode === 'gallery') {
+            setGridColumns(isMobileViewport ? 2 : 7)
+          } else {
+            setGridColumns(isMobileViewport ? 2 : 5)
+          }
+        }
+        updateCols()
+        window.addEventListener('resize', updateCols)
+        return () => window.removeEventListener('resize', updateCols)
+      }
+    } catch {}
+  }, [displayMode])
+
+  // Set sensible default columns based on viewport: mobile=2, desktop=7
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const isMobileViewport = window.innerWidth < 640 // Tailwind sm breakpoint
+        setGridColumns(isMobileViewport ? 2 : 5)
+
+        // ギャラリー検索バーの固定状態検知（ヘッダー下に到達したら true）
+        const handler = () => {
+          const el = document.getElementById('global-gallery-search')
+          if (!el) return
+          const top = el.getBoundingClientRect().top
+          setIsGallerySearchSticky(top <= 64)
+        }
+        window.addEventListener('scroll', handler, { passive: true })
+        handler()
+        return () => {
+          window.removeEventListener('scroll', handler)
+        }
+      }
+    } catch {}
+  }, [])
+
+  const handleProductClick = (product: Product, imageUrl?: string) => {
     setSelectedProduct(product)
+    setSelectedImageUrl(imageUrl ?? null)
     setIsModalOpen(true)
   }
 
@@ -405,15 +433,18 @@ export default function HomePage() {
     setSelectedTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
   }
 
+  const productMatches = (p: Product) => {
+    const matchesTag = selectedTags.length === 0 || selectedTags.some((tag) => (p.tags || []).includes(tag))
+    const q = searchText.trim().toLowerCase()
+    const matchesText =
+      !q ||
+      (p.title || '').toLowerCase().includes(q) ||
+      ((p.shortDescription || '').toLowerCase().includes(q))
+    return matchesTag && matchesText
+  }
+
   const filteredAndSortedProducts = products
-    .filter((p) => {
-      const matchesTag = selectedTags.length === 0 || selectedTags.some((tag) => p.tags.includes(tag))
-      const matchesText =
-        !searchText.trim() ||
-        p.title.toLowerCase().includes(searchText.toLowerCase()) ||
-        (p.shortDescription && p.shortDescription.toLowerCase().includes(searchText.toLowerCase()))
-      return matchesTag && matchesText
-    })
+    .filter(productMatches)
     .sort((a, b) => {
       switch (sortMode) {
         case "newest":
@@ -429,11 +460,6 @@ export default function HomePage() {
       }
     })
 
-  if (!isLoaded) {
-    // InitialLoading overlay handles visual feedback; avoid rendering duplicate textual placeholder.
-    return null
-  }
-
   const appliedStyle = theme
     ? {
         fontFamily: theme.fonts?.body || undefined,
@@ -444,6 +470,73 @@ export default function HomePage() {
     const col = collections.find((c: any) => c.id === collectionId)
     return (col?.products || []) as Product[]
   }
+
+  function shuffleArray<T>(arr: T[]) {
+    const a = arr.slice()
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[a[i], a[j]] = [a[j], a[i]]
+    }
+    return a
+  }
+
+  // ギャラリー用アイテムは表示モード切り替え時のみシャッフル（入力などの再レンダーで並び替えない）
+  // シャッフルはモード切り替え時のみ（shuffleKey変更時）行い、入力に応じたフィルタは順序を保持したまま適用する
+  const galleryItemsShuffled = useMemo(() => {
+    return shuffleArray(
+      products.flatMap((product) => {
+        return (product.images || []).map((img: any, idx: number) => ({
+          id: `${product.id}__${idx}`,
+          productId: product.id,
+          image: getPublicImageUrl(img.url) || img.url || "/placeholder.svg",
+          aspect: img.aspect || undefined,
+          title: product.title,
+          href: `/products/${product.slug}`,
+        }))
+      }),
+    )
+  }, [shuffleKey, products])
+
+  const productById = useMemo(() => {
+    const m = new Map<string, Product>()
+    for (const p of products) m.set(p.id, p)
+    return m
+  }, [products])
+
+  const galleryItems = useMemo(() => {
+    return galleryItemsShuffled.filter((item: any) => {
+      const p = productById.get(item.productId)
+      return p ? productMatches(p) : false
+    })
+  }, [galleryItemsShuffled, productById, searchText, selectedTags])
+
+  // 初期ロードが完了するまで何も描画しない（全フックを評価した後に早期リターンし、フック順序を安定化）
+  if (!isLoaded) {
+    return null
+  }
+
+  const changeDisplayMode = (mode: 'normal' | 'gallery') => {
+    if (mode === displayMode) return
+    // fade out -> switch -> fade in
+    setIsTransitioning(true)
+    setTimeout(() => {
+      setDisplayMode(mode)
+      // ensure gallery shows masonry grid and grid view for predictable UI
+      if (mode === 'gallery') {
+        setViewMode('grid')
+        setLayoutStyle('masonry')
+        setShuffleKey((k) => k + 1)
+      }
+      if (mode === 'normal') {
+        // Prefer square grid for All Items in Normal mode
+        setViewMode('grid')
+        setLayoutStyle('square')
+      }
+      setIsTransitioning(false)
+    }, 250)
+  }
+
+  // ギャラリー検索バーの固定状態検知を既存のviewport初期化エフェクトに統合
 
   // `FilterContent` はファイル上部で定義済みです。そちらを使用してください。
 
@@ -457,10 +550,93 @@ export default function HomePage() {
         {user && <ProfileHeader user={user} />}
 
         <div className="max-w-7xl mx-auto px-4 py-8">
-          {/* コレクションセクション */}
-          {collections.length > 0 && (
+          {/* 切り替え（Normal / Gallery） - スライドする丸角トグル (非フェード) */}
+          <div className="mb-8 flex justify-center">
+            <div className="relative inline-flex items-center bg-muted p-1 rounded-full" style={{ width: 280 }}>
+
+              {/* スライドするインジケータ */}
+              <div
+                className={`absolute top-1 left-1 h-8 w-1/2 bg-primary rounded-full transition-transform duration-300 ease-in-out ${
+                  displayMode === 'gallery' ? 'translate-x-full' : 'translate-x-0'
+                }` }
+                style={{ marginTop: '3px' , width: '137px' }}
+                aria-hidden
+              />
+
+              <button
+                onClick={() => changeDisplayMode('normal')}
+                aria-pressed={displayMode === 'normal'}
+                className={`relative z-10 flex-1 text-sm font-medium px-4 py-2 text-center rounded-full ${
+                  displayMode === 'normal' ? 'text-white' : 'text-muted-foreground'
+                }`}
+              >
+                Normal
+              </button>
+
+              <button
+                onClick={() => changeDisplayMode('gallery')}
+                aria-pressed={displayMode === 'gallery'}
+                className={`relative z-10 flex-1 text-sm font-medium px-4 py-2 text-center rounded-full ${
+                  displayMode === 'gallery' ? 'text-white' : 'text-muted-foreground'
+                }`}
+              >
+                Gallery
+              </button>
+            </div>
+          </div>
+
+          <div className={`transition-opacity duration-250 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
+          {/* ギャラリーモード: すべての添付画像をピンタレスト風に表示 */}
+          {displayMode === 'gallery' ? (
+            <section id="global-gallery" className="mb-16">
+              {/* ギャラリー用検索バー（中央寄せ・幅: ビューポート - 5px・固定時は外側白＆下角丸） */}
+              {/* 画面横幅いっぱいのラッパ（常に100dvw）。内部はその幅に収まるよう調整 */}
+              <div className="gallery-search-viewport" style={{ position: 'sticky', top: '74px', boxSizing: 'border-box', display: 'flex', justifyContent: 'center', zIndex: isModalOpen ? 0 : 30 }}>
+                <div
+                  id="global-gallery-search"
+                  className={`${isModalOpen ? 'z-0' : 'z-40'} mb-6 ${isGallerySearchSticky ? 'bg-white rounded-b-2xl shadow-md' : ''}`}
+                  style={{ width: 'calc(100dvw - 5px)', maxWidth: '80rem', boxSizing: 'border-box', marginInline: 'auto' }}
+                >
+                  <div className="relative rounded-full border bg-background/80 backdrop-blur-sm shadow-sm overflow-hidden" role="search" aria-label="ギャラリー検索" style={{ width: 'calc(100% - 5px)', marginInline: 'auto', maxWidth: '80rem' }}>
+                  <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-muted-foreground">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  </div>
+                  <input
+                    type="text"
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setSearchText((e.target as HTMLInputElement).value) } }}
+                    placeholder="キーワードで検索"
+                    className="w-full bg-transparent py-3 pr-5 pl-10 text-sm outline-none placeholder:text-muted-foreground"
+                  />
+                </div>
+                </div>
+              </div>
+            
+              <div className={`transition-opacity duration-250 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
+                {galleryItems.length > 0 ? (
+                  <ProductMasonry
+                    key={`global-gallery-${shuffleKey}`}
+                    items={galleryItems}
+                    className="gap-3"
+                    fullWidth={true}
+                    columns={gridColumns}
+                    onItemClick={(id: string) => {
+                      const item: any = galleryItems.find((gi: any) => gi.id === id)
+                      const p = item ? products.find((pr) => pr.id === item.productId) : undefined
+                      if (p) handleProductClick(p, item?.image)
+                    }}
+                  />
+                ) : (
+                  <p className="text-center text-muted-foreground py-16">そのワードに関連するものはまだないな...</p>
+                )}
+              </div>
+            </section>
+          ) : (
+          /* コレクションセクション */
+          collections.length > 0 && (
             <section id="collections" className="mb-16">
-              <h2 className="font-heading text-2xl sm:text-3xl font-bold text-center mb-8">Collection</h2>
+              <h2 className="font-heading text-2xl sm:text-3xl font-bold text-center mb-8 heading-with-vertical">Collection</h2>
 
               <div className="space-y-12">
                 {collections.map((collection) => {
@@ -477,7 +653,7 @@ export default function HomePage() {
                       )}
 
                       {collectionProducts.length > 0 ? (
-                        <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
+                        <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 z-30">
                           {collectionProducts.map((product) => (
                             <ProductCardSimple
                               key={product.id}
@@ -494,12 +670,12 @@ export default function HomePage() {
                 })}
               </div>
             </section>
-          )}
+          ) )}
 
           {/* すべての商品セクション */}
-          {products.length > 0 && (
+          {products.length > 0 && displayMode !== 'gallery' && (
             <section id="all-products" className="mb-16 scroll-mt-20">
-              <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-6 text-center">All Items</h2>
+              <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-6 text-center heading-with-vertical">All Items</h2>
               <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">
                 公開中の商品を一覧表示しています
               </p>
@@ -539,7 +715,8 @@ export default function HomePage() {
                       </SheetHeader>
 
                       <div className="flex-1 overflow-y-auto py-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                        <FilterContent
+                        <div className="mx-auto w-full max-w-md px-1">
+                          <FilterContent
                           isMobile={true}
                           searchText={searchText}
                           setSearchText={setSearchText}
@@ -557,7 +734,8 @@ export default function HomePage() {
                           openGroups={openGroups}
                           setOpenGroups={setOpenGroups}
                           setSelectedTags={setSelectedTags}
-                        />
+                          />
+                        </div>
                       </div>
 
                       <div className="py-4 border-t bg-background sticky bottom-0">
@@ -594,33 +772,25 @@ export default function HomePage() {
               </div>
 
               {viewMode === "grid" ? (
-                layoutStyle === "masonry" ? (
-                  <div>
-                    <ProductMasonry
-                      items={filteredAndSortedProducts.map((product) => ({
-                        id: product.id,
-                        image: getPublicImageUrl(product.images?.[0]?.url) || product.images?.[0]?.url || "/placeholder.svg",
-                        aspect: product.images?.[0]?.aspect || undefined,
-                        title: product.title,
-                        href: `/products/${product.slug}`,
-                      }))}
-                      className={`gap-3`}
-                      columns={gridColumns}
-                      onItemClick={(id: string) => {
-                        const p = products.find((pr) => pr.id === id)
-                        if (p) handleProductClick(p)
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>
-                    {filteredAndSortedProducts.map((product) => (
-                      <div key={product.id} onClick={() => handleProductClick(product)}>
-                        <ProductCardSimple product={product} onClick={() => handleProductClick(product)} />
-                      </div>
-                    ))}
-                  </div>
-                )
+                <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>
+                  {filteredAndSortedProducts.map((product) => (
+                    <div
+                      key={product.id}
+                      className="group relative aspect-square overflow-hidden rounded-lg cursor-pointer transform transition-transform duration-300 ease-out motion-safe:will-change-transform hover:scale-[1.02] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                      onClick={() => handleProductClick(product)}
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleProductClick(product) } }}
+                      aria-label={product.title}
+                    >
+                      <Image
+                        src={getPublicImageUrl(product.images?.[0]?.url) || "/placeholder.svg"}
+                        alt={product.title}
+                        fill
+                        className="object-cover rounded-lg transition duration-300 ease-out group-hover:brightness-105"
+                      />
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="space-y-3">
                   {filteredAndSortedProducts.map((product) => (
@@ -648,7 +818,7 @@ export default function HomePage() {
               )}
 
               {filteredAndSortedProducts.length === 0 && (
-                <p className="text-center text-muted-foreground py-8">条件に一致する商品が見つかりません</p>
+                <p className="text-center text-muted-foreground py-16">そのワードに関連するものはまだないな...</p>
               )}
             </section>
           )}
@@ -656,7 +826,7 @@ export default function HomePage() {
           {/* ===========================
               レシピセクション: デスクセットアップ
               ========================== */}
-          {recipes.length > 0 && (
+          {recipes.length > 0 && displayMode !== 'gallery' && (
             <section id="recipes" className="mb-16 scroll-mt-20">
               <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-6 text-center">Recipe</h2>
               <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">
@@ -740,8 +910,11 @@ export default function HomePage() {
 
           {/* プロフィールセクション */}
           <section id="profile" className="mb-16 scroll-mt-20">
-            {user && <ProfileCard user={user} />}
+            <div className={`transition-opacity duration-250 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
+              {user && <ProfileCard user={user} />}
+            </div>
           </section>
+          </div>{/* end fade wrapper */}
         </div>
       </main>
 
@@ -751,7 +924,7 @@ export default function HomePage() {
         </div>
       </footer>
 
-      <ProductDetailModal product={selectedProduct} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      <ProductDetailModal product={selectedProduct} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialImageUrl={selectedImageUrl ?? undefined} />
     </div>
   )
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import supabaseClient from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast'
 export default function LoginPage() {
   const router = useRouter()
   const { toast } = useToast()
+  const searchParams = useSearchParams()
   const [isLoading, setIsLoading] = useState(false)
 
   // ログインフォーム
@@ -100,13 +101,10 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     try {
-      const redirectTo = `${location.origin}/admin/login`
-      // Trigger Supabase OAuth flow for Google
-      await (supabaseClient as any).auth.signInWithOAuth({ provider: 'google', options: { redirectTo } })
-      // signInWithOAuth will redirect the browser; if it doesn't, no-op
+      window.location.href = '/api/auth/google'
     } catch (e) {
-      console.error('[auth] google oauth error', e)
-      toast({ title: 'Googleログインに失敗しました', description: String(e), variant: 'destructive' })
+      console.error('[auth] google oauth start error', e)
+      toast({ title: 'Googleログイン失敗', description: '開始処理でエラーが発生しました: ' + String(e), variant: 'destructive' })
     }
   }
 
@@ -116,31 +114,40 @@ export default function LoginPage() {
   // navigate to the protected admin page. We check the minimal local mirror as well as supabase session.
   useEffect(() => {
     let mounted = true
-    async function checkSignedIn() {
+    // OAuthエラー表示
+    const oauthError = searchParams?.get('oauth_error')
+    if (oauthError) {
+      const messages: Record<string, { title: string; desc: string }> = {
+        config_missing: { title: '設定エラー', desc: '認証設定が不足しています。管理者に連絡してください。' },
+        no_code: { title: '認証コード欠落', desc: 'Googleログインが中断されました。もう一度試してください。' },
+        exchange_failed: { title: 'トークン交換失敗', desc: 'Google認証コードの交換に失敗しました。リダイレクトURL設定を確認してください。' },
+        access_missing: { title: 'アクセストークンなし', desc: 'アクセストークンを取得できませんでした。再度ログインしてください。' },
+        internal_error: { title: '内部エラー', desc: '内部処理で問題が発生しました。時間を空けて再試行してください。' },
+        cookie_blocked: { title: 'Cookieが無効', desc: 'ブラウザでCookieがブロックされている可能性があります。設定を確認してください。' },
+      }
+      const m = messages[oauthError] || { title: '不明なエラー', desc: '不明なエラーが発生しました。再度お試しください。' }
+      toast({ title: m.title, description: m.desc, variant: 'destructive' })
+      // クエリ除去（履歴汚さないようreplace）
       try {
-        // Prefer an actual Supabase session (client-side) before redirecting.
-        // Redirecting solely based on the localStorage mirror can cause a loop
-        // where the app redirects to /admin but the server has no cookies yet,
-        // and middleware sends the browser back to /admin/login.
-        try {
-          const s = await (supabaseClient as any).auth.getSession()
-          const sess = s?.data?.session
-          if (sess && mounted) {
-            const access = sess.access_token || sess?.access_token
-            const refresh = sess.refresh_token
-            if (access && refresh) {
-              await fetch('/api/auth/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ access_token: access, refresh_token: refresh }) }).catch(() => {})
-            }
-            window.location.href = '/admin'
-            return
-          }
-        } catch (e) {
-          // ignore errors from getSession
-        }
+        const sp = new URL(window.location.href)
+        sp.searchParams.delete('oauth_error')
+        window.history.replaceState({}, '', sp.toString())
+      } catch {}
+    }
 
-        // If there's no Supabase client session, only redirect if server-side
-        // refresh can confirm an active cookie-based session. Otherwise clear
-        // the local mirror to avoid repeatedly trying to go to /admin.
+    async function checkSignedInOnce() {
+      try {
+        const s = await (supabaseClient as any).auth.getSession()
+        const sess = s?.data?.session
+        if (sess && mounted) {
+          const access = sess.access_token
+          const refresh = sess.refresh_token
+          if (access && refresh) {
+            await fetch('/api/auth/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ access_token: access, refresh_token: refresh }) }).catch(() => {})
+          }
+          window.location.href = '/admin'
+          return
+        }
         const local = auth.getCurrentUser()
         if (local && mounted) {
           try {
@@ -149,42 +156,14 @@ export default function LoginPage() {
               window.location.href = '/admin'
               return
             }
-          } catch (e) {
-            // ignore
-          }
-
-          // Poll /api/auth/whoami for a short window — this absorbs race where
-          // provider callback sets cookies and redirects but client-side mirror
-          // is not yet populated.
-          try {
-            const start = Date.now()
-            const timeout = 5000
-            while (Date.now() - start < timeout && mounted) {
-              try {
-                const who = await fetch('/api/auth/whoami')
-                if (who.ok) {
-                  window.location.href = '/admin'
-                  return
-                }
-              } catch (e) {
-                // ignore transient errors
-              }
-              // small delay between polls
-              await new Promise((res) => setTimeout(res, 300))
-            }
-          } catch (e) {
-            // ignore
-          }
-
+          } catch {}
           try { localStorage.removeItem('auth_user') } catch {}
         }
-      } catch (e) {
-        // ignore outer errors
-      }
+      } catch {}
     }
-    checkSignedIn()
+    checkSignedInOnce()
     return () => { mounted = false }
-  }, [])
+  }, [searchParams, toast])
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()

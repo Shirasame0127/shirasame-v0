@@ -270,7 +270,10 @@ export default function AdminSettingsPage() {
       fd.append("file", file)
       const res = await fetch("/api/images/upload", { method: "POST", body: fd })
       const json = await res.json()
-      const uploadedUrl = json?.result?.variants?.[0] || json?.result?.url
+      const variants = json?.result?.variants
+      const originalUrl = json?.result?.url || json?.result?.publicUrl || json?.result?.url
+      const isGif = file.type === 'image/gif' || (file.name && file.name.toLowerCase().endsWith('.gif'))
+      const uploadedUrl = isGif ? (originalUrl || (Array.isArray(variants) ? variants.find((v: string) => v.toLowerCase().endsWith('.gif')) : undefined) || variants?.[0]) : (Array.isArray(variants) ? variants[0] : originalUrl)
       if (uploadedUrl) {
         // store the direct URL in headerImageKeys for simplicity
         const newKeys = [...headerImageKeys, uploadedUrl]
@@ -636,6 +639,15 @@ export default function AdminSettingsPage() {
       avatarUploadedUrl || (user?.profileImage ? user.profileImage : user?.profileImageKey ? db.images.getUpload(user.profileImageKey) : user?.avatarUrl || user?.profileImage) || null,
     )
 
+  // Normalize loading_animation value which may be stored as string or object
+  const loadingAnimationRaw = db.siteSettings.getValue('loading_animation')
+  const loadingAnimationUrl = (() => {
+    if (!loadingAnimationRaw) return ''
+    if (typeof loadingAnimationRaw === 'string') return getPublicImageUrl(loadingAnimationRaw) || loadingAnimationRaw
+    if (typeof loadingAnimationRaw === 'object') return getPublicImageUrl(loadingAnimationRaw?.url) || loadingAnimationRaw?.url || ''
+    return ''
+  })()
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
@@ -690,7 +702,7 @@ export default function AdminSettingsPage() {
               <Label>アップロード（GIF推奨）</Label>
               <div className="max-w-[300px] mt-2">
                 <ImageUpload
-                  value={db.siteSettings.getValue('loading_animation')?.url || ''}
+                  value={loadingAnimationUrl || ''}
                   onChange={() => {}}
                   aspectRatioType={'product'}
                   onUploadComplete={async (url) => {
@@ -714,9 +726,9 @@ export default function AdminSettingsPage() {
             <div>
               <Label>現在のアニメーション</Label>
               <div className="mt-2">
-                {db.siteSettings.getValue('loading_animation')?.url ? (
+                {loadingAnimationUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={db.siteSettings.getValue('loading_animation')?.url} alt="loading" className="w-24 h-24 object-cover rounded-md border" />
+                  <img src={loadingAnimationUrl} alt="loading" className="w-24 h-24 object-cover rounded-md border" />
                 ) : (
                   <p className="text-sm text-muted-foreground">未設定</p>
                 )}
