@@ -344,6 +344,10 @@ export default function HomePage() {
         setUser(loadedUser || null)
         setTheme(loadedTheme)
 
+        // Show page as soon as main data (products/collections/user/theme) is ready.
+        // Fetching remaining non-critical data (tag-groups, tags) can continue in background.
+        setIsLoaded(true)
+
         // Prefer server-backed tag groups + tags (cloud-first). Fall back to deriving groups from products.
         try {
           const [groupsRes, tagsRes] = await Promise.all([fetch('/api/tag-groups'), fetch('/api/tags')])
@@ -413,11 +417,9 @@ export default function HomePage() {
           "Recipes:",
           loadedRecipes.filter((r: any) => r.published).length,
         )
-      } catch (e) {
-        console.error("[v0] Failed to load public data", e)
-      } finally {
-        setIsLoaded(true)
-      }
+        } catch (e) {
+          console.error("[v0] Failed to load public data", e)
+        }
     })()
   }, [])
 

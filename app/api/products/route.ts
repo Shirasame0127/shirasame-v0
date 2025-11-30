@@ -4,6 +4,13 @@ import { getPublicImageUrl } from '@/lib/image-url'
 
 export async function GET(req: Request) {
   try {
+    // Simple in-memory cache for public shallow listings to improve dev responsiveness.
+    // Keyed by full query string; TTL is short to keep data fresh.
+    const CACHE_TTL = 10 * 1000 // 10s
+    // @ts-ignore - module-level cache (kept across invocations in the same process)
+    if (!(global as any)._productsCache) (global as any)._productsCache = new Map()
+    const productsCache: Map<string, any> = (global as any)._productsCache
+
     const url = new URL(req.url)
     const id = url.searchParams.get("id")
     const slug = url.searchParams.get("slug")
@@ -36,6 +43,8 @@ export async function GET(req: Request) {
 
     // ベースクエリ: products と関連する product_images と affiliate_links を取得
     const baseSelect = `*, images:product_images(*), affiliateLinks:affiliate_links(*)`
+    // shallow 用は必要最小限のカラムのみを取得（affiliateLinks を除外、images は限定列）
+    const shallowSelect = `id,user_id,title,slug,tags,price,published,created_at,updated_at,images:product_images(id,product_id,url,width,height,role)`
     let query = supabaseAdmin.from("products").select(baseSelect)
 
     if (id) {
@@ -65,6 +74,16 @@ export async function GET(req: Request) {
     let error: any = null
     let count: number | null = null
 
+    const cacheKey = url.pathname + url.search
+    // Use cache only for public shallow listings without count (fast-read scenario)
+    const useCache = shallow && isPublicRequest && !url.searchParams.get('count')
+    if (useCache) {
+      const cached = productsCache.get(cacheKey)
+      if (cached && Date.now() - cached.ts < CACHE_TTL) {
+        return NextResponse.json(cached.payload)
+      }
+    }
+
     const wantCount = url.searchParams.get('count') === 'true'
     if (limit && limit > 0) {
       if (wantCount) {
@@ -77,12 +96,15 @@ export async function GET(req: Request) {
         count = typeof res.count === 'number' ? res.count : null
       } else {
         // faster path: do not ask for exact count; use range to limit results only
-        const res = await query.range(offset, offset + Math.max(0, (limit || 0) - 1)).select(baseSelect)
+        // for shallow requests, avoid fetching affiliateLinks and full images
+        const selectStr = shallow ? shallowSelect : baseSelect
+        const res = await query.range(offset, offset + Math.max(0, (limit || 0) - 1)).select(selectStr)
         data = res.data || null
         error = res.error || null
       }
     } else {
-      const res = await query.select(baseSelect)
+      const selectStr = shallow ? shallowSelect : baseSelect
+      const res = await query.select(selectStr)
       data = res.data || null
       error = res.error || null
     }
@@ -155,7 +177,19 @@ export async function GET(req: Request) {
       meta.offset = offset || 0
     }
 
-    return NextResponse.json({ data: transformed, meta })
+    const payload = { data: transformed, meta }
+    if (useCache) {
+      try {
+        productsCache.set(cacheKey, { ts: Date.now(), payload })
+      } catch {}
+    }
+
+    // For public shallow listings, allow short browser caching
+    if (shallow && isPublicRequest) {
+      return NextResponse.json(payload, { headers: { 'Cache-Control': 'public, max-age=10' } })
+    }
+
+    return NextResponse.json(payload)
   } catch (e: any) {
     console.error('[api/products] GET exception', e)
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 })
