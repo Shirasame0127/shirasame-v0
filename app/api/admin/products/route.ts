@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { revalidateTag } from 'next/cache'
 import supabaseAdmin from "@/lib/supabase"
 import { getOwnerUserId } from '@/lib/owner'
 import { getPublicImageUrl } from '@/lib/image-url'
@@ -209,7 +210,16 @@ export async function POST(req: Request) {
     if (imagesInsertError) errors.productImages = imagesInsertError?.message ?? imagesInsertError
     if (Object.keys(errors).length > 0) responsePayload.errors = errors
 
-    // If there were partial errors, still return 200 but include error details so client can surface them.
+    // Trigger ISR tag revalidation for public listings if published
+    try {
+      if (productData?.published) {
+        revalidateTag('products')
+        if (process.env.ENABLE_ISR_LOGS === '1') {
+          console.info('[ISR] revalidateTag after product create', { id: productData.id, published: productData.published, ts: new Date().toISOString() })
+        }
+      }
+    } catch {}
+
     return NextResponse.json(responsePayload)
   } catch (e: any) {
     console.error('[admin/products] exception', e)

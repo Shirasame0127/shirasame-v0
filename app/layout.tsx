@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import localFont from "next/font/local"
 import { Analytics } from "@vercel/analytics/next"
 import { AppInitializer } from "@/components/app-initializer"
+import InitialLoading from "@/components/initial-loading"
 import "./globals.css"
 
 const _geist = Geist({ subsets: ["latin"] })
@@ -52,6 +53,8 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <body className={`font-sans antialiased ${oswaldMedium.variable}`}>
+        {/* 初期ローディングアニメーション（常時マウント、1秒程度でフェードアウト） */}
+        <InitialLoading />
         <AppInitializer />
         {children}
         <Analytics />

@@ -63,7 +63,8 @@ export async function GET(req: Request) {
 
       // Validate host for remote URLs to avoid open-proxy behavior. Allowed hosts
       // can be configured via `ALLOWED_IMAGE_HOSTS` (comma-separated) or will
-      // implicitly allow the project's configured R2 endpoint and PUBLIC_HOST.
+      // implicitly allow the project's configured R2 endpoint, PUBLIC_HOST,
+      // NEXT_PUBLIC_R2_PUBLIC_URL host, and CDN_BASE_URL host.
       try {
         if (src.startsWith('http')) {
           const parsed = new URL(src)
@@ -73,8 +74,19 @@ export async function GET(req: Request) {
           const PUBLIC_HOST = process.env.PUBLIC_HOST || process.env.NEXT_PUBLIC_PUBLIC_HOST || ''
           const r2Account = process.env.CLOUDFLARE_ACCOUNT_ID || process.env.R2_ACCOUNT || ''
           const r2Host = r2Account ? `${r2Account}.r2.cloudflarestorage.com` : null
+          // Extract additional hosts from configured public R2 URL and CDN base
+          let pubR2Host: string | null = null
+          let cdnHost: string | null = null
+          try { const u = process.env.NEXT_PUBLIC_R2_PUBLIC_URL || process.env.R2_PUBLIC_URL || ''; if (u) pubR2Host = new URL(u).hostname } catch {}
+          try { const c = process.env.CDN_BASE_URL || process.env.NEXT_PUBLIC_CDN_BASE || ''; if (c) cdnHost = new URL(c).hostname } catch {}
 
-          const isAllowed = allowedList.includes(host) || (PUBLIC_HOST && host === PUBLIC_HOST) || (r2Host && host === r2Host)
+          const isAllowed =
+            allowedList.includes(host) ||
+            (PUBLIC_HOST && host === PUBLIC_HOST) ||
+            (r2Host && host === r2Host) ||
+            (pubR2Host && host === pubR2Host) ||
+            (cdnHost && host === cdnHost) ||
+            (process.env.NODE_ENV !== 'production') // dev: be permissive to ease local testing
           if (!isAllowed) {
             console.warn('[thumbnail] rejected remote src host not in allowlist', host)
             return NextResponse.json({ error: 'source host not allowed' }, { status: 403 })

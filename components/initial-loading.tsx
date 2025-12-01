@@ -10,6 +10,11 @@ export default function InitialLoading() {
 
   useEffect(() => {
     let mounted = true
+    // 通知: ローディング開始（PublicNav 等が参照）
+    try {
+      ;(window as any).__v0_initial_loading = true
+      window.dispatchEvent(new CustomEvent('v0-initial-loading', { detail: true }))
+    } catch (e) {}
     const start = Date.now()
 
     ;(async () => {
@@ -25,13 +30,26 @@ export default function InitialLoading() {
 
         // Normalize to public URL when possible
         try {
-          const normalized = getPublicImageUrl(url) || url
-          if (mounted) setGifUrl(normalized)
+          let normalized = getPublicImageUrl(url) || url
+          // If we still don't have an absolute/usable URL, try env fallback
+          const looksAbsolute = typeof normalized === 'string' && /^(https?:)?\//.test(normalized)
+          if (!looksAbsolute) {
+            const envUrl = (process.env.NEXT_PUBLIC_LOADING_GIF_URL || process.env.LOADING_GIF_URL || '').trim()
+            if (envUrl) normalized = envUrl
+          }
+          if (mounted) setGifUrl(normalized || null)
         } catch (e) {
-          if (mounted) setGifUrl(url)
+          // final fallback: env var or null
+          const envUrl = (process.env.NEXT_PUBLIC_LOADING_GIF_URL || process.env.LOADING_GIF_URL || '').trim()
+          if (mounted) setGifUrl(envUrl || url)
         }
       } catch (e) {
         // ignore — no gif available
+        // try env fallback when site-settings is unavailable
+        try {
+          const envUrl = (process.env.NEXT_PUBLIC_LOADING_GIF_URL || process.env.LOADING_GIF_URL || '').trim()
+          if (envUrl && mounted) setGifUrl(envUrl)
+        } catch {}
       } finally {
         // ensure the loading screen is visible at least 1s for UX stability
         const elapsed = Date.now() - start
@@ -43,6 +61,11 @@ export default function InitialLoading() {
             setTimeout(() => {
               if (!mounted) return
               setMountedVisible(false)
+              // 通知: ローディング終了
+              try {
+                ;(window as any).__v0_initial_loading = false
+                window.dispatchEvent(new CustomEvent('v0-initial-loading', { detail: false }))
+              } catch (e) {}
             }, 500)
         }, remaining)
       }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { revalidateTag } from 'next/cache'
 import supabaseAdmin from "@/lib/supabase"
 import { getOwnerUserId } from '@/lib/owner'
 import { getPublicImageUrl } from '@/lib/image-url'
@@ -259,6 +260,8 @@ export async function PUT(req: Request, { params }: { params: any }) {
           affiliateLinks: updatedProduct.affiliateLinks || [],
         }
       }
+      // Revalidate products listing if product is (still) published
+      try { if (updatedProduct.published) { revalidateTag('products'); if (process.env.ENABLE_ISR_LOGS === '1') { console.info('[ISR] revalidateTag after product update', { id: updatedProduct.id, published: updatedProduct.published, ts: new Date().toISOString() }) } } } catch {}
       return NextResponse.json(resp)
     } catch (e) {
       console.warn('[admin/products] unable to return updated product, returning ok', e)
@@ -324,6 +327,7 @@ export async function DELETE(req: Request, { params }: { params: any }) {
 
     const { error } = await supabaseAdmin.from("products").delete().eq("id", id).eq('user_id', ownerUserId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    try { revalidateTag('products'); if (process.env.ENABLE_ISR_LOGS === '1') { console.info('[ISR] revalidateTag after product delete', { id, ts: new Date().toISOString() }) } } catch {}
     return NextResponse.json({ ok: true })
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 })
