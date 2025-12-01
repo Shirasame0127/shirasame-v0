@@ -1,9 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Turbopack root を明示してルート推定の警告を抑止
-  turbopack: {
-    root: 'c:/Users/celes/Documents/shirasameProject/v0-samehome',
-  },
+  // Cloudflare Pages 等のLinux環境でも安全なデフォルトにする
+  // turbopack.root は未設定（自動推定）。必要なら絶対パスで上書きしてください。
   typescript: {
     ignoreBuildErrors: true,
   },
