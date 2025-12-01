@@ -48,7 +48,7 @@
   - JS 依存。クローラ/初回描画で SSR/SSG ほどの即時性は出にくい。
   - API レイテンシに依存。キャッシュ設計が重要。
 
-### 選択肢 B: Full SSG + 静的JSON（ビルド時データ固定）
+### 選択肢 B: Full SSG ＋ 静的JSON（ビルド時データ固定）
 - 構成: ビルドジョブが Supabase からデータを読み、`index.html` と `data/*.json` を生成。Cloudflare Pages に push。クライアントは Pages 上の静的 JSON を取得。
 - メリット:
   - 完全静的配信のためパフォーマンス最強。Workers不要でコスト極小。
@@ -232,6 +232,45 @@
     - 任意: `CDN_BASE_URL`, `ALLOWED_IMAGE_HOSTS`, `NEXT_PUBLIC_LOADING_GIF_URL`
   - 更新反映: 管理保存→`/api/admin/build/trigger` でPages Build Hook発火→再ビルド→数十秒〜数分で反映
 - Supabase → Webhook で Astro/Next の再ビルドをトリガー（更新を数分で反映）。
+
+#### Cloudflare Pages 設定（推奨）
+- Project Root: `v0-samehome`
+- Build Command: `pnpm run build:pages`（PagesはLinux環境。パッケージマネージャは自動でpnpmが使われます）
+- Output Directory: `out`
+- Node Version: `18`（必要に応じて Pages の環境設定で指定）
+- 環境変数: 上記「環境変数（Pages Project）」の項目をプロジェクトに設定
+- ローカルWindowsでビルド検証する場合: `pnpm run build:pages:ps`
+
+セットアップ・チェックリスト（Pages UI）
+- Git連携: GitHub リポジトリ `shirasame-v0` を選択
+- Root Directory: `v0-samehome`
+- Build Command: `pnpm run build:pages`
+- Build Output Directory: `out`
+- 環境変数（Production, Preview 両方に）:
+  - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PUBLIC_PROFILE_EMAIL`
+  - `NEXT_PUBLIC_R2_PUBLIC_URL`
+  - `CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
+  - 任意: `CDN_BASE_URL`, `ALLOWED_IMAGE_HOSTS`, `NEXT_PUBLIC_LOADING_GIF_URL`
+  - 保存→再ビルドで反映
+
+#### GitHub Actions での自動デプロイ（代替構成）
+Cloudflare Pages のビルド機能を使わず、GitHub Actions 側でビルド→Pagesへアップロードする方法です。
+
+- 追加ファイル: `.github/workflows/deploy-pages.yml`
+- トリガー: `main` への push / 手動実行（`workflow_dispatch`）
+- ビルド: `v0-samehome` ディレクトリで `pnpm run build:pages`
+- 配信: `cloudflare/pages-action@v1` で `v0-samehome/out` を Pages へ公開
+
+必要な GitHub Secrets（リポジトリ設定 > Secrets and variables > Actions）
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PUBLIC_PROFILE_EMAIL`
+- `NEXT_PUBLIC_R2_PUBLIC_URL`
+- `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`（Pages発行トークン, `Account:Edit`, `Pages:Edit` 権限）
+- `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
+- 任意: `CDN_BASE_URL`, `ALLOWED_IMAGE_HOSTS`, `NEXT_PUBLIC_LOADING_GIF_URL`
+
+Cloudflare 側にプロジェクトをまだ作成していない場合
+- Secret `CF_PAGES_PROJECT_NAME` に新規/既存の Pages プロジェクト名を設定
+- 初回デプロイ時に自動作成されない場合は、Cloudflare ダッシュボードからプロジェクトを事前作成してください（Output Dir は `out`）。
 
 ### ステップ 5: 保存時の自動反映（Save→Upload→Build/Revalidate）
 更新頻度が「2日に1回」程度なら、以下のどちらでも十分現実的です。

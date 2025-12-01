@@ -8,6 +8,8 @@
   },
   "scripts": {
     "build": "next build",
+    "build:pages": "node scripts/verify-pages-env.mjs && node scripts/generate-thumbnails.mjs && node scripts/build-public-json.mjs && NEXT_PUBLIC_USE_STATIC_DATA=1 NEXT_OUTPUT_EXPORT=1 next build",
+    "build:pages:ps": "node scripts/verify-pages-env.mjs; node scripts/generate-thumbnails.mjs; node scripts/build-public-json.mjs; $env:NEXT_PUBLIC_USE_STATIC_DATA=1; $env:NEXT_OUTPUT_EXPORT=1; next build",
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start"
