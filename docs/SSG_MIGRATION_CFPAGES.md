@@ -2,6 +2,11 @@
 
 このドキュメントは、現行の公開ページを「静的シングルページ（SSG）」へ移行し、Cloudflare Pages で配信する方針について、実現可能性・方式比較・メリデメ・コスト試算・移行手順をまとめたものです。
 
+現在の採用方針（確定）
+- 公開は「完全静的（Full SSG + 静的JSON）」を独立アプリ `v0-public/` で出力
+- 管理/API は `v0-samehome/` に残し、将来的に Pages Functions/Workers へ段階移行
+- CI では先に `v0-samehome` 側で「公開用JSON/サムネ生成」を行い、続けて `v0-public` を `output: export` でビルド→Pagesへ配信
+
 ## 概要
 - 目的: 表示速度の向上、配信コストの最小化、運用の簡素化。
 - 前提:
@@ -233,36 +238,36 @@
   - 更新反映: 管理保存→`/api/admin/build/trigger` でPages Build Hook発火→再ビルド→数十秒〜数分で反映
 - Supabase → Webhook で Astro/Next の再ビルドをトリガー（更新を数分で反映）。
 
-#### Cloudflare Pages 設定（推奨）
-- Project Root: `v0-samehome`
-- Build Command: `pnpm run build:pages`（PagesはLinux環境。パッケージマネージャは自動でpnpmが使われます）
+#### Cloudflare Pages 設定（推奨 / 採用）
+- Project Root: `v0-public`
+- Build Command: `pnpm -C v0-public run build:pages`（GitHub Actions 経由の場合はCI内で実行）
 - Output Directory: `out`
-- Node Version: `18`（必要に応じて Pages の環境設定で指定）
-- 環境変数: 上記「環境変数（Pages Project）」の項目をプロジェクトに設定
-- ローカルWindowsでビルド検証する場合: `pnpm run build:pages:ps`
+- Node Version: `22`（Next 16 の要件に合わせる）
+- 環境変数（Production/Preview）:
+  - `NEXT_PUBLIC_R2_PUBLIC_URL`（画像配信の公開URL）
+  - なお、公開用JSON/サムネ生成は CI 内で `v0-samehome` に対して行うため、Pages 側で `SUPABASE_*`/`R2_*` を使うのは原則不要（CI で Secrets を注入）
+  - Preview/Production の二系統を使う場合は、CI内の Secrets も環境別に分ける
 
 セットアップ・チェックリスト（Pages UI）
-- Git連携: GitHub リポジトリ `shirasame-v0` を選択
-- Root Directory: `v0-samehome`
-- Build Command: `pnpm run build:pages`
+- Git連携: GitHub リポジトリ `shirasame-v0`
+- Root Directory: `v0-public`
+- Build Command: `pnpm -C v0-public run build:pages`
 - Build Output Directory: `out`
-- 環境変数（Production, Preview 両方に）:
-  - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PUBLIC_PROFILE_EMAIL`
-  - `NEXT_PUBLIC_R2_PUBLIC_URL`
-  - `CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
-  - 任意: `CDN_BASE_URL`, `ALLOWED_IMAGE_HOSTS`, `NEXT_PUBLIC_LOADING_GIF_URL`
-  - 保存→再ビルドで反映
+- Node: 22
+- 環境変数: `NEXT_PUBLIC_R2_PUBLIC_URL`（必要に応じて）
 
-#### GitHub Actions での自動デプロイ（代替構成）
-Cloudflare Pages のビルド機能を使わず、GitHub Actions 側でビルド→Pagesへアップロードする方法です。
+#### GitHub Actions での自動デプロイ（採用構成）
+Cloudflare Pages のビルド機能を使わず、GitHub Actions 側でビルド→Pagesへアップロードします。
 
 - 追加ファイル: `.github/workflows/deploy-pages.yml`
 - トリガー: `main` への push / 手動実行（`workflow_dispatch`）
-- ビルド: `v0-samehome` ディレクトリで `pnpm run build:pages`
-- 配信: `cloudflare/pages-action@v1` で `v0-samehome/out` を Pages へ公開
+- フロー:
+  1) `pnpm -C v0-samehome install` → `pnpm -C v0-samehome run build:public-data`（公開用JSON/サムネ生成）
+  2) `pnpm -C v0-public install` → `pnpm -C v0-public run build:pages`（完全静的ビルド）
+  3) `cloudflare/pages-action@v1` で `v0-public/out` を Pages へ公開
 
 必要な GitHub Secrets（リポジトリ設定 > Secrets and variables > Actions）
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PUBLIC_PROFILE_EMAIL`
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PUBLIC_PROFILE_EMAIL`（v0-samehomeのデータ生成で使用）
 - `NEXT_PUBLIC_R2_PUBLIC_URL`
 - `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`（Pages発行トークン, `Account:Edit`, `Pages:Edit` 権限）
 - `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`

@@ -1,0 +1,30 @@
+{
+  "data": {
+    "id": "7b9743e9-fb19-4fb7-9512-c6c24e1d5ef4",
+    "name": null,
+    "displayName": "しらさめ",
+    "email": "shirasame.official@gmail.com",
+    "avatarUrl": "https://pub-184f8243221740048da8add028429140.r2.dev/uploads/1763951827263-cropped-1763951827007.jpg",
+    "profileImage": "https://pub-184f8243221740048da8add028429140.r2.dev/uploads/1763951827263-cropped-1763951827007.jpg",
+    "profileImageKey": "uploads/1763951827263-cropped-1763951827007.jpg",
+    "headerImage": "https://pub-184f8243221740048da8add028429140.r2.dev/uploads/optimized/1764480116801-cropped-1764480111416.avif",
+    "headerImageKeys": [
+      "https://cc4a35b866542fbddca136b1cfc53037.r2.cloudflarestorage.com/images/uploads/1763952070439-cropped-1763952070162.jpg",
+      "https://cc4a35b866542fbddca136b1cfc53037.r2.cloudflarestorage.com/images/uploads/1763953060144-cropped-1763953059891.jpg",
+      "https://cc4a35b866542fbddca136b1cfc53037.r2.cloudflarestorage.com/images/uploads/optimized/1764480116801-cropped-1764480111416.avif"
+    ],
+    "bio": "思わず欲しくなるガジェットやデバイス紹介してます⟡꙳‖白色×水色デスク🧊🫧 ‖ ダブルデスク ‖ご依頼については各種DMまでん",
+    "socialLinks": [
+      {
+        "url": "https://www.tiktok.com/@SHIRASAME",
+        "platform": "tiktok",
+        "username": "SHIRASAME"
+      },
+      {
+        "url": "https://www.google.com/search?q=%E3%83%97%E3%83%AA%E3%83%B3%E3%82%BF%E3%83%BC&rlz=1C1TMBY_enJP1151JP1151&oq=%E3%83%97%E3%83%AA%E3%83%B3%E3%82%BF%E3%83%BC&gs_lcrp=EgZjaHJvbWUyCQgAEEUYORiABDINCAEQABiDARixAxiABDIKCAIQABixAxiABDINCAMQABiDARixAxiABDIHCAQQABiABDIHCAUQABiABDIHCAYQABiABDIHCAcQABiABDIHCAgQABiPAjIHCAkQABiPAtIBCjk0Mjc3ajBqMTWoAgCwAgA&sourceid=chrome&ie=UTF-8",
+        "platform": "x",
+        "username": ""
+      }
+    ]
+  }
+}
