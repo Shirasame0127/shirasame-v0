@@ -213,7 +213,7 @@ export async function POST(req: Request) {
     // Trigger ISR tag revalidation for public listings if published
     try {
       if (productData?.published) {
-        revalidateTag('products')
+        revalidateTag('products', 'default')
         if (process.env.ENABLE_ISR_LOGS === '1') {
           console.info('[ISR] revalidateTag after product create', { id: productData.id, published: productData.published, ts: new Date().toISOString() })
         }
