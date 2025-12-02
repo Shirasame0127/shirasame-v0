@@ -2,11 +2,6 @@
 
 このドキュメントは、現行の公開ページを「静的シングルページ（SSG）」へ移行し、Cloudflare Pages で配信する方針について、実現可能性・方式比較・メリデメ・コスト試算・移行手順をまとめたものです。
 
-現在の採用方針（確定）
-- 公開は「完全静的（Full SSG + 静的JSON）」を独立アプリ `v0-public/` で出力
-- 管理/API は `v0-samehome/` に残し、将来的に Pages Functions/Workers へ段階移行
-- CI では先に `v0-samehome` 側で「公開用JSON/サムネ生成」を行い、続けて `v0-public` を `output: export` でビルド→Pagesへ配信
-
 ## 概要
 - 目的: 表示速度の向上、配信コストの最小化、運用の簡素化。
 - 前提:
@@ -33,7 +28,7 @@
 
 ## 現状のやり方（構成と運用）
 - 構成: 公開ページ・管理ページ・API は Next.js（App Router）で同一アプリ内に共存。
-- データ: データベースは Supabase。画像は Cloudflare R2 に保管（公開URLで参照）。
+- データ: データベースは Supabase。画像は Cloudflare R2 に保管（公開URLで参照）。サムネイルは「ビルド時／アップロード時」に 400px/800px の2サイズを事前生成し、固定ファイル名（`thumb-400.jpg` / `detail-800.jpg`）で保存・直接配信する。
 - API: 現在は同一アプリから提供。今後は API のみ Cloudflare Workers へ分離予定。
 - 反映要件: リアルタイム性は不要。管理ページでの商品追加・編集・削除、画像差し替え後に「適切なタイミングで反映」されれば十分（再ビルド/再配信で可、Webhook による自動トリガー想定、目安: 数十秒〜数分）。
 - 規模感: 商品 ~120、画像 ~600 → 完全静的配信（SSG + 静的 JSON）でも十分現実的なデータ量。
@@ -53,7 +48,7 @@
   - JS 依存。クローラ/初回描画で SSR/SSG ほどの即時性は出にくい。
   - API レイテンシに依存。キャッシュ設計が重要。
 
-### 選択肢 B: Full SSG ＋ 静的JSON（ビルド時データ固定）
+### 選択肢 B: Full SSG + 静的JSON（ビルド時データ固定）
 - 構成: ビルドジョブが Supabase からデータを読み、`index.html` と `data/*.json` を生成。Cloudflare Pages に push。クライアントは Pages 上の静的 JSON を取得。
 - メリット:
   - 完全静的配信のためパフォーマンス最強。Workers不要でコスト極小。
@@ -169,24 +164,42 @@
   - API/JSON: `stale-while-revalidate` を有効化（Workers or 静的JSONの再デプロイ）。
   - 画像: R2 + CDN キャッシュ長め。必要なら `?w=...` `?q=...` 付きのサムネイルURLを規格化。
 - 画像最適化:
-  - Cloudflare Images / Image Resizing / Workers でのサムネイル化のいずれか。既存の `thumbnail` エンドポイント相当を Workers へ移設可。
+  - 原則は「事前生成 + 直接配信」。保存APIで 400px/800px の2サイズを生成し、R2 に `.../<basePath>/thumb-400.jpg` と `.../<basePath>/detail-800.jpg` として保存。
+  - 実行時変換（Workers Image Resizing/Cloudflare Images）は使わない（ユニーク変換課金を避ける）。例外的に必要な場合のみ別途エンドポイントで対応。
+
+### 画像配信の仕様（固定ファイル名 + basePath）
+- 保存API（管理）: 原画像を受け取り、R2 に以下を作成
+  - `<basePath>/thumb-400.jpg`
+  - `<basePath>/detail-800.jpg`
+- API（公開・一覧/詳細）: 画像エントリに `basePath` を含めて返却。
+- クライアント（公開サイト）: 用途に応じて以下を組み立てて利用
+  - 一覧: `${R2_PUBLIC_URL}/${basePath}/thumb-400.jpg`
+  - 詳細/モーダル: `${R2_PUBLIC_URL}/${basePath}/detail-800.jpg`
+  - 備考: 既存の `url` も後方互換のため返却するが、将来的には `basePath` ベースの参照に一本化可能。
+
+## UI仕様（All Items オーバーレイ）
+
+目的: 通常ビューの初期コストを抑えつつ、全件一覧は必要時にだけ読み込む（遅延ロード）ためのオーバーレイUI。
+
+- トリガー: 画面内の「All Items」テキストをクリック/タップで起動。
+- 表示: 右からスライドインするオーバーレイ（淡い水色の背景）。幅はデバイスに応じてレイアウトに追従（実装では既存スタイルに準拠）。
+- 非表示: 右上の「×」ボタン、または `Esc` キーでクローズ。スライドアウトのアニメーションで収納。
+- スクロール制御: オーバーレイ表示中は背面（本体）のスクロールをロック。オーバーレイ内のみスクロール可能。
+- フォーカス管理/アクセシビリティ:
+  - オープン時にオーバーレイ内へフォーカスを移動。タブ移動はオーバーレイ内でループ。
+  - `aria-modal="true"`/`role="dialog"` を付与（実装側での付与可）。
+- コンテンツ: グリッド一覧＋並び替え（Sort）をオーバーレイ内に再現。通常ビューのグリッドは描画しない（レンダリング/ネットワーク負荷削減）。
+- 画像ロード: 初回オープン時にのみ画像を取得・描画（CSR）。クローズ→再オープン時はキャッシュ済みの内容を再利用（ブラウザ/アプリの状態管理に依存）。
+- 画像URL: `basePath` から R2 の固定ファイル名を組み立てる（一覧は `thumb-400.jpg`、モーダル/詳細は `detail-800.jpg`）。WebPが利用可能な場合は優先（実装での `picture`/`source` 対応は任意）。
+- ページネーション: 一覧は `limit`/`offset` をサポート（API側の仕様に追従）。初回は例えば `limit=24`、以降はスクロールや「もっと見る」で段階的に追加取得。
+- URL/履歴: オーバーレイの開閉はURLを変更しない（戻るボタンで誤ってページ離脱しない）。将来的に `/all` などへルーティングしたい場合は別途検討。
+- パフォーマンス: 遅延読み込み（`loading="lazy"`）、インターセクションオブザーバでビューポート内のみロード、`Cache-Control` と `ETag` をAPI側で付与（短期）し、同一セッションでの再取得を削減。
 
 ## セキュリティ/運用
 - API鍵: クライアントからは「公開鍵」のみ。Supabase Service Role は Workers 側の環境変数に限定。
 - CORS: Pages→Workers→Supabase の流れで `Origin` 制御。
 - RLS: 公開エンドポイントは公開範囲に限定。ドラフト/非公開は返さない。
 - 監視: Pages/Workers のログ・エラー通知（Wrangler/Analytics）。
-
-### 環境変数（まとめ）
-- `ADMIN_REVALIDATE_TOKEN`: 管理API用の共有シークレット（`x-admin-token` で送信）。
-- `ENABLE_ISR_LOGS`: `1` で ISR/手動revalidate/ビルドフックのログを `console.info` に出力。
-- `CF_PAGES_BUILD_HOOK_URL`: Cloudflare Pages の Build Hook URL（B-2 フォールバック用）。
-- `NEXT_PUBLIC_SITE_ORIGIN`: SSR時に絶対URLが必要な場合のサイト起点（未設定なら相対呼び出し）。
-- `PUBLIC_HOST` / `NEXT_PUBLIC_PUBLIC_HOST`: 公開ホスト名の宣言（公開判定に使用）。
-- `CDN_BASE_URL`: R2のオブジェクトを配信するCDNのベースURL（設定時はサムネ生成後にCDNへリダイレクト）。
-- `ALLOWED_IMAGE_HOSTS`: サムネイル変換元として許可するホストのカンマ区切りリスト。
-- R2関連: `CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`。
- - `NEXT_PUBLIC_LOADING_GIF_URL`（任意）: ローディングアニメーション用のGIF/画像URL。`/api/site-settings` の `loading_animation` が未設定または取得不可の場合のフォールバックとして使用。
 
 ## 推奨アーキテクチャ
 
@@ -221,61 +234,13 @@
 - `main.js` の画像URL変換を統一（`thumbnailFor(url,w)` 的な関数）。
 
 ### ステップ 4: デプロイ/運用
-- Cloudflare Pages（静的）で公開する場合（本構成）
-  - Build Command 例:
-    - `npm ci`
-    - `node scripts\generate-thumbnails.mjs`（R2に `thumbnails/<hash>-<w>x<h>.jpg` を事前生成。要:R2資格情報）
-    - `node scripts/build-public-json.mjs`（公開用JSONを `public/data/*.json` に生成）
-    - `set NEXT_PUBLIC_USE_STATIC_DATA=1 && set NEXT_OUTPUT_EXPORT=1 && npm run build`（Windows）
-      - Linux/Mac: `NEXT_PUBLIC_USE_STATIC_DATA=1 NEXT_OUTPUT_EXPORT=1 npm run build`
-  - Output directory: `out/`
-  - 環境変数（Pages Project）:
-    - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`（ビルド時に公開JSON生成で使用）
-    - `PUBLIC_PROFILE_EMAIL`（オーナー抽出）
-    - `NEXT_PUBLIC_R2_PUBLIC_URL`（画像公開ルート）
-    - `CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`（サムネ事前生成で必要）
-    - 任意: `CDN_BASE_URL`, `ALLOWED_IMAGE_HOSTS`, `NEXT_PUBLIC_LOADING_GIF_URL`
-  - 更新反映: 管理保存→`/api/admin/build/trigger` でPages Build Hook発火→再ビルド→数十秒〜数分で反映
+- Cloudflare Pages で2プロジェクト運用（例）
+  - 公開（Astro）: Build Command `npm ci && npm run build`、Output `dist/`
+  - 管理/API（Next, next-on-pages）: Build Command `npm run build`、Functions有効化
+- 環境変数（Pages Project）:
+  - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`（Astro/Nextのビルド時取得に利用）。
+  - `PUBLIC_API_BASE`（Workers 経由にする場合）。
 - Supabase → Webhook で Astro/Next の再ビルドをトリガー（更新を数分で反映）。
-
-#### Cloudflare Pages 設定（推奨 / 採用）
-- Project Root: `v0-public`
-- Build Command: `pnpm -C v0-public run build:pages`（GitHub Actions 経由の場合はCI内で実行）
-- Output Directory: `out`
-- Node Version: `22`（Next 16 の要件に合わせる）
-- 環境変数（Production/Preview）:
-  - `NEXT_PUBLIC_R2_PUBLIC_URL`（画像配信の公開URL）
-  - なお、公開用JSON/サムネ生成は CI 内で `v0-samehome` に対して行うため、Pages 側で `SUPABASE_*`/`R2_*` を使うのは原則不要（CI で Secrets を注入）
-  - Preview/Production の二系統を使う場合は、CI内の Secrets も環境別に分ける
-
-セットアップ・チェックリスト（Pages UI）
-- Git連携: GitHub リポジトリ `shirasame-v0`
-- Root Directory: `v0-public`
-- Build Command: `pnpm -C v0-public run build:pages`
-- Build Output Directory: `out`
-- Node: 22
-- 環境変数: `NEXT_PUBLIC_R2_PUBLIC_URL`（必要に応じて）
-
-#### GitHub Actions での自動デプロイ（採用構成）
-Cloudflare Pages のビルド機能を使わず、GitHub Actions 側でビルド→Pagesへアップロードします。
-
-- 追加ファイル: `.github/workflows/deploy-pages.yml`
-- トリガー: `main` への push / 手動実行（`workflow_dispatch`）
-- フロー:
-  1) `pnpm -C v0-samehome install` → `pnpm -C v0-samehome run build:public-data`（公開用JSON/サムネ生成）
-  2) `pnpm -C v0-public install` → `pnpm -C v0-public run build:pages`（完全静的ビルド）
-  3) `cloudflare/pages-action@v1` で `v0-public/out` を Pages へ公開
-
-必要な GitHub Secrets（リポジトリ設定 > Secrets and variables > Actions）
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PUBLIC_PROFILE_EMAIL`（v0-samehomeのデータ生成で使用）
-- `NEXT_PUBLIC_R2_PUBLIC_URL`
-- `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`（Pages発行トークン, `Account:Edit`, `Pages:Edit` 権限）
-- `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
-- 任意: `CDN_BASE_URL`, `ALLOWED_IMAGE_HOSTS`, `NEXT_PUBLIC_LOADING_GIF_URL`
-
-Cloudflare 側にプロジェクトをまだ作成していない場合
-- Secret `CF_PAGES_PROJECT_NAME` に新規/既存の Pages プロジェクト名を設定
-- 初回デプロイ時に自動作成されない場合は、Cloudflare ダッシュボードからプロジェクトを事前作成してください（Output Dir は `out`）。
 
 ### ステップ 5: 保存時の自動反映（Save→Upload→Build/Revalidate）
 更新頻度が「2日に1回」程度なら、以下のどちらでも十分現実的です。
@@ -366,36 +331,3 @@ Cloudflare 側にプロジェクトをまだ作成していない場合
 - ISR（増分静的再生成）: 静的ページを一定間隔やイベントで作り直して最新化する仕組み。
 - CDN: 世界中にある配信サーバから近い場所でファイルを届ける仕組み。速い。
 - Webhook: あるイベント（商品を保存など）が起きたら、別のサービスに通知して自動処理を走らせる仕組み。
-
----
-
-## Migration TODO (Option B1 ISR)
-現在の進捗を含む移行タスク一覧。進めながら随時更新します。
-
-| タスク | 目的 / 詳細 | 状態 | 優先度 |
-|--------|-------------|------|--------|
-| Serverラッパ+ISR設定 | `app/page.tsx` を Server Component 化し `revalidate=43200` 設定 | ✅ 完了 | 高 |
-| 初期データSSR化 (products / collections / tagGroups) | サーバ取得で初期表示短縮・タグ付け | ✅ 完了 | 高 |
-| 重複Clientフェッチ削減 | SSR初期データ優先・初回二重リクエスト防止 | ✅ 完了 | 中 |
-| revalidate API認証付与 | `x-admin-token` ヘッダ + `ADMIN_REVALIDATE_TOKEN` 環境変数検証 | ✅ 完了 | 高 |
-| 保存時 products タグ再生成 | 作成/更新/削除後に `revalidateTag('products')` 呼出し | ✅ 完了 | 高 |
-| Build Hook フォールバック検討 | 長期的に完全静的化(フルSSG)へ切替える際の Pages Hook 戦略 | ⭕ 未着手 | 低 |
-| 画像 Resize Workers 導入 | `/api/images/thumbnail` をEdge最適化 or Cloudflare Image Resizingへ移行 | ⭕ 未着手 | 中 |
-| ISR再生成ログ可視化 | 再生成発生タイムスタンプを `console` / 分析に出力・監視 | ⭕ 未着手 | 低 |
-| ISR再生成ログ可視化 | `ENABLE_ISR_LOGS=1` で再生成/手動revalidateを `console.info` 出力 | ✅ 完了 | 低 |
-| ドキュメントへTODO追記 | 現在のタスクを本ファイルへ明示し共有性向上 | ✅ 完了 | 高 |
-
-### 次のステップ（推奨順）
-1. 初期データSSR化: Server側で products + collections + tagGroups を fetch / props 渡し。
-2. revalidate API 認証: Supabaseセッション or 管理用シークレットヘッダで保護。
-3. 保存時トリガー: 管理UIの商品保存成功時にタグ再生成 POST を発火。
-4. Clientフェッチ削減: HomePageClient から初期ロードの並列フェッチ除去（fallbackのみ保持）。
-5. 画像最適化: Workers経由で width/quality パラメータ処理統一。
-6. ログ可視化: 再生成が走った際に軽量ログ + optional メトリクス発行。
-7. Build Hook: 即時性不要なときの低頻度全量再ビルド設計（キュー/デバウンス）。
-
-### メモ
-- ISR TTL (12h) は更新頻度次第で 24h へ延長可。即時性要件上がったらタグ再生成 API を多用。
-- データ取得はフェーズ式: 最初は products/collections、次に tagGroups/tags を段階的 SSR 移行。
-- 運用観測後にフル静的(JSON書き出し+Pages Hook)へ最適化判断。
-

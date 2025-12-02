@@ -3,6 +3,7 @@ import { revalidateTag } from 'next/cache'
 import supabaseAdmin from "@/lib/supabase"
 import { getOwnerUserId } from '@/lib/owner'
 import { getPublicImageUrl } from '@/lib/image-url'
+import { uploadImageVariantsToR2, deriveBasePathFromUrl } from '@/lib/services/r2'
 
 function mapProductPayloadToDb(payload: any) {
   // Only map fields that exist in the `products` table created by `sql/add_content_tables.sql`.
@@ -65,7 +66,11 @@ export async function GET(req: Request) {
       createdAt: p.created_at,
       updatedAt: p.updated_at,
       images: Array.isArray(p.images)
-        ? p.images.map((img: any) => ({ ...img, url: getPublicImageUrl(img.url) || img.url }))
+        ? p.images.map((img: any) => ({
+            ...img,
+            url: getPublicImageUrl(img.url) || img.url,
+            basePath: deriveBasePathFromUrl(img.url),
+          }))
         : p.images,
       affiliateLinks: p.affiliateLinks,
       showPrice: p.show_price,
@@ -178,33 +183,69 @@ export async function POST(req: Request) {
       }
     }
 
-    // Insert product images (required — we already validated presence above)
+    // Insert product images with R2 variants (thumb-400/detail-800). Required — validated presence above.
     let insertedImages: any[] = []
     let imagesInsertError: any = null
     try {
       const images = incomingImages
-      const imageRows = images.filter(Boolean).map((img: any, idx: number) => ({
-        id: img.id || `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${idx}`,
-        product_id: productData.id,
-        url: img.url,
-        width: img.width || null,
-        height: img.height || null,
-        aspect: img.aspect || null,
-        role: img.role || null,
-      }))
+
+      // Upload to R2 and build DB rows
+      const imageRows: any[] = []
+      for (let idx = 0; idx < images.length; idx++) {
+        const img = images[idx]
+        if (!img || !img.url) continue
+        const imageId = img.id || `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${idx}`
+        const basePath = `products/${productData.id}/${imageId}`
+        let upload
+        try {
+          upload = await uploadImageVariantsToR2(img.url, basePath)
+        } catch (e) {
+          console.error('[admin/products] R2 upload failed for image', { idx, url: img.url, err: e })
+          throw e
+        }
+
+        // Use detail-800 as canonical URL for admin/public previews
+        const finalUrl = upload.detailUrl || upload.detailKey
+        const w = upload.detailMeta?.width || img.width || null
+        const h = upload.detailMeta?.height || img.height || null
+        const aspect = w && h ? w / h : img.aspect || null
+
+        imageRows.push({
+          id: imageId,
+          product_id: productData.id,
+          url: finalUrl,
+          width: w,
+          height: h,
+          aspect,
+          role: img.role || null,
+        })
+      }
+
       const { data: imgData, error: imgErr } = await supabaseAdmin.from('product_images').insert(imageRows).select()
       if (imgErr) {
         console.error('[admin/products] insert product_images error', imgErr)
         imagesInsertError = imgErr
       } else {
-        insertedImages = imgData || []
+        insertedImages = (imgData || []).map((img: any) => ({
+          ...img,
+          // augment response with basePath for clients that want to construct fixed variants
+          basePath: deriveBasePathFromUrl(img.url),
+        }))
       }
     } catch (imgEx) {
       console.error('[admin/products] product images insertion exception', imgEx)
       imagesInsertError = imgEx
     }
 
-    const responsePayload: any = { data: productData, affiliateLinks: insertedAffiliateLinks, productImages: (insertedImages || []).map((img: any) => ({ ...img, url: getPublicImageUrl(img.url) || img.url })) }
+    const responsePayload: any = {
+      data: productData,
+      affiliateLinks: insertedAffiliateLinks,
+      productImages: (insertedImages || []).map((img: any) => ({
+        ...img,
+        url: getPublicImageUrl(img.url) || img.url,
+        basePath: img.basePath || deriveBasePathFromUrl(img.url),
+      })),
+    }
     const errors: any = {}
     if (affiliateInsertError) errors.affiliateLinks = affiliateInsertError?.message ?? affiliateInsertError
     if (imagesInsertError) errors.productImages = imagesInsertError?.message ?? imagesInsertError

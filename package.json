@@ -8,9 +8,6 @@
   },
   "scripts": {
     "build": "next build",
-    "build:pages": "node scripts/verify-pages-env.mjs && node scripts/generate-thumbnails.mjs && node scripts/build-public-json.mjs && NEXT_PUBLIC_USE_STATIC_DATA=1 NEXT_OUTPUT_EXPORT=1 next build",
-    "build:public-data": "node scripts/verify-pages-env.mjs && node scripts/generate-thumbnails.mjs && node scripts/build-public-json.mjs",
-    "build:pages:ps": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/local-build.ps1",
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start"
@@ -91,7 +88,6 @@
     "@types/react": "^19",
     "@types/react-color": "^3.0.12",
     "@types/react-dom": "^19",
-    "pnpm": "^10.24.0",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",

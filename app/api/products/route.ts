@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server"
 import supabaseAdmin from "@/lib/supabase"
 import { getPublicImageUrl } from '@/lib/image-url'
+import { deriveBasePathFromUrl } from '@/lib/services/r2'
 import crypto from 'crypto'
+import { resolvePublicContext } from '@/lib/public-context'
+import type { PaginatedResponse } from '@/lib/api'
 
 export async function GET(req: Request) {
   try {
@@ -22,25 +25,7 @@ export async function GET(req: Request) {
     // - explicitly asking for published=true
     // - no sb-access-token cookie
     // - OR request comes from the configured public host (e.g. `shirasame.example.com`)
-    const cookieHeader = req.headers.get('cookie') || ''
-    const hasAccessCookie = cookieHeader.includes('sb-access-token')
-    const host = new URL(req.url).hostname
-    const PUBLIC_HOST = process.env.PUBLIC_HOST || process.env.NEXT_PUBLIC_PUBLIC_HOST || ''
-    const isHostPublic = PUBLIC_HOST ? host === PUBLIC_HOST : false
-    const isPublicRequest = (published === 'true') || !hasAccessCookie || isHostPublic
-    let ownerUserId: string | null = null
-    if (isPublicRequest) {
-      try {
-        const OWNER_EMAIL = process.env.PUBLIC_PROFILE_EMAIL || ''
-        if (OWNER_EMAIL) {
-          const u = await supabaseAdmin.from('users').select('id').eq('email', OWNER_EMAIL).limit(1)
-          const userRow = Array.isArray(u.data) && u.data.length > 0 ? u.data[0] : null
-          ownerUserId = userRow?.id || null
-        }
-      } catch (e) {
-        console.warn('[api/products] failed to resolve owner user id for public filter', e)
-      }
-    }
+    const { isPublicRequest, ownerUserId } = await resolvePublicContext(req)
 
     // ベースクエリ: products と関連する product_images と affiliate_links を取得
     const baseSelect = `*, images:product_images(*), affiliateLinks:affiliate_links(*)`
@@ -149,20 +134,25 @@ export async function GET(req: Request) {
         // This uses the same deterministic hash scheme as the thumbnail
         // generator so clients can obtain cached thumbnails without on-demand processing.
         let listingImageUrl: string | null = imgUrl
-        try {
-          const CDN_BASE = process.env.CDN_BASE_URL || process.env.NEXT_PUBLIC_CDN_BASE || ''
-          const r2Account = process.env.CLOUDFLARE_ACCOUNT_ID || process.env.R2_ACCOUNT || ''
-          const r2Bucket = process.env.R2_BUCKET || 'images'
-          if (CDN_BASE && imgUrl && (imgUrl.startsWith('http') || imgUrl.startsWith('https'))) {
-            const cdnBase = CDN_BASE.replace(/\/$/, '')
-            const srcForHash = imgUrl
-            const hash = crypto.createHash('sha256').update(`${srcForHash}|w=400|h=0`).digest('hex')
-            const thumbKey = `thumbnails/${hash}-400x0.jpg`
-            listingImageUrl = `${cdnBase}/${r2Bucket}/${thumbKey}`
+        // Prefer fixed pre-generated path if available
+        const basePath = deriveBasePathFromUrl(firstImg?.url)
+        const R2_PUBLIC = (process.env.NEXT_PUBLIC_R2_PUBLIC_URL || process.env.R2_PUBLIC_URL || '').replace(/\/$/, '')
+        if (basePath && R2_PUBLIC) {
+          listingImageUrl = `${R2_PUBLIC}/${basePath}/thumb-400.jpg`
+        } else {
+          try {
+            const CDN_BASE = process.env.CDN_BASE_URL || process.env.NEXT_PUBLIC_CDN_BASE || ''
+            const r2Bucket = process.env.R2_BUCKET || 'images'
+            if (CDN_BASE && imgUrl && (imgUrl.startsWith('http') || imgUrl.startsWith('https'))) {
+              const cdnBase = CDN_BASE.replace(/\/$/, '')
+              const srcForHash = imgUrl
+              const hash = crypto.createHash('sha256').update(`${srcForHash}|w=400|h=0`).digest('hex')
+              const thumbKey = `thumbnails/${hash}-400x0.jpg`
+              listingImageUrl = `${cdnBase}/${r2Bucket}/${thumbKey}`
+            }
+          } catch (e) {
+            listingImageUrl = imgUrl
           }
-        } catch (e) {
-          // fallback to canonical imgUrl if any error
-          listingImageUrl = imgUrl
         }
 
         return {
@@ -177,7 +167,7 @@ export async function GET(req: Request) {
           updatedAt: p.updated_at,
           // include only a single canonical image url and basic image dims
           image: listingImageUrl
-            ? { url: listingImageUrl, width: firstImg?.width || null, height: firstImg?.height || null, role: firstImg?.role || null }
+            ? { url: listingImageUrl, width: firstImg?.width || null, height: firstImg?.height || null, role: firstImg?.role || null, basePath }
             : null,
         }
       }
@@ -206,6 +196,7 @@ export async function GET(req: Request) {
               height: img.height,
               aspect: img.aspect,
               role: img.role,
+              basePath: deriveBasePathFromUrl(img.url),
             }))
           : [],
         affiliateLinks: Array.isArray(p.affiliateLinks)
@@ -229,7 +220,7 @@ export async function GET(req: Request) {
       meta.offset = offset || 0
     }
 
-    const payload = { data: transformed, meta }
+    const payload: PaginatedResponse<any> = { data: transformed, meta }
     if (useCache) {
       try {
         productsCache.set(cacheKey, { ts: Date.now(), payload })

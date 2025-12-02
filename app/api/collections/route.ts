@@ -1,23 +1,56 @@
 import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
 import { getPublicImageUrl } from '@/lib/image-url'
+import { resolvePublicContext } from '@/lib/public-context'
+import type { ApiResponse } from '@/lib/api'
 
 export async function GET(req: Request) {
   try {
-    // Determine if this is a public request by inspecting cookies and host header.
-    const cookieHeader = req.headers.get('cookie') || ''
-    const hasAccessCookie = cookieHeader.includes('sb-access-token')
-    const host = new URL(req.url).hostname
-    const PUBLIC_HOST = process.env.PUBLIC_HOST || process.env.NEXT_PUBLIC_PUBLIC_HOST || ''
-    const isHostPublic = PUBLIC_HOST ? host === PUBLIC_HOST : false
-    const isPublicRequest = !hasAccessCookie || isHostPublic
+    // Determine public context (host/cookie) + owner
+    const { isPublicRequest, ownerUserId } = await resolvePublicContext(req)
+    const url = new URL(req.url)
+    const shallow = url.searchParams.get('shallow') === 'true'
+    const limitParam = url.searchParams.get('limit')
+    const offsetParam = url.searchParams.get('offset')
+    const wantCount = url.searchParams.get('count') === 'true'
+    const limit = limitParam ? Math.max(0, parseInt(limitParam, 10) || 0) : null
+    const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10) || 0) : 0
 
     // 1. 公開コレクションを取得
-    const { data: collections, error: colErr } = await supabaseAdmin
-      .from('collections')
-      .select('*')
-      .eq('visibility', 'public')
-      .order('created_at', { ascending: false })
+    let collections: any[] = []
+    let colErr: any = null
+    let total: number | null = null
+    if (limit && limit > 0) {
+      if (wantCount) {
+        const res = await supabaseAdmin
+          .from('collections')
+          .select('*', { count: 'exact' })
+          .eq('visibility', 'public')
+          .order('created_at', { ascending: false })
+          .range(offset, offset + Math.max(0, (limit || 0) - 1))
+        collections = res.data || []
+        colErr = res.error || null
+        // @ts-ignore
+        total = typeof res.count === 'number' ? res.count : null
+      } else {
+        const res = await supabaseAdmin
+          .from('collections')
+          .select('*')
+          .eq('visibility', 'public')
+          .order('created_at', { ascending: false })
+          .range(offset, offset + Math.max(0, (limit || 0) - 1))
+        collections = res.data || []
+        colErr = res.error || null
+      }
+    } else {
+      const res = await supabaseAdmin
+        .from('collections')
+        .select('*')
+        .eq('visibility', 'public')
+        .order('created_at', { ascending: false })
+      collections = res.data || []
+      colErr = res.error || null
+    }
 
     if (colErr) {
       console.error('[api/collections] collections query error', colErr)
@@ -26,7 +59,8 @@ export async function GET(req: Request) {
 
     const collectionList = collections || []
     if (collectionList.length === 0) {
-      return NextResponse.json({ data: [] })
+      const emptyPayload: ApiResponse<any[]> = { data: [], meta: total != null ? { total, limit, offset } : undefined }
+      return NextResponse.json(emptyPayload)
     }
 
     const collectionIds = collectionList.map((c: any) => c.id)
@@ -51,20 +85,17 @@ export async function GET(req: Request) {
       // If this request is public (no access cookie), restrict products to the
       // site owner's user id (PUBLIC_PROFILE_EMAIL) so public collections only
       // include the owner's products.
-      // Include affiliate_links so collection products include affiliateLinks
-      let prodQuery = supabaseAdmin.from('products').select('*, images:product_images(*), affiliateLinks:affiliate_links(*)').in('id', productIds).eq('published', true)
-      try {
-        if (isPublicRequest) {
-          const OWNER_EMAIL = process.env.PUBLIC_PROFILE_EMAIL || ''
-          if (OWNER_EMAIL) {
-            const u = await supabaseAdmin.from('users').select('id').eq('email', OWNER_EMAIL).limit(1)
-            const userRow = Array.isArray(u.data) && u.data.length > 0 ? u.data[0] : null
-            const ownerUserId = userRow?.id || null
-            if (ownerUserId) prodQuery = prodQuery.eq('user_id', ownerUserId)
-          }
-        }
-      } catch (e) {
-        console.warn('[api/collections] owner resolve failed', e)
+      // Include affiliate_links unless shallow listing is requested
+      const baseSelect = '*, images:product_images(*), affiliateLinks:affiliate_links(*)'
+      const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,url,width,height,role)'
+      let prodQuery = supabaseAdmin
+        .from('products')
+        .select(shallow ? shallowSelect : baseSelect)
+        .in('id', productIds)
+        .eq('published', true)
+
+      if (isPublicRequest && ownerUserId) {
+        prodQuery = prodQuery.eq('user_id', ownerUserId)
       }
 
       const { data: prods, error: prodErr } = await prodQuery
@@ -123,14 +154,21 @@ export async function GET(req: Request) {
                   role: img.role,
                 }))
             : [],
-          affiliateLinks: Array.isArray(p.affiliateLinks)
+          affiliateLinks: shallow
+            ? []
+            : (Array.isArray(p.affiliateLinks)
             ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label }))
-            : [],
+            : []),
         })),
       }
     })
 
-    return NextResponse.json({ data: transformed })
+    const payload: ApiResponse<any[]> = { data: transformed, meta: total != null ? { total, limit, offset } : undefined }
+    // Public response: allow short-term caching
+    if (isPublicRequest) {
+      return NextResponse.json(payload, { headers: { 'Cache-Control': 'public, max-age=60' } })
+    }
+    return NextResponse.json(payload)
   } catch (e: any) {
     console.error('[api/collections] GET exception', e)
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 })

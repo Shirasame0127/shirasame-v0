@@ -1,0 +1,24 @@
+name = "public-api-worker"
+main = "src/index.ts"
+compatibility_date = "2025-12-02"
+
+# Configure routes in your Cloudflare account or uncomment and edit below:
+# routes = [
+#   { pattern = "api.example.com/products", zone_name = "example.com" }
+# ]
+
+[obs]
+# Enable logs in dashboard; no extra config needed for standard plan.
+
+[vars]
+# Optional non-secret vars (set in Dashboard/CI preferred)
+# PUBLIC_HOST = ""
+# NEXT_PUBLIC_PUBLIC_HOST = ""
+# PUBLIC_PROFILE_EMAIL = ""
+# R2_PUBLIC_URL = "https://<account>.r2.cloudflarestorage.com/<bucket>"
+# IMAGES_TRANSFORM_BASE = "https://<public-domain>/cdn-cgi/image/"
+# LIST_IMAGE_WIDTH = "400"
+
+# Secret vars to set via `wrangler secret put` or dashboard:
+# SUPABASE_URL
+# SUPABASE_SERVICE_ROLE_KEY
