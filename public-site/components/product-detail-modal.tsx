@@ -1,0 +1,188 @@
+"use client"
+
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { ExternalLink, X, Sparkles } from 'lucide-react'
+import EmbeddedLink from './embedded-link'
+import Image from "next/image"
+import { useEffect, useRef, useState } from "react"
+import { getPublicImageUrl } from "@/lib/image-url"
+
+interface ProductDetailModalProps {
+  product: any | null
+  isOpen: boolean
+  onClose: () => void
+  initialImageUrl?: string
+  saleName?: string | null
+}
+
+export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, saleName }: ProductDetailModalProps) {
+  useEffect(() => { document.body.style.overflow = isOpen ? 'hidden' : 'unset'; return () => { document.body.style.overflow = 'unset' } }, [isOpen])
+  const leftImageRef = useRef<HTMLDivElement | null>(null)
+  const [modalMinHeight, setModalMinHeight] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    function updateHeight() {
+      const isDesktop = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(min-width: 1024px)').matches
+      if (isDesktop && leftImageRef.current) setModalMinHeight(leftImageRef.current.clientHeight); else setModalMinHeight(undefined)
+    }
+    updateHeight(); window.addEventListener('resize', updateHeight); return () => window.removeEventListener('resize', updateHeight)
+  }, [isOpen, product])
+  if (!isOpen || !product) return null
+
+  const images = product.images || []
+  const preferred = initialImageUrl ? images.find((img: any) => getPublicImageUrl(img.url) === getPublicImageUrl(initialImageUrl)) : null
+  const mainImage = preferred || images.find((img: any) => img.role === 'main') || images[0] || null
+  const attachmentImages = (images.filter ? images.filter((img: any) => img.role === 'attachment') : []).slice(0, 4)
+
+  const hasTags = product.tags && product.tags.length > 0
+  const hasShortDescription = !!product.shortDescription
+  const hasPrice = !!product.price && (product.showPrice ?? true)
+  const hasBody = !!product.body
+  const hasAffiliateLinks = product.affiliateLinks && product.affiliateLinks.length > 0
+  const hasNotes = !!product.notes
+  const hasAttachments = attachmentImages.length > 0
+  const hasRelatedLinks = product.relatedLinks && product.relatedLinks.length > 0
+
+  const rightSideElementCount = [hasTags, hasShortDescription, hasPrice, hasBody, hasAffiliateLinks, hasNotes, hasAttachments, hasRelatedLinks].filter(Boolean).length
+  const useVerticalLayout = rightSideElementCount <= 1
+
+  const modalClassName = useVerticalLayout
+    ? 'relative w-[90%] sm:w-1/2 sm:max-w-[400px] h-auto max-h-[85vh] bg-white dark:bg-slate-900 rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-auto flex flex-col'
+    : 'relative w-[95%] sm:w-[85%] lg:w-[75%] max-w-5xl h-auto max-h-[80vh] sm:h-[40vh] bg-white dark:bg-slate-900 rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-auto sm:overflow-hidden flex flex-col sm:flex-row'
+
+  const leftImageClassName = useVerticalLayout ? 'flex-shrink-0 w-full p-4 flex items-center justify-center' : 'flex-shrink-0 sm:w-1/2 p-6 sm:border-r flex items-center justify-center sm:h-full'
+  const innerImageClassName = useVerticalLayout
+    ? 'relative w-full max-w-sm aspect-square mx-auto rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm'
+    : 'relative w-full max-w-[640px] aspect-square rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center'
+  const rightContentClassName = useVerticalLayout ? 'flex-1 p-6 space-y-4 text-left [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2 overflow-auto' : 'flex-1 p-6 space-y-4 text-left sm:overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in-0" onClick={onClose} />
+
+      <div className={modalClassName} style={!useVerticalLayout && modalMinHeight ? { minHeight: `${modalMinHeight}px` } : undefined}>
+        <button onClick={onClose} className="absolute right-3 top-3 rounded-sm opacity-90 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10 bg-white/95 dark:bg-black/70 p-1.5">
+          <X className="h-4 w-4" />
+          <span className="sr-only">閉じる</span>
+        </button>
+
+        <div ref={leftImageRef} className={leftImageClassName}>
+            <div className={innerImageClassName}>
+            <Image src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg"} alt={product.title} fill className="object-cover" priority />
+            {saleName && (
+              <div className="absolute left-3 top-3 z-10">
+                <span className="inline-flex items-center rounded-full bg-pink-600 text-white text-[11px] font-semibold px-2 py-0.5 shadow-sm">
+                  {saleName}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={rightContentClassName}>
+          {hasTags && (
+            <div className="flex flex-wrap gap-2">
+              {product.tags.map((tag: any) => (
+                <span key={tag} className="inline-flex items-center bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-gray-100 text-xs font-medium px-2 py-0.5 rounded-full">{tag}</span>
+              ))}
+            </div>
+          )}
+
+          <h1 className="text-xl font-bold">{product.title}</h1>
+
+          {hasShortDescription && (
+            <p className="text-sm text-muted-foreground">{product.shortDescription}</p>
+          )}
+
+          {hasPrice ? (
+            <div className="flex items-center gap-3">
+                <p className="text-2xl font-bold">¥{product.price?.toLocaleString()}</p>
+              {saleName && (
+                <Badge variant="destructive" className="text-sm px-3 py-1.5 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  {saleName || 'セール'}
+                </Badge>
+              )}
+            </div>
+          ) : (
+            saleName && (
+              <div className="flex items-center gap-3">
+                <Badge variant="destructive" className="text-sm px-3 py-1.5 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  {saleName || 'セール'}
+                </Badge>
+              </div>
+            )
+          )}
+
+          {hasBody && (
+            <Card>
+              <CardContent className="px-2">
+                <h2 className="font-semibold mb-2 text-sm">商品詳細</h2>
+                <p className="text-sm leading-relaxed">{product.body}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {hasAffiliateLinks && (
+            <div className="space-y-3">
+              <h3 className="font-semibold text-sm text-center">購入リンク</h3>
+              <div className="space-y-2">
+                {product.affiliateLinks.map((link: any, index: number) => {
+                  let label = link.label
+                  if (!label) {
+                    try { const u = new URL(link.url); label = u.hostname.replace('www.', '') } catch (e) { label = '購入リンク' }
+                  }
+                  const isTikTok = typeof link.url === 'string' && /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com|vm.tiktok.com|vt.tiktok.com)/i.test(link.url)
+                  const commonClass = 'w-full flex items-center justify-center gap-2 rounded-md text-white py-3 text-sm font-medium'
+                  if (isTikTok) {
+                    const tLabel = link.label || 'TikTokで見る'
+                    return (
+                      <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
+                        <span className="truncate">{tLabel}</span>
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    )
+                  }
+                  return (
+                    <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
+                      <span className="truncate">{label}</span>
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {hasAttachments && (
+            <div>
+              <h3 className="font-semibold mb-2 text-sm text-center">添付画像</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {attachmentImages.map((img: any) => (
+                    <div key={img.id} className="relative aspect-square rounded-md overflow-hidden bg-white dark:bg-slate-800 shadow-sm">
+                      <Image src={getPublicImageUrl(img.url) || "/placeholder.svg"} alt="添付画像" fill className="object-cover" />
+                    </div>
+                  ))}
+                </div>
+            </div>
+          )}
+
+          {hasRelatedLinks && (
+            <div>
+              <h3 className="font-semibold mb-2 text-sm text-center">関連リンク</h3>
+              <div className="space-y-4">
+                {(product.relatedLinks || []).map((link: string, index: number) => (
+                  <div key={index}>
+                    <EmbeddedLink url={link} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

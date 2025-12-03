@@ -1,0 +1,35 @@
+name = "public-worker"
+main = "src/index.ts"
+compatibility_date = "2025-12-02"
+account_id = "cc4a35b866542fbddca136b1cfc53037"
+workers_dev = true
+
+# If you want to bind to a custom route (example: api.example.com/*),
+# uncomment and set the routes array below.
+# routes = ["api.yoursite.com/*"]
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "images"
+preview_bucket_name = "images"
+
+# NOTE: Secrets (SUPABASE_ANON_KEY, SUPABASE_URL, etc.) should be added
+# using `wrangler secret put` or via the Cloudflare Dashboard. Do NOT
+# put secret keys directly in this file.
+
+[vars]
+# 公開APIからの受け入れ許可オリジン（カンマ区切り）
+PUBLIC_ALLOWED_ORIGINS = "*"
+# 既存Next APIのベースURL（暫定プロキシ先）。例: https://admin.example.com
+INTERNAL_API_BASE = ""
+
+# Supabase anon 直取得（RLS前提）
+SUPABASE_URL = ""
+SUPABASE_ANON_KEY = ""
+# 公開サイトのオーナー（単一サイト運用前提）。RLSで不要なら空でも可
+PUBLIC_OWNER_USER_ID = ""
+# R2 公開URLとバケット名（basePath導出の補助）
+R2_PUBLIC_URL = ""
+R2_BUCKET = "images"
+
+# Cloudflare D1/Queues等は現状未使用。Supabase直取得に切替する場合はANONキー等を[vars]へ。

@@ -1,0 +1,23 @@
+# Node / Next
+node_modules/
+.next/
+dist/
+build/
+.env
+.env.local
+.env.*.local
+.pnpm-store/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# local editor
+.vscode/
+.idea/
