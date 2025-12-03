@@ -1,5 +1,4 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3"
-import sharp from "sharp"
 
 type UploadResult = {
   basePath: string
@@ -36,6 +35,9 @@ function toPublicUrl(key: string) {
 }
 
 export async function uploadImageVariantsToR2(sourceUrl: string, basePath: string): Promise<UploadResult> {
+  // Fallback implementation: do NOT perform server-side image transforms.
+  // Instead, fetch the original image and upload it to R2 as the canonical asset.
+  // Consumers should use Cloudflare Image Resizing at delivery time to request variants.
   const s3 = getR2Client()
   const bucket = getBucket()
 
@@ -44,58 +46,36 @@ export async function uploadImageVariantsToR2(sourceUrl: string, basePath: strin
   const arrayBuf = await res.arrayBuffer()
   const input = Buffer.from(arrayBuf)
 
-  // Prepare Sharp pipeline with sensible defaults
-  const common = sharp(input, { failOn: "none" })
+  // Determine extension from Content-Type or URL path
+  const ct = (res.headers.get("content-type") || "").toLowerCase()
+  const urlObj = (() => { try { return new URL(sourceUrl) } catch { return null } })()
+  const extFromPath = urlObj ? (urlObj.pathname.split('.').pop() || '') : ''
+  let ext = ".jpg"
+  if (ct.includes("png")) ext = ".png"
+  else if (ct.includes("webp")) ext = ".webp"
+  else if (ct.includes("gif")) ext = ".gif"
+  else if (ct.includes("jpeg") || ct.includes("jpg")) ext = ".jpg"
+  else if (extFromPath && /^(jpg|jpeg|png|gif|webp)$/i.test(extFromPath)) ext = `.${extFromPath}`
 
-  // Build both variants in parallel
-  const thumbPipelineJpg = common.clone().resize({ width: 400, withoutEnlargement: true, fit: "inside" }).jpeg({ quality: 82, progressive: true, mozjpeg: true })
-  const detailPipelineJpg = common.clone().resize({ width: 800, withoutEnlargement: true, fit: "inside" }).jpeg({ quality: 86, progressive: true, mozjpeg: true })
-  const thumbPipelineWebp = common.clone().resize({ width: 400, withoutEnlargement: true, fit: "inside" }).webp({ quality: 80 })
-  const detailPipelineWebp = common.clone().resize({ width: 800, withoutEnlargement: true, fit: "inside" }).webp({ quality: 84 })
-
-  const [thumbBuffer, detailBuffer, thumbWebp, detailWebp] = await Promise.all([
-    thumbPipelineJpg.toBuffer(),
-    detailPipelineJpg.toBuffer(),
-    thumbPipelineWebp.toBuffer().catch(() => Buffer.from([])),
-    detailPipelineWebp.toBuffer().catch(() => Buffer.from([])),
-  ])
-
-  const thumbMetaRaw = await sharp(thumbBuffer).metadata()
-  const thumbMeta = { width: thumbMetaRaw.width || 0, height: thumbMetaRaw.height || 0 }
-  const detailMetaRaw = await sharp(detailBuffer).metadata()
-  const detailMeta = { width: detailMetaRaw.width || 0, height: detailMetaRaw.height || 0 }
-
-  // Keys
   const base = basePath.replace(/\/$/, "")
-  const thumbKey = `${base}/thumb-400.jpg`
-  const detailKey = `${base}/detail-800.jpg`
+  const originalKey = `${base}/original${ext}`
 
-  // Upload to R2 with simple retry
-  const put = async (key: string, body: Buffer, contentType: string) => {
-    if (!body || body.length === 0) return
-    const cmd = new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType, CacheControl: "public, max-age=31536000, immutable" })
-    let attempt = 0
-    let lastErr: any = null
-    while (attempt < 3) {
-      try { await s3.send(cmd); return } catch (e) { lastErr = e; attempt++; await new Promise(r => setTimeout(r, 150 * (attempt + 1))) }
-    }
-    throw lastErr
+  const putCmd = new PutObjectCommand({ Bucket: bucket, Key: originalKey, Body: input, ContentType: ct || "application/octet-stream", CacheControl: "public, max-age=31536000, immutable" })
+  let attempt = 0
+  let lastErr: any = null
+  while (attempt < 3) {
+    try { await s3.send(putCmd); break } catch (e) { lastErr = e; attempt++; await new Promise(r => setTimeout(r, 150 * (attempt + 1))) }
   }
-  await Promise.all([
-    put(thumbKey, thumbBuffer, "image/jpeg"),
-    put(detailKey, detailBuffer, "image/jpeg"),
-    put(thumbKey.replace(/\.jpg$/i, ".webp"), thumbWebp, "image/webp"),
-    put(detailKey.replace(/\.jpg$/i, ".webp"), detailWebp, "image/webp"),
-  ])
+  if (lastErr) throw lastErr
 
   return {
     basePath: base,
-    thumbKey,
-    detailKey,
-    thumbUrl: toPublicUrl(thumbKey),
-    detailUrl: toPublicUrl(detailKey),
-    thumbMeta,
-    detailMeta,
+    thumbKey: originalKey,
+    detailKey: originalKey,
+    thumbUrl: toPublicUrl(originalKey),
+    detailUrl: toPublicUrl(originalKey),
+    thumbMeta: undefined,
+    detailMeta: undefined,
   }
 }
 

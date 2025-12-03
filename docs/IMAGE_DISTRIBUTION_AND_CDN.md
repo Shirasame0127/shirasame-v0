@@ -28,12 +28,17 @@
    - 事前サムネイル生成（例: 40, 100, 400 px）
    - サムネイルは決定論的ハッシュキーで保存（hash = sha256(`${publicSrc}|w=${w}|h=${h}`) 形式）
    - R2 に `thumbnails/<hash>-${w}x${h}.jpg` をアップロード
+    - ※ 注: 上記を「アップロード直後に即時実行」する場合は、サーバ側で `sharp` を利用して変換・サムネ生成を行う必要があります。Cloudflare Pages（Functions）では `sharp` のようなネイティブモジュールが動作しない場合があるため、即時実行を採るなら以下のいずれかを選択してください:
+       - A: Node 実行が可能なホスティング（Cloud Run / Vercel serverless / VPS）で `upload` ハンドラを動かす（`sharp` で即時生成）。
+       - B: Workers + WASM（変換を WASM ベースで実行）を使う（Workers Paid を想定）。
+       - C: Pages を使い続ける場合は、`direct-to-R2` で原本を保存し、別 Worker やバッチジョブでサムネを非同期生成する（管理画面は `images/complete` を呼び出してメタだけ登録）。
    - `images` テーブルに `thumbnails` JSON と `thumbnail_keys` を保存
    - サムネイルアップロードは retry/backoff を行い失敗ログを残す
 3. CDN（Cloudflare）を `CDN_BASE_URL` に設定して、サムネイル URL を容易に配信できるようにする
    - 例: `${CDN_BASE_URL}/${r2Bucket}/thumbnails/${hash}-400x0.jpg`
 4. products API（shallow）では、公開ページ向けに CDN の事前生成サムネイル URL を返す
    - CDN 未設定時は canonical public URL を返す
+   - sharp を導入して即時サムネを生成する場合は、`/api/products`（shallow）で必ず `thumbnails['400']` や `thumbnails['100']` を返すようにしておくと、フロントの差し替えが容易になります（フロントは既に variant 優先の実装があるため、小さな変更で対応可能）。
 5. クライアント: LQIP 戦略を実装
    - 初期は 40px サムネイルを表示（高速）
    - IntersectionObserver によってビューポートに入ったら 400px を読み込む
@@ -51,6 +56,13 @@ DB について（提案）
 - `images` テーブルに次のカラムを用意することを推奨:
   - `thumbnails JSON` : { "40": "https://.../thumbnails/..", "100": "..." }
   - `thumbnail_keys JSON` : { "40": "thumbnails/<key>", ... }
+
+### sharp 導入時の具体的チェックリスト
+- `upload` ハンドラが `sharp` を利用している場合、デプロイ先でネイティブモジュールがビルドできるか確認（CI でビルド検証）。
+- `R2` へ書き込むパス命名規則とハッシュスキームを確定し、既存の `getPublicImageUrl` / `image-url` ライブラリと整合させる。
+- `images` テーブルに `thumbnails` と `thumbnail_keys` を確実に保存するマイグレーションを適用。
+- CDN（`CDN_BASE_URL`）を設定し、公開 API が CDN 経由の URL を返すように変更する（テストでキャッシュ挙動を確認）。
+- Pages を使う場合は、`upload` を direct PUT → `/api/images/complete`（metadata 登録）にして、サムネ生成を非同期 Worker に移す運用を検証。
 
 例: マイグレーション SQL（Postgres）
 

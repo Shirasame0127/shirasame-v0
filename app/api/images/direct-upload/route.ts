@@ -29,8 +29,12 @@ export async function POST(req: Request) {
     const command = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType })
     const signedUrl = await getSignedUrl(s3, command, { expiresIn: 60 * 60 })
 
+    // Construct a public URL for convenience so clients can show previews immediately.
+    // Encode each path segment separately so that '/' separators remain intact in the URL.
+    const publicUrl = `${endpoint}/${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`
+
     // Return a payload compatible with the existing client which expects result.uploadURL and result.id
-    return NextResponse.json({ result: { uploadURL: signedUrl, id: key, bucket } })
+    return NextResponse.json({ result: { uploadURL: signedUrl, id: key, bucket, publicUrl } })
   } catch (err) {
     console.error('[api/images/direct-upload] error', err)
     return NextResponse.json({ error: 'internal' }, { status: 500 })

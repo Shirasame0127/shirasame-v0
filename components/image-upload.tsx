@@ -87,6 +87,7 @@ export function ImageUpload({
               const signJson = await signRes.json()
               const uploadURL: string | undefined = signJson?.result?.uploadURL
               const cfId: string | undefined = signJson?.result?.id
+              const signerPublicUrl: string | undefined = signJson?.result?.publicUrl
               if (!uploadURL || !cfId) throw new Error('Invalid direct upload response')
 
               const maxAttempts = 3
@@ -96,6 +97,8 @@ export function ImageUpload({
                 try {
                   const putRes = await fetch(uploadURL, { method: 'PUT', body: fileToUpload })
                   if (!putRes.ok) throw new Error(`PUT failed: ${putRes.status}`)
+                  // Prefer presigner-provided publicUrl for immediate preview
+                  if (signerPublicUrl) return { id: cfId, url: signerPublicUrl }
                   const account = (window as any).__env__?.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.CLOUDFLARE_ACCOUNT_ID || ''
                   const publicUrl = account ? `https://imagedelivery.net/${account}/${cfId}/public` : undefined
                   return { id: cfId, url: publicUrl }
@@ -218,6 +221,7 @@ export function ImageUpload({
           const signJson = await signRes.json()
           const uploadURL: string | undefined = signJson?.result?.uploadURL
           const cfId: string | undefined = signJson?.result?.id
+          const signerPublicUrl: string | undefined = signJson?.result?.publicUrl
           if (!uploadURL || !cfId) throw new Error('Invalid direct upload response')
 
           // Attempt PUT with retries
@@ -228,7 +232,7 @@ export function ImageUpload({
               try {
                 const putRes = await fetch(uploadURL, { method: 'PUT', body: file })
                 if (!putRes.ok) throw new Error(`PUT failed: ${putRes.status}`)
-                // Construct public URL (Cloudflare Image Delivery)
+                if (signerPublicUrl) return { id: cfId, url: signerPublicUrl }
                 const account = (window as any).__env__?.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.CLOUDFLARE_ACCOUNT_ID || ''
                 const publicUrl = account ? `https://imagedelivery.net/${account}/${cfId}/public` : undefined
                 return { id: cfId, url: publicUrl }
