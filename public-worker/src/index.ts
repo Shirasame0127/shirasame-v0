@@ -13,6 +13,19 @@ export type Env = {
 
 const app = new Hono<{ Bindings: Env }>()
 
+// Debug and global error middleware: キャッチされなかった例外を詳細に返す（DEBUG_WORKER=true の場合は stack を含める）
+app.use('*', async (c, next) => {
+  try {
+    return await next()
+  } catch (e: any) {
+    const body: any = { error: e?.message || String(e) }
+    try {
+      if ((c.env as any).DEBUG_WORKER === 'true') body.stack = e?.stack || null
+    } catch {}
+    return new Response(JSON.stringify(body), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+  }
+})
+
 // CORS: すべてのエンドポイントで広く許可（CASE A準拠）
 app.use('*', (c, next) => {
   return cors({
@@ -22,6 +35,23 @@ app.use('*', (c, next) => {
     exposeHeaders: ['ETag'],
     maxAge: 600,
   })(c, next)
+})
+
+// Debug endpoint: 簡易的に環境やバインディングの存在を返す（本番では無効化してください）
+app.get('/_debug', async (c) => {
+  try {
+    const bindings = {
+      DEBUG_WORKER: (c.env as any).DEBUG_WORKER ?? null,
+      SUPABASE_URL: !!(c.env as any).SUPABASE_URL,
+      SUPABASE_ANON_KEY: !!(c.env as any).SUPABASE_ANON_KEY,
+      R2_BUCKET: (c.env as any).R2_BUCKET ?? null,
+      R2_PUBLIC_URL: (c.env as any).R2_PUBLIC_URL ?? null,
+      hasIMAGESBinding: typeof (c.env as any).IMAGES !== 'undefined',
+    }
+    return new Response(JSON.stringify({ ok: true, bindings }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+  }
 })
 
 // Cache/ETag ヘルパ（GET専用）
