@@ -1,8 +1,9 @@
-import { type ClassValue, clsx } from 'clsx'
+import clsx from 'clsx'
+import type { ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(...inputs))
 }
 
 // 画像URLヘルパ: Resizing付きURLへの変換（CASE A）
@@ -12,9 +13,4 @@ export function cdnImage(url: string, width = 200, format: 'auto' | 'webp' | 'jp
   if (url.includes('/cdn-cgi/image/')) return url
   return `/cdn-cgi/image/width=${w},format=${format}/${url}`
 }
-import { type ClassValue, clsx } from 'clsx'
-import { twMerge } from 'tailwind-merge'
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
