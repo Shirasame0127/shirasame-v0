@@ -2,7 +2,7 @@
 
 import React from "react"
 import Link from "next/link"
-import { getPublicImageUrl, buildR2VariantFromBasePathWithFormat } from "@/lib/image-url"
+import { getPublicImageUrl, buildR2VariantFromBasePathWithFormat, responsiveImageForUsage } from "@/lib/image-url"
 
 type Item = { id: string; image: string; aspect?: string; title?: string; href?: string }
 
@@ -35,25 +35,12 @@ export default function ProductMasonry({ items, className, columns = 7, fullWidt
               let webp: string | null = null
               let jpg: string | null = null
 
-              if (raw) {
-                // If raw already contains a variant filename, derive webp by replacing extension
-                if (/thumb-400|detail-800/.test(raw)) {
-                  jpg = getPublicImageUrl(raw) || raw
-                  webp = jpg.replace(/\.(jpg|jpeg|png)$/i, '.webp')
-                } else if (/\.(jpg|jpeg|png|webp)$/i.test(raw)) {
-                  jpg = getPublicImageUrl(raw) || raw
-                  webp = jpg.replace(/\.(jpg|jpeg|png)$/i, '.webp')
-                } else {
-                  // treat as basePath
-                  webp = buildR2VariantFromBasePathWithFormat(raw, variant, 'webp')
-                  jpg = buildR2VariantFromBasePathWithFormat(raw, variant, 'jpg')
-                }
-              }
-
+              const resp = responsiveImageForUsage(raw, 'gallery')
+              const jpgUrl = resp.src || (raw ?? '/placeholder.svg')
               const imgEl = (
-                  <picture>
-                  {webp && <source type="image/webp" srcSet={webp} />}
-                  <img src={jpg || (raw ?? '/placeholder.svg')} alt={it.title || ''} loading="lazy" className="w-full h-auto object-cover rounded-lg transition duration-300 ease-out group-hover:brightness-105" />
+                <picture>
+                  {resp.src && <source type="image/webp" srcSet={resp.srcSet || undefined} />}
+                  <img src={jpgUrl} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={it.title || ''} loading="lazy" className="w-full h-auto object-cover rounded-lg transition duration-300 ease-out group-hover:brightness-105" />
                 </picture>
               )
 

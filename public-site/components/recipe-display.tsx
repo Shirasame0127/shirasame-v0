@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { getPublicImageUrl } from "@/lib/image-url"
+import { getPublicImageUrl, responsiveImageForUsage } from "@/lib/image-url"
 import type { Product } from "@shared/types"
 
 type RecipePin = {
@@ -74,7 +74,13 @@ export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, produ
   return (
     <div className="relative w-full max-w-5xl mx-auto">
       <div ref={pinAreaRef} className="relative w-full">
-        <img src={(imageUrl ? getPublicImageUrl(imageUrl) : imageDataUrl) || "/placeholder.svg"} alt={recipeTitle} className="w-full h-auto object-contain rounded-md" onLoad={handleImageLoad} />
+        {
+          (() => {
+            const raw = imageUrl || imageDataUrl
+            const resp = responsiveImageForUsage(raw, 'recipe')
+            return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={recipeTitle} className="w-full h-auto object-contain rounded-md" onLoad={handleImageLoad} />
+          })()
+        }
         {imageLoaded && pins.map((pin) => {
           const product = products.find((p) => p.id === pin.productId)
           if (!product) return null

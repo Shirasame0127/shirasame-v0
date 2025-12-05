@@ -1,0 +1,53 @@
+name: Build and Deploy public-site to Cloudflare Pages
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        run: npm install -g pnpm@8
+
+      - name: Install dependencies
+        working-directory: public-site
+        run: pnpm install
+
+      - name: Build public-site (Next)
+        working-directory: public-site
+        run: pnpm run build
+
+      - name: Build for Pages using next-on-pages
+        working-directory: public-site
+        env:
+          # Provide these via GitHub Secrets in the repo settings
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          # next-on-pages requires a Unix-like shell (WSL/Ubuntu runner is fine)
+          pnpm dlx @cloudflare/next-on-pages@1 . --output out
+
+      - name: Publish to Cloudflare Pages
+        working-directory: public-site
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          # Replace PROJECT_NAME with your Pages project name saved in Secrets
+          if [ -z "$PROJECT_NAME" ]; then
+            echo "PROJECT_NAME not set via env; expecting secret CF_PAGES_PROJECT_NAME"
+          fi
+          npx wrangler pages publish ./out --project-name "$PROJECT_NAME"
+        env:
+          PROJECT_NAME: ${{ secrets.CF_PAGES_PROJECT_NAME }}
+
+      - name: Done
+        run: echo "public-site deployed via Pages workflow"

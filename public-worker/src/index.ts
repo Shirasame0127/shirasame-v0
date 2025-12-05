@@ -652,7 +652,19 @@ app.post('/upload-image', async (c) => {
     }
 
     const pubRoot = (c.env.R2_PUBLIC_URL || '').replace(/\/$/, '')
-    const publicUrl = pubRoot ? `${pubRoot}/${key.replace(new RegExp(`^${bucket}/`), '')}` : null
+    let publicUrl = pubRoot ? `${pubRoot}/${key.replace(new RegExp(`^${bucket}/`), '')}` : null
+    // Normalize: strip query string and fragment to avoid accidental unique transforms
+    if (publicUrl) {
+      try {
+        const u = new URL(publicUrl)
+        u.search = ''
+        u.hash = ''
+        publicUrl = u.toString().replace(/\/$/, '')
+      } catch (e) {
+        // Fallback for non-absolute or malformed URLs: remove after ? or #
+        publicUrl = publicUrl.split(/[?#]/)[0].replace(/\/$/, '')
+      }
+    }
 
     return new Response(JSON.stringify({ ok: true, result: { key, publicUrl, size: buf.byteLength, contentType: file.type || null } }), {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=60' }

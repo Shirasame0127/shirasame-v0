@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { ExternalLink, X, Sparkles } from 'lucide-react'
 import EmbeddedLink from './embedded-link'
 import Image from "next/image"
+import { responsiveImageForUsage } from '@/lib/image-url'
 import { useEffect, useRef, useState } from "react"
 import { getPublicImageUrl } from "@/lib/image-url"
 
@@ -69,7 +70,13 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
 
         <div ref={leftImageRef} className={leftImageClassName}>
             <div className={innerImageClassName}>
-            <Image src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg"} alt={product.title} fill className="object-cover" priority />
+            {
+              (() => {
+                const resp = responsiveImageForUsage(mainImage?.url, 'detail')
+                const src = resp.src || "/placeholder.svg"
+                return <img src={src} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-cover" />
+              })()
+            }
             {saleName && (
               <div className="absolute left-3 top-3 z-10">
                 <span className="inline-flex items-center rounded-full bg-pink-600 text-white text-[11px] font-semibold px-2 py-0.5 shadow-sm">
@@ -162,7 +169,12 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                 <div className="grid grid-cols-2 gap-2">
                   {attachmentImages.map((img: any) => (
                     <div key={img.id} className="relative aspect-square rounded-md overflow-hidden bg-white dark:bg-slate-800 shadow-sm">
-                      <Image src={getPublicImageUrl(img.url) || "/placeholder.svg"} alt="添付画像" fill className="object-cover" />
+                      {
+                        (() => {
+                          const resp = responsiveImageForUsage(img.url, 'attachment')
+                          return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt="添付画像" className="w-full h-full object-cover" />
+                        })()
+                      }
                     </div>
                   ))}
                 </div>

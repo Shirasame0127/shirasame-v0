@@ -136,7 +136,7 @@ export function ImageUpload({
             }
             const json = await res.json().catch(() => ({}))
             const variants: string[] | undefined = json?.result?.variants
-            const originalUrl: string | undefined = json?.result?.url || json?.result?.publicUrl || json?.result?.url
+            const originalUrl: string | undefined = json?.result?.publicUrl || json?.result?.url
             let uploadedUrl: string | undefined
             try {
               uploadedUrl = originalUrl || (Array.isArray(variants) ? variants.find((v) => v.toLowerCase().endsWith('.gif')) : undefined) || variants?.[0]
@@ -280,7 +280,7 @@ export function ImageUpload({
         const json = await res.json().catch(() => ({}))
         // Prefer original URL for GIFs (to preserve animation). Variants may be transformed/static.
         const variants: string[] | undefined = json?.result?.variants
-        const originalUrl: string | undefined = json?.result?.url || json?.result?.publicUrl || json?.result?.url
+        const originalUrl: string | undefined = json?.result?.publicUrl || json?.result?.url
         let uploadedUrl: string | undefined
         try {
           const isGif = file?.type === 'image/gif' || (file?.name && file.name.toLowerCase().endsWith('.gif'))

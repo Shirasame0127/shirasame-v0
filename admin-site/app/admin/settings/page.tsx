@@ -271,7 +271,7 @@ export default function AdminSettingsPage() {
       const res = await fetch("/api/images/upload", { method: "POST", body: fd })
       const json = await res.json()
       const variants = json?.result?.variants
-      const originalUrl = json?.result?.url || json?.result?.publicUrl || json?.result?.url
+      const originalUrl = json?.result?.publicUrl || json?.result?.url
       const isGif = file.type === 'image/gif' || (file.name && file.name.toLowerCase().endsWith('.gif'))
       const uploadedUrl = isGif ? (originalUrl || (Array.isArray(variants) ? variants.find((v: string) => v.toLowerCase().endsWith('.gif')) : undefined) || variants?.[0]) : (Array.isArray(variants) ? variants[0] : originalUrl)
       if (uploadedUrl) {

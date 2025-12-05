@@ -4,7 +4,14 @@ export function getPublicImageUrl(raw?: string | null): string | null {
   const pubRoot = (process.env.NEXT_PUBLIC_R2_PUBLIC_URL || process.env.R2_PUBLIC_URL || "").replace(/\/$/, "")
   if (!pubRoot) return raw
   if (raw.startsWith("http")) {
-    if (raw.startsWith(pubRoot)) return raw
+    if (raw.startsWith(pubRoot)) {
+      try {
+        const u = new URL(raw)
+        return `${u.protocol}//${u.hostname}` + (u.port ? `:${u.port}` : '') + (u.pathname || '')
+      } catch {
+        return raw.split(/[?#]/)[0]
+      }
+    }
     try {
       const url = new URL(raw)
       let key = url.pathname.replace(/^\/+/, "")
@@ -26,7 +33,16 @@ export function buildResizedImageUrl(raw?: string | null, opts?: { width?: numbe
   if (!base) return null
   const width = Math.max(1, Math.min(4096, opts?.width || 200))
   const format = opts?.format || 'auto'
+  const quality = 75
   // If already a resizing URL, avoid double-wrapping
   if (base.includes('/cdn-cgi/image/')) return base
-  return `/cdn-cgi/image/width=${width},format=${format}/${base}`
+  try {
+    const u = new URL(base)
+    const origin = `${u.protocol}//${u.hostname}` + (u.port ? `:${u.port}` : '')
+    // intentionally exclude search and hash to keep a canonical base path
+    const path = u.pathname.replace(/^\/+/, '')
+    return `${origin}/cdn-cgi/image/width=${width},format=${format},quality=${quality}/${path}`
+  } catch (e) {
+    return `/cdn-cgi/image/width=${width},format=${format},quality=${quality}/${base}`
+  }
 }

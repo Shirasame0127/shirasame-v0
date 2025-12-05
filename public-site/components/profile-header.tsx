@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Image from "next/image"
-import { getPublicImageUrl } from "@/lib/image-url"
+import { getPublicImageUrl, responsiveImageForUsage } from "@/lib/image-url"
 
 type User = {
   id: string
@@ -62,7 +62,12 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
         <div className="absolute inset-0">
           {images.map((image, index) => (
             <div key={index} className={`absolute inset-0 transition-opacity duration-1000 ${index === currentImageIndex ? "opacity-100" : "opacity-0"}`}>
-              <Image src={image || "/placeholder.svg"} alt={`ヘッダー画像 ${index + 1}`} fill className="object-cover" priority={index === 0} />
+              {
+                (() => {
+                  const resp = responsiveImageForUsage(image, 'header-large')
+                  return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={`ヘッダー画像 ${index + 1}`} className="w-full h-full object-cover" />
+                })()
+              }
             </div>
           ))}
           <div className="absolute inset-0 bg-black/10" />

@@ -273,7 +273,7 @@ export default function ProductEditPage({ params }: { params: any }) {
       throw new Error(errData?.error || `upload failed (${res.status})`)
     }
     const json = await res.json().catch(() => ({}))
-    const uploadedUrl = json?.result?.variants?.[0] || json?.result?.url || json?.result?.publicUrl || json?.result?.url
+    const uploadedUrl = json?.result?.variants?.[0] || json?.result?.publicUrl || json?.result?.url
     if (!uploadedUrl) throw new Error('upload did not return a URL')
     return uploadedUrl
   }
