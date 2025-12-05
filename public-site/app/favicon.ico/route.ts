@@ -6,4 +6,6 @@
 // `public/favicon.ico` file and implement a handler here that exports
 // `GET` returning the desired response.
 
+export const runtime = 'edge'
+
 export {}

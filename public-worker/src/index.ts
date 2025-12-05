@@ -370,7 +370,6 @@ app.get('/amazon-sale-schedules', async (c) => {
 
 // /site-settings
 app.get('/site-settings', async (c) => {
-  const supabase = getSupabase(c.env)
   const upstreamUrl = upstream(c, '/api/site-settings')
   const key = `site-settings`
   return cacheJson(c, key, async () => {
@@ -384,6 +383,7 @@ app.get('/site-settings', async (c) => {
       }
 
       // Otherwise, try to read from Supabase (anon). Return key/value map like admin API.
+      const supabase = getSupabase(c.env)
       const { data, error } = await supabase.from('site_settings').select('key, value').limit(100)
       if (error) return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
       const rows = Array.isArray(data) ? data : []

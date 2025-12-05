@@ -5,9 +5,6 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-};
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
@@ -32,46 +29,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// .wrangler/tmp/bundle-YRAKNw/strip-cf-connecting-ip-header.js
-function stripCfConnectingIPHeader(input, init) {
-  const request = new Request(input, init);
-  request.headers.delete("CF-Connecting-IP");
-  return request;
-}
-var init_strip_cf_connecting_ip_header = __esm({
-  ".wrangler/tmp/bundle-YRAKNw/strip-cf-connecting-ip-header.js"() {
-    "use strict";
-    __name(stripCfConnectingIPHeader, "stripCfConnectingIPHeader");
-    globalThis.fetch = new Proxy(globalThis.fetch, {
-      apply(target, thisArg, argArray) {
-        return Reflect.apply(target, thisArg, [
-          stripCfConnectingIPHeader.apply(null, argArray)
-        ]);
-      }
-    });
-  }
-});
-
-// wrangler-modules-watch:wrangler:modules-watch
-var init_wrangler_modules_watch = __esm({
-  "wrangler-modules-watch:wrangler:modules-watch"() {
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
-  }
-});
-
-// node_modules/.pnpm/wrangler@3.114.15/node_modules/wrangler/templates/modules-watch-stub.js
-var init_modules_watch_stub = __esm({
-  "node_modules/.pnpm/wrangler@3.114.15/node_modules/wrangler/templates/modules-watch-stub.js"() {
-    init_wrangler_modules_watch();
-  }
-});
-
 // node_modules/.pnpm/tslib@2.8.1/node_modules/tslib/tslib.js
 var require_tslib = __commonJS({
   "node_modules/.pnpm/tslib@2.8.1/node_modules/tslib/tslib.js"(exports, module) {
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     var __extends;
     var __assign;
     var __rest;
@@ -701,8 +661,6 @@ var require_tslib = __commonJS({
 var require_helper = __commonJS({
   "node_modules/.pnpm/@supabase+functions-js@2.86.2/node_modules/@supabase/functions-js/dist/main/helper.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.resolveFetch = void 0;
     var resolveFetch = /* @__PURE__ */ __name((customFetch) => {
@@ -719,8 +677,6 @@ var require_helper = __commonJS({
 var require_types = __commonJS({
   "node_modules/.pnpm/@supabase+functions-js@2.86.2/node_modules/@supabase/functions-js/dist/main/types.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FunctionRegion = exports.FunctionsHttpError = exports.FunctionsRelayError = exports.FunctionsFetchError = exports.FunctionsError = void 0;
     var FunctionsError2 = class extends Error {
@@ -778,8 +734,6 @@ var require_types = __commonJS({
 var require_FunctionsClient = __commonJS({
   "node_modules/.pnpm/@supabase+functions-js@2.86.2/node_modules/@supabase/functions-js/dist/main/FunctionsClient.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FunctionsClient = void 0;
     var tslib_1 = require_tslib();
@@ -928,8 +882,6 @@ var require_FunctionsClient = __commonJS({
 var require_main = __commonJS({
   "node_modules/.pnpm/@supabase+functions-js@2.86.2/node_modules/@supabase/functions-js/dist/main/index.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FunctionRegion = exports.FunctionsRelayError = exports.FunctionsHttpError = exports.FunctionsFetchError = exports.FunctionsError = exports.FunctionsClient = void 0;
     var FunctionsClient_1 = require_FunctionsClient();
@@ -959,8 +911,6 @@ var require_main = __commonJS({
 var require_PostgrestError = __commonJS({
   "node_modules/.pnpm/@supabase+postgrest-js@2.86.2/node_modules/@supabase/postgrest-js/dist/cjs/PostgrestError.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var PostgrestError2 = class extends Error {
       /**
@@ -993,8 +943,6 @@ var require_PostgrestError = __commonJS({
 var require_PostgrestBuilder = __commonJS({
   "node_modules/.pnpm/@supabase+postgrest-js@2.86.2/node_modules/@supabase/postgrest-js/dist/cjs/PostgrestBuilder.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var PostgrestError_1 = tslib_1.__importDefault(require_PostgrestError());
@@ -1226,8 +1174,6 @@ ${cause.stack}`;
 var require_PostgrestTransformBuilder = __commonJS({
   "node_modules/.pnpm/@supabase+postgrest-js@2.86.2/node_modules/@supabase/postgrest-js/dist/cjs/PostgrestTransformBuilder.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var PostgrestBuilder_1 = tslib_1.__importDefault(require_PostgrestBuilder());
@@ -1446,8 +1392,6 @@ var require_PostgrestTransformBuilder = __commonJS({
 var require_PostgrestFilterBuilder = __commonJS({
   "node_modules/.pnpm/@supabase+postgrest-js@2.86.2/node_modules/@supabase/postgrest-js/dist/cjs/PostgrestFilterBuilder.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var PostgrestTransformBuilder_1 = tslib_1.__importDefault(require_PostgrestTransformBuilder());
@@ -1850,8 +1794,6 @@ var require_PostgrestFilterBuilder = __commonJS({
 var require_PostgrestQueryBuilder = __commonJS({
   "node_modules/.pnpm/@supabase+postgrest-js@2.86.2/node_modules/@supabase/postgrest-js/dist/cjs/PostgrestQueryBuilder.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var PostgrestFilterBuilder_1 = tslib_1.__importDefault(require_PostgrestFilterBuilder());
@@ -2164,8 +2106,6 @@ var require_PostgrestQueryBuilder = __commonJS({
 var require_PostgrestClient = __commonJS({
   "node_modules/.pnpm/@supabase+postgrest-js@2.86.2/node_modules/@supabase/postgrest-js/dist/cjs/PostgrestClient.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var PostgrestQueryBuilder_1 = tslib_1.__importDefault(require_PostgrestQueryBuilder());
@@ -2295,8 +2235,6 @@ var require_PostgrestClient = __commonJS({
 var require_cjs = __commonJS({
   "node_modules/.pnpm/@supabase+postgrest-js@2.86.2/node_modules/@supabase/postgrest-js/dist/cjs/index.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.PostgrestError = exports.PostgrestBuilder = exports.PostgrestTransformBuilder = exports.PostgrestFilterBuilder = exports.PostgrestQueryBuilder = exports.PostgrestClient = void 0;
     var tslib_1 = require_tslib();
@@ -2327,8 +2265,6 @@ var require_cjs = __commonJS({
 var require_websocket_factory = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebSocketFactory = void 0;
     var WebSocketFactory = class {
@@ -2453,8 +2389,6 @@ Suggested solution: ${env.workaround}`;
 var require_version = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/lib/version.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
     exports.version = "2.86.2";
@@ -2465,8 +2399,6 @@ var require_version = __commonJS({
 var require_constants = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/lib/constants.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CONNECTION_STATE = exports.TRANSPORTS = exports.CHANNEL_EVENTS = exports.CHANNEL_STATES = exports.SOCKET_STATES = exports.MAX_PUSH_BUFFER_SIZE = exports.WS_CLOSE_NORMAL = exports.DEFAULT_TIMEOUT = exports.VERSION = exports.DEFAULT_VSN = exports.VSN_2_0_0 = exports.VSN_1_0_0 = exports.DEFAULT_VERSION = void 0;
     var version_1 = require_version();
@@ -2520,8 +2452,6 @@ var require_constants = __commonJS({
 var require_serializer = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/lib/serializer.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var Serializer = class {
       constructor(allowedMetadataKeys) {
@@ -2670,8 +2600,6 @@ var require_serializer = __commonJS({
 var require_timer = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/lib/timer.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var Timer = class {
       constructor(callback, timerCalc) {
@@ -2705,8 +2633,6 @@ var require_timer = __commonJS({
 var require_transformers = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/lib/transformers.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.httpEndpointURL = exports.toTimestampString = exports.toArray = exports.toJson = exports.toNumber = exports.toBoolean = exports.convertCell = exports.convertColumn = exports.convertChangeData = exports.PostgresTypes = void 0;
     var PostgresTypes;
@@ -2880,8 +2806,6 @@ var require_transformers = __commonJS({
 var require_push = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/lib/push.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var constants_1 = require_constants();
     var Push = class {
@@ -2990,8 +2914,6 @@ var require_push = __commonJS({
 var require_RealtimePresence = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.REALTIME_PRESENCE_LISTEN_EVENTS = void 0;
     var REALTIME_PRESENCE_LISTEN_EVENTS2;
@@ -3233,8 +3155,6 @@ var require_RealtimePresence = __commonJS({
 var require_RealtimeChannel = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.REALTIME_CHANNEL_STATES = exports.REALTIME_SUBSCRIBE_STATES = exports.REALTIME_LISTEN_TYPES = exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = void 0;
     var tslib_1 = require_tslib();
@@ -3832,8 +3752,6 @@ var require_RealtimeChannel = __commonJS({
 var require_RealtimeClient = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var websocket_factory_1 = tslib_1.__importDefault(require_websocket_factory());
@@ -4549,8 +4467,6 @@ Option 2: Install and provide the "ws" package:
 var require_main2 = __commonJS({
   "node_modules/.pnpm/@supabase+realtime-js@2.86.2/node_modules/@supabase/realtime-js/dist/main/index.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebSocketFactory = exports.REALTIME_CHANNEL_STATES = exports.REALTIME_SUBSCRIBE_STATES = exports.REALTIME_PRESENCE_LISTEN_EVENTS = exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = exports.REALTIME_LISTEN_TYPES = exports.RealtimeClient = exports.RealtimeChannel = exports.RealtimePresence = void 0;
     var tslib_1 = require_tslib();
@@ -4584,8 +4500,6 @@ var require_main2 = __commonJS({
 var require_errors = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/errors.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.StorageUnknownError = exports.StorageApiError = exports.StorageError = void 0;
     exports.isStorageError = isStorageError;
@@ -4636,8 +4550,6 @@ var require_errors = __commonJS({
 var require_helpers = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/helpers.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.isValidBucketName = exports.isPlainObject = exports.recursiveToCamel = exports.resolveResponse = exports.resolveFetch = void 0;
     var resolveFetch = /* @__PURE__ */ __name((customFetch) => {
@@ -4697,8 +4609,6 @@ var require_helpers = __commonJS({
 var require_fetch = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/fetch.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.get = get;
     exports.post = post;
@@ -4793,8 +4703,6 @@ var require_fetch = __commonJS({
 var require_StreamDownloadBuilder = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/packages/StreamDownloadBuilder.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var errors_1 = require_errors();
@@ -4835,8 +4743,6 @@ var require_StreamDownloadBuilder = __commonJS({
 var require_BlobDownloadBuilder = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/packages/BlobDownloadBuilder.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     var _a;
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
@@ -4897,8 +4803,6 @@ var require_BlobDownloadBuilder = __commonJS({
 var require_StorageFileApi = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/packages/StorageFileApi.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var errors_1 = require_errors();
@@ -5879,8 +5783,6 @@ var require_StorageFileApi = __commonJS({
 var require_version2 = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/version.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
     exports.version = "2.86.2";
@@ -5891,8 +5793,6 @@ var require_version2 = __commonJS({
 var require_constants2 = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/constants.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DEFAULT_HEADERS = void 0;
     var version_1 = require_version2();
@@ -5906,8 +5806,6 @@ var require_constants2 = __commonJS({
 var require_StorageBucketApi = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/packages/StorageBucketApi.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var constants_1 = require_constants2();
@@ -6268,8 +6166,6 @@ var require_StorageBucketApi = __commonJS({
 var require_dist = __commonJS({
   "node_modules/.pnpm/iceberg-js@0.8.0/node_modules/iceberg-js/dist/index.cjs"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     var IcebergError = /* @__PURE__ */ __name(class extends Error {
       constructor(message, opts) {
         super(message);
@@ -6820,8 +6716,6 @@ var require_dist = __commonJS({
 var require_StorageAnalyticsClient = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/packages/StorageAnalyticsClient.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var iceberg_js_1 = require_dist();
@@ -7202,8 +7096,6 @@ var require_StorageAnalyticsClient = __commonJS({
 var require_constants3 = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/vectors/constants.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DEFAULT_HEADERS = void 0;
     var version_1 = require_version2();
@@ -7218,8 +7110,6 @@ var require_constants3 = __commonJS({
 var require_errors2 = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/vectors/errors.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.StorageVectorsErrorCode = exports.StorageVectorsUnknownError = exports.StorageVectorsApiError = exports.StorageVectorsError = void 0;
     exports.isStorageVectorsError = isStorageVectorsError;
@@ -7279,8 +7169,6 @@ var require_errors2 = __commonJS({
 var require_helpers2 = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/vectors/helpers.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateVectorDimension = exports.normalizeToFloat32 = exports.isPlainObject = exports.resolveResponse = exports.resolveFetch = void 0;
     var resolveFetch = /* @__PURE__ */ __name((customFetch) => {
@@ -7319,8 +7207,6 @@ var require_helpers2 = __commonJS({
 var require_fetch2 = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/vectors/fetch.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.get = get;
     exports.post = post;
@@ -7415,8 +7301,6 @@ var require_fetch2 = __commonJS({
 var require_VectorIndexApi = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/vectors/VectorIndexApi.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var constants_1 = require_constants3();
@@ -7518,8 +7402,6 @@ var require_VectorIndexApi = __commonJS({
 var require_VectorDataApi = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/vectors/VectorDataApi.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var constants_1 = require_constants3();
@@ -7660,8 +7542,6 @@ var require_VectorDataApi = __commonJS({
 var require_VectorBucketApi = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/vectors/VectorBucketApi.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var constants_1 = require_constants3();
@@ -7761,8 +7641,6 @@ var require_VectorBucketApi = __commonJS({
 var require_StorageVectorsClient = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/vectors/StorageVectorsClient.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.VectorIndexScope = exports.VectorBucketScope = exports.StorageVectorsClient = void 0;
     var tslib_1 = require_tslib();
@@ -8293,8 +8171,6 @@ var require_StorageVectorsClient = __commonJS({
 var require_vectors = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/vectors/index.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateVectorDimension = exports.normalizeToFloat32 = exports.isPlainObject = exports.resolveResponse = exports.resolveFetch = exports.isStorageVectorsError = exports.StorageVectorsErrorCode = exports.StorageVectorsUnknownError = exports.StorageVectorsApiError = exports.StorageVectorsError = exports.VectorDataApi = exports.VectorIndexApi = exports.VectorBucketApi = exports.VectorIndexScope = exports.VectorBucketScope = exports.StorageVectorsClient = void 0;
     var tslib_1 = require_tslib();
@@ -8359,8 +8235,6 @@ var require_vectors = __commonJS({
 var require_StorageClient = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/StorageClient.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.StorageClient = void 0;
     var tslib_1 = require_tslib();
@@ -8441,8 +8315,6 @@ var require_StorageClient = __commonJS({
 var require_types2 = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/lib/types.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
   }
 });
@@ -8451,8 +8323,6 @@ var require_types2 = __commonJS({
 var require_main3 = __commonJS({
   "node_modules/.pnpm/@supabase+storage-js@2.86.2/node_modules/@supabase/storage-js/dist/main/index.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.StorageAnalyticsClient = exports.StorageClient = void 0;
     var tslib_1 = require_tslib();
@@ -8474,8 +8344,6 @@ var require_main3 = __commonJS({
 var require_version3 = __commonJS({
   "node_modules/.pnpm/@supabase+supabase-js@2.86.2/node_modules/@supabase/supabase-js/dist/main/lib/version.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
     exports.version = "2.86.2";
@@ -8486,8 +8354,6 @@ var require_version3 = __commonJS({
 var require_constants4 = __commonJS({
   "node_modules/.pnpm/@supabase+supabase-js@2.86.2/node_modules/@supabase/supabase-js/dist/main/lib/constants.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DEFAULT_REALTIME_OPTIONS = exports.DEFAULT_AUTH_OPTIONS = exports.DEFAULT_DB_OPTIONS = exports.DEFAULT_GLOBAL_OPTIONS = exports.DEFAULT_HEADERS = void 0;
     var version_1 = require_version3();
@@ -8522,8 +8388,6 @@ var require_constants4 = __commonJS({
 var require_fetch3 = __commonJS({
   "node_modules/.pnpm/@supabase+supabase-js@2.86.2/node_modules/@supabase/supabase-js/dist/main/lib/fetch.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.fetchWithAuth = exports.resolveHeadersConstructor = exports.resolveFetch = void 0;
     var resolveFetch = /* @__PURE__ */ __name((customFetch) => {
@@ -8561,8 +8425,6 @@ var require_fetch3 = __commonJS({
 var require_helpers3 = __commonJS({
   "node_modules/.pnpm/@supabase+supabase-js@2.86.2/node_modules/@supabase/supabase-js/dist/main/lib/helpers.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.isBrowser = void 0;
     exports.uuid = uuid;
@@ -8624,8 +8486,6 @@ var require_helpers3 = __commonJS({
 var require_version4 = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/version.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.version = void 0;
     exports.version = "2.86.2";
@@ -8636,8 +8496,6 @@ var require_version4 = __commonJS({
 var require_constants5 = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/constants.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.JWKS_TTL = exports.BASE64URL_REGEX = exports.API_VERSIONS = exports.API_VERSION_HEADER_NAME = exports.NETWORK_FAILURE = exports.DEFAULT_HEADERS = exports.AUDIENCE = exports.STORAGE_KEY = exports.GOTRUE_URL = exports.EXPIRY_MARGIN_MS = exports.AUTO_REFRESH_TICK_THRESHOLD = exports.AUTO_REFRESH_TICK_DURATION_MS = void 0;
     var version_1 = require_version4();
@@ -8669,8 +8527,6 @@ var require_constants5 = __commonJS({
 var require_errors3 = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/errors.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.AuthInvalidJwtError = exports.AuthWeakPasswordError = exports.AuthRetryableFetchError = exports.AuthPKCEGrantCodeExchangeError = exports.AuthImplicitGrantRedirectError = exports.AuthInvalidCredentialsError = exports.AuthInvalidTokenResponseError = exports.AuthSessionMissingError = exports.CustomAuthError = exports.AuthUnknownError = exports.AuthApiError = exports.AuthError = void 0;
     exports.isAuthError = isAuthError2;
@@ -8826,8 +8682,6 @@ var require_errors3 = __commonJS({
 var require_base64url = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/base64url.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.byteToBase64URL = byteToBase64URL;
     exports.byteFromBase64URL = byteFromBase64URL;
@@ -9028,8 +8882,6 @@ var require_base64url = __commonJS({
 var require_helpers4 = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/helpers.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Deferred = exports.removeItemAsync = exports.getItemAsync = exports.setItemAsync = exports.looksLikeFetchResponse = exports.resolveFetch = exports.supportsLocalStorage = exports.isBrowser = void 0;
     exports.expiresAt = expiresAt;
@@ -9365,8 +9217,6 @@ var require_helpers4 = __commonJS({
 var require_fetch4 = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/fetch.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.handleError = handleError;
     exports._request = _request;
@@ -9532,8 +9382,6 @@ var require_fetch4 = __commonJS({
 var require_types3 = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/types.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.SIGN_OUT_SCOPES = void 0;
     exports.SIGN_OUT_SCOPES = ["global", "local", "others"];
@@ -9544,8 +9392,6 @@ var require_types3 = __commonJS({
 var require_GoTrueAdminApi = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var fetch_1 = require_fetch4();
@@ -9976,8 +9822,6 @@ var require_GoTrueAdminApi = __commonJS({
 var require_local_storage = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/local-storage.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.memoryLocalStorageAdapter = memoryLocalStorageAdapter;
     function memoryLocalStorageAdapter(store = {}) {
@@ -10001,8 +9845,6 @@ var require_local_storage = __commonJS({
 var require_locks = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/locks.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ProcessLockAcquireTimeoutError = exports.NavigatorLockAcquireTimeoutError = exports.LockAcquireTimeoutError = exports.internals = void 0;
     exports.navigatorLock = navigatorLock2;
@@ -10121,8 +9963,6 @@ var require_locks = __commonJS({
 var require_polyfills = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/polyfills.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.polyfillGlobalThis = polyfillGlobalThis;
     function polyfillGlobalThis() {
@@ -10151,8 +9991,6 @@ var require_polyfills = __commonJS({
 var require_ethereum = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getAddress = getAddress;
     exports.fromHex = fromHex;
@@ -10235,8 +10073,6 @@ ${suffix}`;
 var require_webauthn_errors = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebAuthnUnknownError = exports.WebAuthnError = void 0;
     exports.isWebAuthnError = isWebAuthnError;
@@ -10426,8 +10262,6 @@ var require_webauthn_errors = __commonJS({
 var require_webauthn = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/lib/webauthn.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.WebAuthnApi = exports.DEFAULT_REQUEST_OPTIONS = exports.DEFAULT_CREATION_OPTIONS = exports.webAuthnAbortService = exports.WebAuthnAbortService = exports.identifyAuthenticationError = exports.identifyRegistrationError = exports.isWebAuthnError = exports.WebAuthnError = void 0;
     exports.deserializeCredentialCreationOptions = deserializeCredentialCreationOptions;
@@ -10990,8 +10824,6 @@ var require_webauthn = __commonJS({
 var require_GoTrueClient = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/GoTrueClient.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var GoTrueAdminApi_1 = tslib_1.__importDefault(require_GoTrueAdminApi());
@@ -13504,8 +13336,6 @@ var require_GoTrueClient = __commonJS({
 var require_AuthAdminApi = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var GoTrueAdminApi_1 = tslib_1.__importDefault(require_GoTrueAdminApi());
@@ -13518,8 +13348,6 @@ var require_AuthAdminApi = __commonJS({
 var require_AuthClient = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/AuthClient.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var tslib_1 = require_tslib();
     var GoTrueClient_1 = tslib_1.__importDefault(require_GoTrueClient());
@@ -13532,8 +13360,6 @@ var require_AuthClient = __commonJS({
 var require_main4 = __commonJS({
   "node_modules/.pnpm/@supabase+auth-js@2.86.2/node_modules/@supabase/auth-js/dist/main/index.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.processLock = exports.lockInternals = exports.NavigatorLockAcquireTimeoutError = exports.navigatorLock = exports.AuthClient = exports.AuthAdminApi = exports.GoTrueClient = exports.GoTrueAdminApi = void 0;
     var tslib_1 = require_tslib();
@@ -13567,8 +13393,6 @@ var require_main4 = __commonJS({
 var require_SupabaseAuthClient = __commonJS({
   "node_modules/.pnpm/@supabase+supabase-js@2.86.2/node_modules/@supabase/supabase-js/dist/main/lib/SupabaseAuthClient.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.SupabaseAuthClient = void 0;
     var auth_js_1 = require_main4();
@@ -13586,8 +13410,6 @@ var require_SupabaseAuthClient = __commonJS({
 var require_SupabaseClient = __commonJS({
   "node_modules/.pnpm/@supabase+supabase-js@2.86.2/node_modules/@supabase/supabase-js/dist/main/SupabaseClient.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     Object.defineProperty(exports, "__esModule", { value: true });
     var functions_js_1 = require_main();
     var postgrest_js_1 = require_cjs();
@@ -13817,8 +13639,6 @@ var require_SupabaseClient = __commonJS({
 var require_main5 = __commonJS({
   "node_modules/.pnpm/@supabase+supabase-js@2.86.2/node_modules/@supabase/supabase-js/dist/main/index.js"(exports) {
     "use strict";
-    init_strip_cf_connecting_ip_header();
-    init_modules_watch_stub();
     var __createBinding = exports && exports.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0)
         k2 = k;
@@ -13900,33 +13720,7 @@ var require_main5 = __commonJS({
   }
 });
 
-// .wrangler/tmp/bundle-YRAKNw/middleware-loader.entry.ts
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// .wrangler/tmp/bundle-YRAKNw/middleware-insertion-facade.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// src/index.ts
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/index.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/hono.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/hono-base.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/compose.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var compose = /* @__PURE__ */ __name((middleware, onError, onNotFound) => {
   return (context, next) => {
     let index2 = -1;
@@ -13971,17 +13765,7 @@ var compose = /* @__PURE__ */ __name((middleware, onError, onNotFound) => {
   };
 }, "compose");
 
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/context.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/request.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/http-exception.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var HTTPException = /* @__PURE__ */ __name(class extends Error {
   res;
   status;
@@ -14005,13 +13789,9 @@ var HTTPException = /* @__PURE__ */ __name(class extends Error {
 }, "HTTPException");
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/request/constants.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var GET_MATCH_RESULT = Symbol();
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/utils/body.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var parseBody = /* @__PURE__ */ __name(async (request, options = /* @__PURE__ */ Object.create(null)) => {
   const { all = false, dot = false } = options;
   const headers = request instanceof HonoRequest ? request.raw.headers : request.headers;
@@ -14083,8 +13863,6 @@ var handleParsingNestedValues = /* @__PURE__ */ __name((form, key, value) => {
 }, "handleParsingNestedValues");
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/utils/url.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var splitPath = /* @__PURE__ */ __name((path) => {
   const paths = path.split("/");
   if (paths[0] === "") {
@@ -14398,8 +14176,6 @@ var HonoRequest = /* @__PURE__ */ __name(class {
 }, "HonoRequest");
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/utils/html.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var HtmlEscapedCallbackPhase = {
   Stringify: 1,
   BeforeStream: 2,
@@ -14619,8 +14395,6 @@ var Context = /* @__PURE__ */ __name(class {
 }, "Context");
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var METHOD_NAME_ALL = "ALL";
 var METHOD_NAME_ALL_LOWERCASE = "all";
 var METHODS = ["get", "post", "put", "delete", "options", "patch"];
@@ -14629,8 +14403,6 @@ var UnsupportedPathError = /* @__PURE__ */ __name(class extends Error {
 }, "UnsupportedPathError");
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/utils/constants.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var COMPOSED_HANDLER = "__COMPOSED_HANDLER";
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/hono-base.js
@@ -14864,17 +14636,7 @@ var Hono = /* @__PURE__ */ __name(class {
   };
 }, "Hono");
 
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/reg-exp-router/index.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/reg-exp-router/router.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/reg-exp-router/matcher.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var emptyParam = [];
 function match(method, path) {
   const matchers = this.buildAllMatchers();
@@ -14897,8 +14659,6 @@ function match(method, path) {
 __name(match, "match");
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/reg-exp-router/node.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var LABEL_REG_EXP_STR = "[^/]+";
 var ONLY_WILDCARD_REG_EXP_STR = ".*";
 var TAIL_WILDCARD_REG_EXP_STR = "(?:|/.*)";
@@ -15008,8 +14768,6 @@ var Node = /* @__PURE__ */ __name(class {
 }, "Node");
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/reg-exp-router/trie.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var Trie = /* @__PURE__ */ __name(class {
   #context = { varIndex: 0 };
   #root = new Node();
@@ -15248,17 +15006,7 @@ var RegExpRouter = /* @__PURE__ */ __name(class {
   }
 }, "RegExpRouter");
 
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/reg-exp-router/prepared-router.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/smart-router/index.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/smart-router/router.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var SmartRouter = /* @__PURE__ */ __name(class {
   name = "SmartRouter";
   #routers = [];
@@ -15313,17 +15061,7 @@ var SmartRouter = /* @__PURE__ */ __name(class {
   }
 }, "SmartRouter");
 
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/trie-router/index.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/trie-router/router.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/router/trie-router/node.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var emptyParams = /* @__PURE__ */ Object.create(null);
 var Node2 = /* @__PURE__ */ __name(class {
   #methods;
@@ -15514,8 +15252,6 @@ var Hono2 = /* @__PURE__ */ __name(class extends Hono {
 }, "Hono");
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/middleware/cors/index.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var cors = /* @__PURE__ */ __name((options) => {
   const defaults = {
     origin: "*",
@@ -15600,10 +15336,6 @@ var cors = /* @__PURE__ */ __name((options) => {
     }
   }, "cors2");
 }, "cors");
-
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/index.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 
 // node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
 var external_exports = {};
@@ -15716,24 +15448,8 @@ __export(external_exports, {
   util: () => util,
   void: () => voidType
 });
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/errors.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/locales/en.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/ZodError.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 
 // node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -16104,8 +15820,6 @@ function getErrorMap() {
 __name(getErrorMap, "getErrorMap");
 
 // node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var makeIssue = /* @__PURE__ */ __name((params) => {
   const { data, path, errorMaps, issueData } = params;
   const fullPath = [...path, ...issueData.path || []];
@@ -16217,13 +15931,7 @@ var isDirty = /* @__PURE__ */ __name((x) => x.status === "dirty", "isDirty");
 var isValid = /* @__PURE__ */ __name((x) => x.status === "valid", "isValid");
 var isAsync = /* @__PURE__ */ __name((x) => typeof Promise !== "undefined" && x instanceof Promise, "isAsync");
 
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
 // node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var errorUtil;
 (function(errorUtil2) {
   errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
@@ -19733,25 +19441,7 @@ var coerce = {
 };
 var NEVER = INVALID;
 
-// node_modules/.pnpm/@hono+zod-validator@0.2.2_hono@4.10.7_zod@3.25.76/node_modules/@hono/zod-validator/dist/esm/index.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/validator/index.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/validator/validator.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/helper/cookie/index.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/utils/cookie.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var validCookieNameRegEx = /^[\w!#$%&'*.^`|~+-]+$/;
 var validCookieValueRegEx = /^[ !#-:<-[\]-~]*$/;
 var parse = /* @__PURE__ */ __name((cookie, name) => {
@@ -19806,14 +19496,6 @@ var getCookie = /* @__PURE__ */ __name((c, key, prefix) => {
   const obj = parse(cookie);
   return obj;
 }, "getCookie");
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/utils/buffer.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
-// node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/utils/crypto.js
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 
 // node_modules/.pnpm/hono@4.10.7/node_modules/hono/dist/utils/buffer.js
 var bufferToFormData = /* @__PURE__ */ __name((arrayBuffer, contentType) => {
@@ -19930,8 +19612,6 @@ var zValidator = /* @__PURE__ */ __name((target, schema, hook) => (
 ), "zValidator");
 
 // src/utils/etag.ts
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 async function sha256Hex(input) {
   const enc = typeof input === "string" ? new TextEncoder().encode(input) : new Uint8Array(input);
   const digest = await crypto.subtle.digest("SHA-256", enc);
@@ -19945,13 +19625,7 @@ async function makeWeakEtag(body) {
 }
 __name(makeWeakEtag, "makeWeakEtag");
 
-// src/supabase.ts
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-
 // node_modules/.pnpm/@supabase+supabase-js@2.86.2/node_modules/@supabase/supabase-js/dist/esm/wrapper.mjs
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
 var index = __toESM(require_main5(), 1);
 var {
   PostgrestError,
@@ -20346,7 +20020,6 @@ app.get("/amazon-sale-schedules", async (c) => {
   });
 });
 app.get("/site-settings", async (c) => {
-  const supabase = getSupabase(c.env);
   const upstreamUrl = upstream(c, "/api/site-settings");
   const key = `site-settings`;
   return cacheJson(c, key, async () => {
@@ -20358,6 +20031,7 @@ app.get("/site-settings", async (c) => {
         const json = await res.json().catch(() => ({ data: {} }));
         return new Response(JSON.stringify(json), { headers: { "Content-Type": "application/json; charset=utf-8" } });
       }
+      const supabase = getSupabase(c.env);
       const { data, error } = await supabase.from("site_settings").select("key, value").limit(100);
       if (error)
         return new Response(JSON.stringify({ data: {} }), { headers: { "Content-Type": "application/json; charset=utf-8" } });
@@ -20577,182 +20251,7 @@ app.post("/upload-image", async (c) => {
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } });
   }
 });
-
-// node_modules/.pnpm/wrangler@3.114.15/node_modules/wrangler/templates/middleware/middleware-ensure-req-body-drained.ts
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-var drainBody = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx) => {
-  try {
-    return await middlewareCtx.next(request, env);
-  } finally {
-    try {
-      if (request.body !== null && !request.bodyUsed) {
-        const reader = request.body.getReader();
-        while (!(await reader.read()).done) {
-        }
-      }
-    } catch (e) {
-      console.error("Failed to drain the unused request body.", e);
-    }
-  }
-}, "drainBody");
-var middleware_ensure_req_body_drained_default = drainBody;
-
-// node_modules/.pnpm/wrangler@3.114.15/node_modules/wrangler/templates/middleware/middleware-miniflare3-json-error.ts
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-function reduceError(e) {
-  return {
-    name: e?.name,
-    message: e?.message ?? String(e),
-    stack: e?.stack,
-    cause: e?.cause === void 0 ? void 0 : reduceError(e.cause)
-  };
-}
-__name(reduceError, "reduceError");
-var jsonError = /* @__PURE__ */ __name(async (request, env, _ctx, middlewareCtx) => {
-  try {
-    return await middlewareCtx.next(request, env);
-  } catch (e) {
-    const error = reduceError(e);
-    return Response.json(error, {
-      status: 500,
-      headers: { "MF-Experimental-Error-Stack": "true" }
-    });
-  }
-}, "jsonError");
-var middleware_miniflare3_json_error_default = jsonError;
-
-// .wrangler/tmp/bundle-YRAKNw/middleware-insertion-facade.js
-var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
-  middleware_ensure_req_body_drained_default,
-  middleware_miniflare3_json_error_default
-];
-var middleware_insertion_facade_default = src_default;
-
-// node_modules/.pnpm/wrangler@3.114.15/node_modules/wrangler/templates/middleware/common.ts
-init_strip_cf_connecting_ip_header();
-init_modules_watch_stub();
-var __facade_middleware__ = [];
-function __facade_register__(...args) {
-  __facade_middleware__.push(...args.flat());
-}
-__name(__facade_register__, "__facade_register__");
-function __facade_invokeChain__(request, env, ctx, dispatch, middlewareChain) {
-  const [head, ...tail] = middlewareChain;
-  const middlewareCtx = {
-    dispatch,
-    next(newRequest, newEnv) {
-      return __facade_invokeChain__(newRequest, newEnv, ctx, dispatch, tail);
-    }
-  };
-  return head(request, env, ctx, middlewareCtx);
-}
-__name(__facade_invokeChain__, "__facade_invokeChain__");
-function __facade_invoke__(request, env, ctx, dispatch, finalMiddleware) {
-  return __facade_invokeChain__(request, env, ctx, dispatch, [
-    ...__facade_middleware__,
-    finalMiddleware
-  ]);
-}
-__name(__facade_invoke__, "__facade_invoke__");
-
-// .wrangler/tmp/bundle-YRAKNw/middleware-loader.entry.ts
-var __Facade_ScheduledController__ = class {
-  constructor(scheduledTime, cron, noRetry) {
-    this.scheduledTime = scheduledTime;
-    this.cron = cron;
-    this.#noRetry = noRetry;
-  }
-  #noRetry;
-  noRetry() {
-    if (!(this instanceof __Facade_ScheduledController__)) {
-      throw new TypeError("Illegal invocation");
-    }
-    this.#noRetry();
-  }
-};
-__name(__Facade_ScheduledController__, "__Facade_ScheduledController__");
-function wrapExportedHandler(worker) {
-  if (__INTERNAL_WRANGLER_MIDDLEWARE__ === void 0 || __INTERNAL_WRANGLER_MIDDLEWARE__.length === 0) {
-    return worker;
-  }
-  for (const middleware of __INTERNAL_WRANGLER_MIDDLEWARE__) {
-    __facade_register__(middleware);
-  }
-  const fetchDispatcher = /* @__PURE__ */ __name(function(request, env, ctx) {
-    if (worker.fetch === void 0) {
-      throw new Error("Handler does not export a fetch() function.");
-    }
-    return worker.fetch(request, env, ctx);
-  }, "fetchDispatcher");
-  return {
-    ...worker,
-    fetch(request, env, ctx) {
-      const dispatcher = /* @__PURE__ */ __name(function(type, init) {
-        if (type === "scheduled" && worker.scheduled !== void 0) {
-          const controller = new __Facade_ScheduledController__(
-            Date.now(),
-            init.cron ?? "",
-            () => {
-            }
-          );
-          return worker.scheduled(controller, env, ctx);
-        }
-      }, "dispatcher");
-      return __facade_invoke__(request, env, ctx, dispatcher, fetchDispatcher);
-    }
-  };
-}
-__name(wrapExportedHandler, "wrapExportedHandler");
-function wrapWorkerEntrypoint(klass) {
-  if (__INTERNAL_WRANGLER_MIDDLEWARE__ === void 0 || __INTERNAL_WRANGLER_MIDDLEWARE__.length === 0) {
-    return klass;
-  }
-  for (const middleware of __INTERNAL_WRANGLER_MIDDLEWARE__) {
-    __facade_register__(middleware);
-  }
-  return class extends klass {
-    #fetchDispatcher = (request, env, ctx) => {
-      this.env = env;
-      this.ctx = ctx;
-      if (super.fetch === void 0) {
-        throw new Error("Entrypoint class does not define a fetch() function.");
-      }
-      return super.fetch(request);
-    };
-    #dispatcher = (type, init) => {
-      if (type === "scheduled" && super.scheduled !== void 0) {
-        const controller = new __Facade_ScheduledController__(
-          Date.now(),
-          init.cron ?? "",
-          () => {
-          }
-        );
-        return super.scheduled(controller);
-      }
-    };
-    fetch(request) {
-      return __facade_invoke__(
-        request,
-        this.env,
-        this.ctx,
-        this.#dispatcher,
-        this.#fetchDispatcher
-      );
-    }
-  };
-}
-__name(wrapWorkerEntrypoint, "wrapWorkerEntrypoint");
-var WRAPPED_ENTRY;
-if (typeof middleware_insertion_facade_default === "object") {
-  WRAPPED_ENTRY = wrapExportedHandler(middleware_insertion_facade_default);
-} else if (typeof middleware_insertion_facade_default === "function") {
-  WRAPPED_ENTRY = wrapWorkerEntrypoint(middleware_insertion_facade_default);
-}
-var middleware_loader_entry_default = WRAPPED_ENTRY;
 export {
-  __INTERNAL_WRANGLER_MIDDLEWARE__,
-  middleware_loader_entry_default as default
+  src_default as default
 };
 //# sourceMappingURL=index.js.map
