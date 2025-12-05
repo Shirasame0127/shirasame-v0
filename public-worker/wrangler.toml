@@ -3,6 +3,8 @@ main = "src/index.ts"
 compatibility_date = "2025-12-02"
 account_id = "cc4a35b866542fbddca136b1cfc53037"
 workers_dev = true
+# Enable Node.js compatibility for packages that import Node built-ins (node:...)
+compatibility_flags = ["nodejs_compat"]
 # The workers.dev host for this script will be served under your account's
 # workers.dev namespace. For clarity we document the desired public host below.
 # Public workers.dev domain (workers.dev): public-worker.shirasame-official.workers.dev
@@ -56,5 +58,20 @@ PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"
 
 [env.production]
 name = "public-worker"
-# Production-specific overrides can go here. Keeping empty ensures
-# `wrangler deploy --env production` works when CI passes --env.
+# Production-specific overrides can go here. We mirror top-level vars/bindings
+# into the production env so `--env production` deploys with the correct config.
+
+[[env.production.r2_buckets]]
+binding = "IMAGES"
+bucket_name = "images"
+preview_bucket_name = "images"
+
+[env.production.vars]
+PUBLIC_ALLOWED_ORIGINS = "*"
+INTERNAL_API_BASE = ""
+SUPABASE_URL = "https://zikwelnhcpnnpurlomrf.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppa3dlbG5oY3BubnB1cmxvbXJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MjU3MjksImV4cCI6MjA3OTMwMTcyOX0.jpXt88FpfYpfni8eHAh2zAXl22biBruWHA-MPnu4F1A"
+PUBLIC_OWNER_USER_ID = ""
+R2_PUBLIC_URL = "https://pub-184f8243221740048da8add028429140.r2.dev"
+R2_BUCKET = "images"
+PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"
