@@ -4,6 +4,9 @@ This folder is a prepared copy of the `shirasameProject` intended for publishing
 
 Usage
 
+---
+Redeploy trigger: 2025-12-05T14:24:00Z
+
 1. From the original project root (`shirasameProject`) run the helper script to copy files into `shirasame-v0`:
 
 ```powershell
