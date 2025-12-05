@@ -8,17 +8,17 @@ import { getSupabase } from './supabase'
 export type Env = {
   PUBLIC_ALLOWED_ORIGINS: string
   INTERNAL_API_BASE: string
+  INTERNAL_API_KEY?: string
 }
 
 const app = new Hono<{ Bindings: Env }>()
 
-// CORS: 管理/公開の障害分離を前提に公開オリジンのみ許可
+// CORS: すべてのエンドポイントで広く許可（CASE A準拠）
 app.use('*', (c, next) => {
-  const cfg = (c.env.PUBLIC_ALLOWED_ORIGINS || '*').split(',').map(s => s.trim()).filter(Boolean)
   return cors({
-    origin: (origin) => cfg.includes('*') ? '*' : (cfg.includes(origin || '') ? origin : ''),
-    allowHeaders: ['Content-Type', 'If-None-Match'],
-    allowMethods: ['GET', 'HEAD', 'OPTIONS'],
+    origin: '*',
+    allowHeaders: ['Content-Type', 'If-None-Match', 'Authorization', 'X-Internal-Key'],
+    allowMethods: ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'DELETE'],
     exposeHeaders: ['ETag'],
     maxAge: 600,
   })(c, next)
@@ -172,7 +172,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
       })
 
       const meta = total != null ? { total, limit, offset } : undefined
-      return new Response(JSON.stringify({ data: transformed, meta }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      return new Response(JSON.stringify({ data: transformed, meta }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' } })
     } catch (e: any) {
       return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500 })
     }
@@ -548,3 +548,86 @@ function deriveBasePath(c: any, url?: string | null) {
 }
 
 export default app
+
+// Admin proxy: `/admin/*` を INTERNAL_API_BASE に転送する。内部キーでの簡易認可を行う。
+// 追加: Authorization: Bearer <jwt> がある場合は簡易 JWT/RBAC チェック（ダミー実装）
+app.all('/admin/*', async (c) => {
+  try {
+    const internalBase = (c.env.INTERNAL_API_BASE || '').replace(/\/$/, '')
+    if (!internalBase) return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502 })
+    // シンプルなキー認証
+    const provided = c.req.header('x-internal-key') || c.req.header('X-Internal-Key') || ''
+    const expected = (c.env.INTERNAL_API_KEY || '').toString()
+    // JWT (Authorization) を受け取り、簡易に admin ロールをチェックする（本番は JWK/JWT 検証を実装）
+    const auth = c.req.header('authorization') || c.req.header('Authorization') || ''
+    const hasJwt = auth.toLowerCase().startsWith('bearer ')
+    let jwtOk = false
+    let roleOk = false
+    if (hasJwt) {
+      // NOTE: ここではダミー検証（ヘッダ存在のみ）。実運用では JWK を使った署名検証と claim の role=admin を確認する。
+      jwtOk = true
+      roleOk = true
+    }
+    if (!jwtOk && (!expected || provided !== expected)) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+
+    const rest = c.req.path.replace(/^\/admin/, '') || '/'
+    // クエリは upstream() で追加されるので path 部分のみを組み立て
+    const upstreamUrl = internalBase + rest + (Object.keys(c.req.query() || {}).length > 0 ? ('?' + new URLSearchParams(c.req.query() as any as Record<string,string>).toString()) : '')
+
+    const method = c.req.method
+    const headers: Record<string,string> = {}
+    const contentType = c.req.header('content-type')
+    if (contentType) headers['content-type'] = contentType
+    // Pass-through of internal key for upstream if desired
+    headers['x-internal-key'] = provided
+
+    const body = (method === 'GET' || method === 'HEAD') ? undefined : await c.req.text()
+    const resp = await fetch(upstreamUrl, { method, headers, body })
+    const respBuf = await resp.arrayBuffer()
+    const out = new Response(respBuf, { status: resp.status, headers: { 'Content-Type': resp.headers.get('content-type') || 'application/octet-stream' } })
+    return out
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500 })
+  }
+})
+
+// CASE A: R2へ画像保存するWorkerエンドポイント
+// フォーマット: images/YYYY/MM/DD/<random>-<filename>
+// 返却: { ok: true, result: { key, publicUrl, size, contentType } }
+app.post('/upload-image', async (c) => {
+  try {
+    const ct = c.req.header('content-type') || ''
+    if (!ct.includes('multipart/form-data')) {
+      return new Response(JSON.stringify({ error: 'multipart/form-data required' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    }
+    const form = await c.req.formData()
+    const file = form.get('file') as File | null
+    if (!file) return new Response(JSON.stringify({ error: 'file is required' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+
+    const buf = await file.arrayBuffer()
+    const now = new Date()
+    const yyyy = String(now.getFullYear())
+    const mm = String(now.getMonth() + 1).padStart(2, '0')
+    const dd = String(now.getDate()).padStart(2, '0')
+    const rand = Math.random().toString(36).slice(2, 10)
+    const safeName = (file.name || 'upload').replace(/[^a-zA-Z0-9._-]/g, '_')
+    const bucket = (c.env.R2_BUCKET || 'images').replace(/^\/+|\/+$/g, '')
+    const key = `${bucket}/images/${yyyy}/${mm}/${dd}/${rand}-${safeName}`
+
+    // Save to R2
+    // @ts-ignore IMAGES binding from wrangler.toml
+    const putRes = await c.env.IMAGES.put(key, buf, { httpMetadata: { contentType: file.type || 'application/octet-stream', cacheControl: 'public, max-age=2592000' } })
+    if (!putRes) {
+      return new Response(JSON.stringify({ error: 'failed to put object' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    }
+
+    const pubRoot = (c.env.R2_PUBLIC_URL || '').replace(/\/$/, '')
+    const publicUrl = pubRoot ? `${pubRoot}/${key.replace(new RegExp(`^${bucket}/`), '')}` : null
+
+    return new Response(JSON.stringify({ ok: true, result: { key, publicUrl, size: buf.byteLength, contentType: file.type || null } }), {
+      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=60' }
+    })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' } })
+  }
+})

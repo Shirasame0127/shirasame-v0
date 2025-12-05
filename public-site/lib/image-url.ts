@@ -41,3 +41,13 @@ export function buildR2VariantFromBasePathWithFormat(
   const ext = format === 'webp' ? 'webp' : 'jpg'
   return `${pubRoot}/${bp}/${fileBase}.${ext}`
 }
+
+// Cloudflare Image Resizing 前提のURL生成（CASE A準拠）
+export function buildResizedImageUrl(raw?: string | null, opts?: { width?: number; format?: 'auto' | 'webp' | 'jpeg' }) : string | null {
+  const base = getPublicImageUrl(raw)
+  if (!base) return null
+  const width = Math.max(1, Math.min(4096, opts?.width || 200))
+  const format = opts?.format || 'auto'
+  if (base.includes('/cdn-cgi/image/')) return base
+  return `/cdn-cgi/image/width=${width},format=${format}/${base}`
+}

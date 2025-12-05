@@ -451,6 +451,14 @@ export default function HomePage() {
       <InitialLoading />
       <main className="min-h-screen pb-20 relative">
         <PublicNav siteName={user?.displayName || ""} />
+        {process.env.NODE_ENV !== 'production' && (
+          <div className="max-w-7xl mx-auto px-4 py-4">
+            <details className="bg-white/80 p-2 rounded-md border">
+              <summary className="cursor-pointer font-medium">[DEBUG] user state</summary>
+              <pre className="text-xs max-h-64 overflow-auto p-2">{JSON.stringify(user, null, 2)}</pre>
+            </details>
+          </div>
+        )}
         {user && <ProfileHeader user={user as any} />}
 
         <div className="max-w-7xl mx-auto px-4 py-8">

@@ -3,8 +3,8 @@
 import React, { useEffect, useState } from 'react'
 import { getPublicImageUrl } from '@/lib/image-url'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || ""
-const api = (p: string) => `${API_BASE}${p}`
+import apiFetch, { apiPath } from '@/lib/api-client'
+const api = (p: string) => apiPath(p)
 
 export default function InitialLoading() {
   const [mountedVisible, setMountedVisible] = useState(true)
@@ -21,7 +21,7 @@ export default function InitialLoading() {
 
     ;(async () => {
       try {
-        const res = await fetch(api('/site-settings'))
+        const res = await apiFetch('/site-settings')
         if (!res.ok) throw new Error('failed')
         const json = await res.json()
         const raw = json?.data?.loading_animation

@@ -4,6 +4,7 @@ export type ImageMeta = {
   height?: number | null
   aspect?: number | null
   role?: string | null
+  uploadedAt?: string | null
 }
 
 export type Product = {
@@ -38,6 +39,7 @@ export type Recipe = {
   imageWidth?: number
   imageHeight?: number
   pins: RecipePin[]
+  images?: ImageMeta[]
   published?: boolean
 }
 

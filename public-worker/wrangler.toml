@@ -3,6 +3,19 @@ main = "src/index.ts"
 compatibility_date = "2025-12-02"
 account_id = "cc4a35b866542fbddca136b1cfc53037"
 workers_dev = true
+# The workers.dev host for this script will be served under your account's
+# workers.dev namespace. For clarity we document the desired public host below.
+# Public workers.dev domain (workers.dev): public-worker.shirasame-official.workers.dev
+# Preview URL pattern (wildcard): *-public-worker.shirasame-official.workers.dev
+
+# If you want to bind this Worker to specific hostnames (custom domains or
+# preview patterns), you can add them to the `routes` array below. Note: routes
+# must correspond to a zone you control for custom domains; workers_dev=true
+# will publish to the account workers.dev namespace regardless.
+routes = [
+	"https://public-worker.shirasame-official.workers.dev/*",
+	"https://*-public-worker.shirasame-official.workers.dev/*"
+]
 
 # If you want to bind to a custom route (example: api.example.com/*),
 # uncomment and set the routes array below.
@@ -24,12 +37,14 @@ PUBLIC_ALLOWED_ORIGINS = "*"
 INTERNAL_API_BASE = ""
 
 # Supabase anon 直取得（RLS前提）
-SUPABASE_URL = ""
-SUPABASE_ANON_KEY = ""
+SUPABASE_URL = "https://zikwelnhcpnnpurlomrf.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppa3dlbG5oY3BubnB1cmxvbXJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MjU3MjksImV4cCI6MjA3OTMwMTcyOX0.jpXt88FpfYpfni8eHAh2zAXl22biBruWHA-MPnu4F1A"
 # 公開サイトのオーナー（単一サイト運用前提）。RLSで不要なら空でも可
 PUBLIC_OWNER_USER_ID = ""
 # R2 公開URLとバケット名（basePath導出の補助）
-R2_PUBLIC_URL = ""
+R2_PUBLIC_URL = "https://pub-184f8243221740048da8add028429140.r2.dev"
 R2_BUCKET = "images"
 
 # Cloudflare D1/Queues等は現状未使用。Supabase直取得に切替する場合はANONキー等を[vars]へ。
+# Public profile email used by GET /profile
+PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"
