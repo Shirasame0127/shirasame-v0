@@ -12,10 +12,15 @@ workers_dev = true
 # preview patterns), you can add them to the `routes` array below. Note: routes
 # must correspond to a zone you control for custom domains; workers_dev=true
 # will publish to the account workers.dev namespace regardless.
-routes = [
-	"https://public-worker.shirasame-official.workers.dev/*",
-	"https://*-public-worker.shirasame-official.workers.dev/*"
-]
+# NOTE: Creating routes on an account subdomain is restricted in some CI
+# environments and may cause deploy failures (error 10038). To avoid CI
+# failures, we do NOT create custom routes here by default. Use the
+# `workers.dev` hostname or configure routes manually in the Cloudflare
+# dashboard if needed.
+# routes = [
+#     "https://public-worker.shirasame-official.workers.dev/*",
+#     "https://*-public-worker.shirasame-official.workers.dev/*"
+# ]
 
 # If you want to bind to a custom route (example: api.example.com/*),
 # uncomment and set the routes array below.
@@ -48,3 +53,7 @@ R2_BUCKET = "images"
 # Cloudflare D1/Queues等は現状未使用。Supabase直取得に切替する場合はANONキー等を[vars]へ。
 # Public profile email used by GET /profile
 PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"
+
+[env.production]
+# Production-specific overrides can go here. Keeping empty ensures
+# `wrangler deploy --env production` works when CI passes --env.
