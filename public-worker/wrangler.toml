@@ -55,5 +55,6 @@ R2_BUCKET = "images"
 PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"
 
 [env.production]
+name = "public-worker"
 # Production-specific overrides can go here. Keeping empty ensures
 # `wrangler deploy --env production` works when CI passes --env.
