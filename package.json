@@ -7,6 +7,9 @@
     "build:public": "cd public-site && pnpm install && pnpm run build:pages",
     "build:admin": "cd admin-site && pnpm install && pnpm run build"
   },
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.937.0",
     "@aws-sdk/s3-request-presigner": "^3.937.0",
