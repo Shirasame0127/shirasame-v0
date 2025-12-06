@@ -6,7 +6,7 @@ import {
   buildR2VariantFromBasePath as sharedBuildR2VariantFromBasePath,
   buildR2VariantFromBasePathWithFormat as sharedBuildR2VariantFromBasePathWithFormat,
   ImageUsage,
-} from '../../shared/lib/image-usecases'
+} from '../shared/lib/image-usecases'
 
 export const getPublicImageUrl = sharedGetPublicImageUrl
 export const buildResizedImageUrl = sharedBuildResizedImageUrl
