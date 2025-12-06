@@ -345,9 +345,7 @@ export default function ProductEditPage({ params }: { params: any }) {
     images.push({
       url: finalMainUrl,
       role: "main",
-      width: 400,
-      height: 400,
-      aspect: "1:1"
+      aspect: "1:1",
     })
 
     finalAttachmentSlots.forEach((slot) => {
@@ -355,8 +353,6 @@ export default function ProductEditPage({ params }: { params: any }) {
         images.push({
           url: slot.url,
           role: "attachment",
-          width: 400,
-          height: 400,
           aspect: "1:1"
         })
       }

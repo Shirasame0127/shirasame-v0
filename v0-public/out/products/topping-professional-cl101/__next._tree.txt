@@ -1,8 +1,0 @@
-1:"$Sreact.fragment"
-2:I[63687,["/_next/static/chunks/0d839683cff23856.js"],"ViewportBoundary"]
-4:I[63687,["/_next/static/chunks/0d839683cff23856.js"],"MetadataBoundary"]
-5:"$Sreact.suspense"
-:HL["/_next/static/chunks/0cd6c42d1fed570e.css","style"]
-0:{"buildId":"1UbI6IOQs0h8cTyrKLhUe","tree":{"name":"","paramType":null,"paramKey":"","hasRuntimePrefetch":false,"slots":{"children":{"name":"products","paramType":null,"paramKey":"products","hasRuntimePrefetch":false,"slots":{"children":{"name":"slug","paramType":"d","paramKey":"topping-professional-cl101","hasRuntimePrefetch":false,"slots":{"children":{"name":"__PAGE__","paramType":null,"paramKey":"__PAGE__","hasRuntimePrefetch":false,"slots":null,"isRootLayout":false}},"isRootLayout":false}},"isRootLayout":false}},"isRootLayout":true},"head":["$","$1","h",{"children":[null,["$","$L2",null,{"children":"$@3"}],["$","div",null,{"hidden":true,"children":["$","$L4",null,{"children":["$","$5",null,{"name":"Next.Metadata","children":"$@6"}]}]}],null]}],"isHeadPartial":false,"staleTime":300}
-3:[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]
-6:[["$","title","0",{"children":"Shirasame"}],["$","meta","1",{"name":"description","content":"Shirasame public catalog"}]]

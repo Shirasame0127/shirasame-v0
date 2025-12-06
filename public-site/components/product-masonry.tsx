@@ -31,7 +31,6 @@ export default function ProductMasonry({ items, className, columns = 7, fullWidt
           <div key={it.id} className="break-inside-avoid mb-4">
             {(() => {
               const raw = it.image || null
-              const variant: 'thumb-400' | 'detail-800' = 'thumb-400'
               let webp: string | null = null
               let jpg: string | null = null
 

@@ -29,7 +29,7 @@
 {
   "ok": true,
   "result": {
-    "url": "https://pub-XXX.r2.dev/uploads/abc.jpg",
+    "url": "https://images.shirasame.com/uploads/abc.jpg",
     "key": "uploads/abc.jpg",
     "bucket": "public"
   }

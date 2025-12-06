@@ -1,5 +1,0 @@
-1:"$Sreact.fragment"
-2:I[63687,["/_next/static/chunks/0d839683cff23856.js"],"OutletBoundary"]
-3:"$Sreact.suspense"
-0:{"buildId":"1UbI6IOQs0h8cTyrKLhUe","rsc":["$","$1","c",{"children":[["$","main",null,{"className":"py-6","children":"Not found"}],null,["$","$L2",null,{"children":["$","$3",null,{"name":"Next.MetadataOutlet","children":"$@4"}]}]]}],"loading":null,"isPartial":false}
-4:null

@@ -9,6 +9,7 @@ import { Save } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { db } from "@/lib/db/storage"
 import { auth } from "@/lib/auth"
+import { getPublicImageUrl } from "@/lib/image-url"
 import { convertImageToBase64 } from "@/lib/utils/image-utils"
 import type { Recipe } from "@/lib/db/schema"
 import { useToast } from "@/hooks/use-toast"
@@ -48,6 +49,7 @@ export default function RecipeNewPage() {
     const recipeId = `recipe-${Date.now()}`
 
     let finalUrl = imageUrl
+    let finalKey: string | null = null
     try {
       if (imageUrl && imageUrl.startsWith('data:')) {
         const res = await fetch(imageUrl)
@@ -61,7 +63,8 @@ export default function RecipeNewPage() {
         const uploadJson = await uploadResp.json().catch(() => null)
         if (uploadJson && uploadJson.ok && uploadJson.result) {
           if (typeof uploadJson.result === 'object') {
-            finalUrl = uploadJson.result.url || (Array.isArray(uploadJson.result.variants) ? uploadJson.result.variants[0] : finalUrl)
+            finalKey = uploadJson.result.key || null
+            finalUrl = finalKey ? (getPublicImageUrl(finalKey) || finalUrl) : (uploadJson.result.url || (Array.isArray(uploadJson.result.variants) ? uploadJson.result.variants[0] : finalUrl))
           } else if (typeof uploadJson.result === 'string') {
             finalUrl = uploadJson.result
           }
@@ -71,6 +74,10 @@ export default function RecipeNewPage() {
       console.warn('[v0] new recipe image upload failed, keeping inline image', e)
     }
 
+    const imageObj: any = { id: recipeId, width: 1920, height: 1080, uploadedAt: new Date().toISOString() }
+    if (finalKey) imageObj.key = finalKey
+    else imageObj.url = finalUrl
+
     const recipe: Recipe = {
       id: recipeId,
       userId: currentUser.id,
@@ -79,9 +86,7 @@ export default function RecipeNewPage() {
       width: 1920,
       height: 1080,
       pins: [],
-      images: [
-        { id: recipeId, url: finalUrl, width: 1920, height: 1080, uploadedAt: new Date().toISOString() },
-      ],
+      images: [ imageObj ],
       published: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -90,10 +95,16 @@ export default function RecipeNewPage() {
     const created = db.recipes.create(recipe)
 
     try {
+      const body: any = { recipeId, id: recipeId, width: 1920, height: 1080 }
+      if (finalKey) body.key = finalKey
+      else {
+        // CASE A: do not persist full URLs to the server DB. Skip server upsert when no key available.
+        console.warn('[v0] no finalKey obtained; skipping server persist to avoid storing URLs in DB')
+      }
       await fetch('/api/admin/recipe-images/upsert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipeId, id: recipeId, url: finalUrl, width: 1920, height: 1080 }),
+        body: JSON.stringify(body),
       })
     } catch (e) {
       console.warn('[v0] failed to persist new recipe image to server', e)

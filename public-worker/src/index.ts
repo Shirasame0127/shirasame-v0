@@ -5,6 +5,28 @@ import { zValidator } from '@hono/zod-validator'
 import { makeWeakEtag } from './utils/etag'
 import { getSupabase } from './supabase'
 
+function getPublicImageUrl(raw?: string | null, opts: { width?: number } = {}): string | null {
+  if (!raw) return null
+  if (typeof raw === 'string' && raw.startsWith('data:')) return raw
+  const domain = (process.env.IMAGES_DOMAIN || process.env.NEXT_PUBLIC_IMAGES_DOMAIN || '').replace(/\/$/, '')
+  if (!domain) return raw
+  let key: any = raw
+  try {
+    if (typeof raw === 'string' && raw.startsWith('http')) {
+      const u = new URL(raw)
+      key = u.pathname.replace(/^\/+/, '')
+      const cdnIndex = key.indexOf('cdn-cgi/image/')
+      if (cdnIndex !== -1) {
+        key = key.slice(cdnIndex + 'cdn-cgi/image/'.length)
+        const firstSlash = key.indexOf('/')
+        if (firstSlash !== -1) key = key.slice(firstSlash + 1)
+      }
+    }
+  } catch (_) {}
+  const width = typeof opts.width === 'number' ? opts.width : 400
+  return `${domain}/cdn-cgi/image/width=${width},format=auto,quality=75/${String(key).replace(/^\/+/, '')}`
+}
+
 export type Env = {
   PUBLIC_ALLOWED_ORIGINS: string
   INTERNAL_API_BASE: string
@@ -158,7 +180,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
       let products: any[] = []
       if (productIds.length > 0) {
         const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
-        const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,url,width,height,role)'
+        const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
         const baseSelect = '*, images:product_images(*), affiliateLinks:affiliate_links(*)'
         let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('published', true)
         if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
@@ -195,7 +217,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
             showPrice: p.show_price,
             notes: p.notes,
             relatedLinks: p.related_links,
-            images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, url: img.url, width: img.width, height: img.height, aspect: img.aspect, role: img.role })) : [],
+            images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, url: getPublicImageUrl(img.key) || img.url || null, key: img.key ?? null, width: img.width, height: img.height, aspect: img.aspect, role: img.role })) : [],
             affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : [],
           })),
         }
@@ -299,7 +321,7 @@ app.get('/recipes', zValidator('query', listQuery.partial()), async (c) => {
 
       const transformed = (recipes || []).map((r: any) => {
         const imgsRaw = Array.isArray(r.images) ? r.images : []
-        const mappedImages = imgsRaw.map((img: any) => ({ id: img.id, recipeId: r.id, url: img.url, width: img.width, height: img.height }))
+        const mappedImages = imgsRaw.map((img: any) => ({ id: img.id, recipeId: r.id, key: img.key ?? null, url: (img.key ? getPublicImageUrl(img.key) : (img.url || null)), width: img.width, height: img.height }))
         if (r.base_image_id && mappedImages.length > 1) {
           const idx = mappedImages.findIndex((mi: any) => mi.id === r.base_image_id)
           if (idx > 0) {
@@ -466,7 +488,7 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
   const tag = q.tag
 
   const baseSelect = '*, images:product_images(*), affiliateLinks:affiliate_links(*)'
-  const shallowSelect = 'id,user_id,title,slug,tags,price,published,created_at,updated_at,images:product_images(id,product_id,url,width,height,role)'
+  const shallowSelect = 'id,user_id,title,slug,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
 
   const key = `products${c.req.url.includes('?') ? c.req.url.substring(c.req.url.indexOf('?')) : ''}`
   return cacheJson(c, key, async () => {
@@ -510,8 +532,8 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
       const transformed = (data || []).map((p: any) => {
         if (shallow) {
           const firstImg = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : null
-          const imgUrl = firstImg && typeof firstImg.url === 'string' && !firstImg.url.startsWith('data:') ? firstImg.url : null
-          const basePath = deriveBasePath(c, firstImg?.url || null)
+          const imgUrl = firstImg && (firstImg.key || firstImg.url) ? (getPublicImageUrl(firstImg.key) || firstImg.url) : null
+          const basePath = deriveBasePath(c, firstImg?.key || firstImg?.url || null)
           return {
             id: p.id,
             userId: p.user_id,
@@ -543,15 +565,16 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
           relatedLinks: p.related_links,
           images: Array.isArray(p.images)
             ? p.images.map((img: any) => ({
-                id: img.id,
-                productId: img.product_id,
-                url: img.url,
-                width: img.width,
-                height: img.height,
-                aspect: img.aspect,
-                role: img.role,
-                basePath: deriveBasePath(c, img.url),
-              }))
+                  id: img.id,
+                  productId: img.product_id,
+                  key: img.key ?? null,
+                  url: getPublicImageUrl(img.key) || img.url || null,
+                  width: img.width,
+                  height: img.height,
+                  aspect: img.aspect,
+                  role: img.role,
+                  basePath: deriveBasePath(c, img.key || img.url),
+                }))
             : [],
           affiliateLinks: Array.isArray(p.affiliateLinks)
             ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label }))
@@ -651,8 +674,10 @@ app.post('/upload-image', async (c) => {
       return new Response(JSON.stringify({ error: 'failed to put object' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
     }
 
-    const pubRoot = (c.env.R2_PUBLIC_URL || '').replace(/\/$/, '')
-    let publicUrl = pubRoot ? `${pubRoot}/${key.replace(new RegExp(`^${bucket}/`), '')}` : null
+    // Prefer a configured custom images domain (proxied Cloudflare domain) if present.
+    // Fall back to R2 public host if not provided.
+    const imagesDomain = ((c.env.IMAGES_DOMAIN as string) || (c.env.R2_PUBLIC_URL as string) || '').replace(/\/$/, '')
+    let publicUrl = imagesDomain ? `${imagesDomain}/${key.replace(new RegExp(`^${bucket}/`), '')}` : null
     // Normalize: strip query string and fragment to avoid accidental unique transforms
     if (publicUrl) {
       try {
@@ -663,6 +688,10 @@ app.post('/upload-image', async (c) => {
       } catch (e) {
         // Fallback for non-absolute or malformed URLs: remove after ? or #
         publicUrl = publicUrl.split(/[?#]/)[0].replace(/\/$/, '')
+      }
+      // Ensure the publicUrl uses HTTPS when the configured domain lacks a scheme
+      if (!/^https?:\/\//i.test(publicUrl)) {
+        publicUrl = `https://${publicUrl}`
       }
     }
 

@@ -45,7 +45,7 @@ export async function GET(req: Request) {
     // ベースクエリ: products と関連する product_images と affiliate_links を取得
     const baseSelect = `*, images:product_images(*), affiliateLinks:affiliate_links(*)`
     // shallow 用は必要最小限のカラムのみを取得（affiliateLinks を除外、images は限定列）
-    const shallowSelect = `id,user_id,title,slug,tags,price,published,created_at,updated_at,images:product_images(id,product_id,url,width,height,role)`
+    const shallowSelect = `id,user_id,title,slug,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)`
     // Build a fresh query with the same filters applied. We avoid chaining
     // `.select(..., { count: 'exact' })` and `.range(...)` on the same builder
     // to keep TypeScript happy about overloads. Instead we construct queries
@@ -141,8 +141,8 @@ export async function GET(req: Request) {
         // or use the original URL directly. Returning the original URL here
         // avoids embedding a thumbnail-proxy URL which could be double-encoded
         // and cause recursive thumbnail calls.
-        const imgUrl = firstImg && typeof firstImg.url === 'string' && !firstImg.url.startsWith('data:')
-          ? getPublicImageUrl(firstImg.url) || firstImg.url
+        const imgUrl = firstImg && (firstImg.key || firstImg.url)
+          ? getPublicImageUrl(firstImg.key || firstImg.url) || (firstImg.url ?? null)
           : null
 
         // If a CDN base is configured and the image is hosted in R2, prefer
@@ -202,7 +202,8 @@ export async function GET(req: Request) {
           ? p.images.map((img: any) => ({
               id: img.id,
               productId: img.product_id,
-              url: getPublicImageUrl(img.url) || img.url,
+              url: getPublicImageUrl(img.key) || img.url || null,
+              key: img.key ?? null,
               width: img.width,
               height: img.height,
               aspect: img.aspect,

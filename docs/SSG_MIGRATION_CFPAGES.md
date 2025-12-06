@@ -28,7 +28,7 @@
 
 ## 現状のやり方（構成と運用）
 - 構成: 公開ページ・管理ページ・API は Next.js（App Router）で同一アプリ内に共存。
-- データ: データベースは Supabase。画像は Cloudflare R2 に保管（公開URLで参照）。サムネイルは「ビルド時／アップロード時」に 400px/800px の2サイズを事前生成し、固定ファイル名（`thumb-400.jpg` / `detail-800.jpg`）で保存・直接配信する。
+ - データ: データベースは Supabase。画像は Cloudflare R2 に保管（公開URLで参照）。サムネイルは事前生成を前提とせず、Cloudflare Image Resizing（`/cdn-cgi/image`）によるオンデマンド変換で配信する方式を推奨します（代表幅: 200/400/800、`format=auto`、`quality=75`）。
 - API: 現在は同一アプリから提供。今後は API のみ Cloudflare Workers へ分離予定。
 - 反映要件: リアルタイム性は不要。管理ページでの商品追加・編集・削除、画像差し替え後に「適切なタイミングで反映」されれば十分（再ビルド/再配信で可、Webhook による自動トリガー想定、目安: 数十秒〜数分）。
 - 規模感: 商品 ~120、画像 ~600 → 完全静的配信（SSG + 静的 JSON）でも十分現実的なデータ量。
@@ -42,7 +42,7 @@
 - 変更反映は管理画面で行い、画像は R2 に保存。必要に応じて Webhook で静的資産の再ビルドをトリガーする。
 
 ## 実装上のポイント
-- 画像: R2 に `thumb-400` / `detail-800` を事前生成しておき、クライアントは `basePath` を優先して組み立てる。variant が無い場合は `getPublicImageUrl` を用いた元URLの利用、または Worker のサムネイルプロキシを利用する。
+  - 画像: R2 にオリジナルを保存し、クライアントは canonical な `publicUrl` を優先して利用します。`basePath` が存在する場合は、Cloudflare Image Resizing によるオンデマンド変換 URL（代表幅 200/400/800）を組み立てて使うことを想定しています（事前生成された固定ファイル名に依存しません）。
 - フロント: Next.js の App Router を活用しつつ、公開ルートはページシェルを SSG 化。商品リスト等はクライアントコンポーネント（`"use client"`）で fetch/描画する。
 - キャッシュ: 静的アセットは長期キャッシュ、データAPIは `stale-while-revalidate` を推奨。Workers 側で ETag/Cache-Control を付与する。
 - 反映ワークフロー: 画像アップロード → DB 更新（Supabase）→（必要時）Pages のビルドフックを叩いて再ビルド。再ビルドが不要な変更はクライアント側の再取得でカバー。
@@ -102,18 +102,12 @@
   - API/JSON: `stale-while-revalidate` を有効化（Workers or 静的JSONの再デプロイ）。
   - 画像: R2 + CDN キャッシュ長め。必要なら `?w=...` `?q=...` 付きのサムネイルURLを規格化。
 - 画像最適化:
-  - 原則は「事前生成 + 直接配信」。保存APIで 400px/800px の2サイズを生成し、R2 に `.../<basePath>/thumb-400.jpg` と `.../<basePath>/detail-800.jpg` として保存。
-  - 実行時変換（Workers Image Resizing/Cloudflare Images）は使わない（ユニーク変換課金を避ける）。例外的に必要な場合のみ別途エンドポイントで対応。
+  - 原則はオンデマンド変換を基本とします。保存APIはオリジナルを R2 に置き、配信時は Cloudflare Image Resizing（`/cdn-cgi/image`）で代表幅（200/400/800）、`format=auto`、`quality=75` の変換 URL を生成して配信します。不可避の事情で事前生成が必要な場合は別途検討します。
 
-### 画像配信の仕様（固定ファイル名 + basePath）
-- 保存API（管理）: 原画像を受け取り、R2 に以下を作成
-  - `<basePath>/thumb-400.jpg`
-  - `<basePath>/detail-800.jpg`
-- API（公開・一覧/詳細）: 画像エントリに `basePath` を含めて返却。
-- クライアント（公開サイト）: 用途に応じて以下を組み立てて利用
-  - 一覧: `${R2_PUBLIC_URL}/${basePath}/thumb-400.jpg`
-  - 詳細/モーダル: `${R2_PUBLIC_URL}/${basePath}/detail-800.jpg`
-  - 備考: 既存の `url` も後方互換のため返却するが、将来的には `basePath` ベースの参照に一本化可能。
+### 画像配信の仕様（オンデマンド変換）
+- 保存API（管理）: 原画像を R2 に保存し、必要であれば `basePath` をメタデータとして DB に保持します。
+- API（公開・一覧/詳細）: 画像エントリに `basePath` や canonical `url` を含めて返却します。
+- クライアント（公開サイト）: クライアントはまず canonical な `publicUrl` を優先して利用し、用途に応じて Cloudflare Image Resizing（`/cdn-cgi/image`）で代表幅（200/400/800）、`format=auto`、`quality=75` のオンデマンド変換 URL を生成して利用してください。事前生成された固定ファイル名に依存する実装は不要です。
 
 ## UI仕様（All Items オーバーレイ）
 

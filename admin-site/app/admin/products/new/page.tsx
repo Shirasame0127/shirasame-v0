@@ -335,12 +335,10 @@ export default function ProductNewPage() {
         .filter(({ slot }) => slot.file || slot.url)
         .map(async ({ slot, idx }) => ({
           id: `img-attachment-${Date.now()}-${idx}`,
-          productId: generatedProductId,
-          url: slot.url || (slot.file ? await fileToBase64(slot.file) : ""),
-          width: 400,
-          height: 400,
-          aspect: "1:1",
-          role: "attachment" as const,
+            productId: generatedProductId,
+            url: slot.url || (slot.file ? await fileToBase64(slot.file) : ""),
+            aspect: "1:1",
+            role: "attachment" as const,
         })),
     )
 
@@ -358,8 +356,6 @@ export default function ProductNewPage() {
           id: `img-${Date.now()}`,
           productId: generatedProductId,
           url: mainImageSource,
-          width: 400,
-          height: 400,
           aspect: "1:1",
           role: "main" as const,
         },

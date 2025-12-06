@@ -1,19 +1,44 @@
 import { NextResponse } from 'next/server'
 import supabaseAdmin from '@/lib/supabase'
 import { getOwnerUserId } from '@/lib/owner'
+import { getPublicImageUrl } from '@/lib/image-url'
+
+function ensureImageKeyFrom(body: any): string | null {
+  try {
+    if (!body) return null
+    if (body.key) return body.key
+    const u = body.url || body.imageUrl || body.src || null
+    if (!u) return null
+    try {
+      if (typeof u === 'string' && u.startsWith('http')) {
+        const parsed = new URL(u)
+        return (parsed.pathname || '').split('/').pop()?.split('?')[0] || null
+      }
+    } catch (e) {
+      return String(u).split('/').pop()?.split('?')[0] || null
+    }
+    return String(u).split('/').pop()?.split('?')[0] || null
+  } catch (e) {
+    return null
+  }
+}
 
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => null)
     if (!body) return NextResponse.json({ error: 'missing body' }, { status: 400 })
 
-    const { recipeId, url, width, height, id } = body as any
-    if (!recipeId || !url) return NextResponse.json({ error: 'recipeId and url are required' }, { status: 400 })
+    const { recipeId, width, height, id } = body as any
+    const key = ensureImageKeyFrom(body)
+    if (!recipeId || !key) return NextResponse.json({ error: 'recipeId and key are required' }, { status: 400 })
 
     const ownerId = await getOwnerUserId().catch(() => null)
 
+    const publicUrl = getPublicImageUrl(key)
+    const url = publicUrl || null
     const row: any = {
       recipe_id: recipeId,
+      key,
       url,
       width: width || null,
       height: height || null,
@@ -39,12 +64,12 @@ export async function POST(req: Request) {
         const updated = existingImages.map((img: any) => {
           if (img.id === id) {
             found = true
-            return { ...img, url, width: width || img.width, height: height || img.height }
+            return { ...img, key: key ?? img.key ?? null, url: url, width: width || img.width, height: height || img.height }
           }
           return img
         })
 
-        const finalImages = found ? updated : [...updated, { id, url, width: width || null, height: height || null, uploadedAt: new Date().toISOString() }]
+        const finalImages = found ? updated : [...updated, { id, key: key ?? null, url: url, width: width || null, height: height || null, uploadedAt: new Date().toISOString() }]
 
         const { data, error } = await supabaseAdmin.from('recipes').update({ images: finalImages }).eq('id', recipeId).select().maybeSingle()
         if (error) {
@@ -54,7 +79,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ data })
       } else {
         const newId = `image-${Date.now()}`
-        const insertObj = { id: newId, url, width: width || null, height: height || null, uploadedAt: new Date().toISOString() }
+        const insertObj = { id: newId, key: key ?? null, url, width: width || null, height: height || null, uploadedAt: new Date().toISOString() }
         const finalImages = [insertObj, ...existingImages]
 
         const { data, error } = await supabaseAdmin.from('recipes').update({ images: finalImages }).eq('id', recipeId).select().maybeSingle()

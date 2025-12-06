@@ -24,7 +24,7 @@
 - キャッシュ: `/api/products` の public shallow list に 10s のメモリキャッシュ (Node プロセス内 Map)。他は未実装。HTTP キャッシュは products shallow のみ `Cache-Control: public, max-age=10`。
 - ページネーション: `/api/products` のみ `limit` + `offset` + 任意 `count=true`。他ルートは全件返却。
 - 公開画像 URL: `getPublicImageUrl` で R2 / CDN 変換。
-- 画像配信ポリシー: 実行時のユニーク変換は原則廃止。保存時に 400px/800px を事前生成し、固定名 (`thumb-400.jpg` / `detail-800.jpg`) で R2 に保存。API は `images[].basePath` を返し、クライアントは `${R2_PUBLIC_URL}/${basePath}/thumb-400.jpg` 等を組み立てて利用。
+- 画像配信ポリシー: オリジナルは R2 に保存し、Cloudflare Image Resizing（`/cdn-cgi/image`）でオンデマンド変換して配信する方式を採用します。API は `images[].basePath` を返すことがありますが、クライアントはまず canonical な `publicUrl` を優先し、必要に応じて代表幅（200/400/800）・`format=auto`・`quality=75` の組み合わせで `/cdn-cgi/image` 変換 URL を生成してください。事前生成された固定ファイル名（`thumb-400.jpg` / `detail-800.jpg`）へ依存する運用は行いません。
 
 ---
 ## `/api/products`

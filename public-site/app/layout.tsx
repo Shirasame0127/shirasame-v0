@@ -1,6 +1,5 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Analytics } from "@vercel/analytics/next"
 import { AppInitializer } from "@/components/app-initializer"
 import InitialLoading from "@/components/initial-loading"
 import "./globals.css"
@@ -17,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <InitialLoading />
         <AppInitializer />
         {children}
-        <Analytics />
+        {/* Vercel Analytics removed for Cloudflare Pages deployment. */}
       </body>
     </html>
   )
