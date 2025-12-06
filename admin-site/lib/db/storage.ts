@@ -397,9 +397,11 @@ export const db = {
 
   // images: no localStorage — use server to persist metadata. getUpload returns in-memory cache URL if present
   images: {
-    saveUpload: (key: string, url: string) => {
+    // Save a local upload preview (base64) keyed by object key, and inform server of the key only.
+    // Per CASE A: DO NOT persist full URLs or base64 data to the DB — server should store `key` only.
+    saveUpload: (key: string, url?: string | null) => {
       caches.imageUploads = { ...(caches.imageUploads || {}), [key]: url }
-      apiFetch("POST", "/api/images/save", { key, url }).then((r) => {
+      apiFetch("POST", "/api/images/save", { key }).then((r) => {
         if (!r) console.warn("[v0] images.saveUpload: server save failed")
       })
     },
@@ -407,7 +409,7 @@ export const db = {
       const raw = (caches.imageUploads || {})[key]
       if (!raw) return raw
       try {
-        // Normalize to public pub-domain URL when possible
+        // Normalize to the canonical public domain URL when possible. If `raw` is a key, getPublicImageUrl will map it.
         const normalized = getPublicImageUrl(raw)
         return normalized || raw
       } catch (e) {

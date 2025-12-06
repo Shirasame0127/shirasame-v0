@@ -49,7 +49,7 @@
   - ローカルモック DB: `db`（`@/lib/db/storage`）から `recipes`, `theme`, `user` などを参照（フォールバック用途）。
 - API 呼び出し（クラウド優先・並列取得）:
   - `/api/products?published=true&shallow=true&limit=<pageLimit>&offset=0`
-    - 公開商品一覧（軽量形式）。`images` が存在しない場合は `image` から正規化して `images` を構築。
+    - 公開商品一覧（軽量形式）。`images` フィールドを使用する想定です。互換性のため `image` フィールドを持つレコードはサーバー/クライアント双方で `images` に正規化して扱います。
   - `/api/collections`
     - コレクション一覧。
   - `/api/profile`（条件付き）

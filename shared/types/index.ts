@@ -1,5 +1,10 @@
 export type ImageMeta = {
-  url: string
+  // Key-only policy: store the R2 object key/path only.
+  // Example: `images/2025/12/06/abcd1234.jpg`
+  key: string
+  // Deprecated: legacy full URL field. Keep optional for transitional reads only;
+  // DO NOT write new records with `url` — persist `key` only.
+  url?: string | null
   width?: number | null
   height?: number | null
   aspect?: number | null
@@ -35,6 +40,7 @@ export type Recipe = {
   id: string
   title: string
   imageDataUrl?: string
+  // Deprecated: prefer `images: ImageMeta[]` with `key` only. Do not write `imageUrl` to DB.
   imageUrl?: string
   imageWidth?: number
   imageHeight?: number

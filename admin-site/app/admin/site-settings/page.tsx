@@ -10,7 +10,7 @@ import { ImageUpload } from "@/components/image-upload"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { db } from "@/lib/db/storage"
-import { getPublicImageUrl } from "@/lib/image-url"
+import { getPublicImageUrl, buildResizedImageUrl } from "@/lib/image-url"
 import type { SocialLink } from "@/lib/db/schema"
 import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2, ArrowLeft, ArrowRight, Star } from "lucide-react"
 import {
@@ -93,16 +93,17 @@ export default function AdminSettingsPage() {
   // Sanitize server-provided user row into a client-friendly updates object
   function sanitizeServerUserForCache(srv: any) {
     if (!srv) return {}
-    const headerKeys = srv.headerImageKeys || srv.header_images_keys || srv.header_images || srv.headerImageKeys || srv.header_image_keys || srv.header_image || []
+    const headerKeys = srv.header_image_keys || srv.headerImageKeys || []
     return {
       displayName: srv.display_name || srv.displayName || srv.name || null,
       bio: srv.bio || null,
       email: srv.email || null,
       backgroundType: srv.background_type || srv.backgroundType || null,
       backgroundValue: srv.background_value || srv.backgroundValue || null,
-      profileImage: srv.profile_image || srv.profileImage || null,
+      // Do not read or expose full URL fields. Use keys only.
+      profileImage: null,
       profileImageKey: srv.profile_image_key || srv.profileImageKey || null,
-      avatarUrl: srv.avatar_url || srv.avatarUrl || null,
+      avatarUrl: null,
       headerImageKeys: Array.isArray(headerKeys) ? headerKeys : headerKeys ? [headerKeys] : [],
       amazonAccessKey: srv.access_key || srv.amazon_access_key || srv.amazonAccessKey || null,
       amazonSecretKey: srv.secret_key || srv.amazon_secret_key || srv.amazonSecretKey || null,
@@ -270,16 +271,12 @@ export default function AdminSettingsPage() {
       fd.append("file", file)
       const res = await fetch("/api/images/upload", { method: "POST", body: fd })
       const json = await res.json()
-      const variants = json?.result?.variants
-      const originalUrl = json?.result?.publicUrl || json?.result?.url
-      const isGif = file.type === 'image/gif' || (file.name && file.name.toLowerCase().endsWith('.gif'))
-      const uploadedUrl = isGif ? (originalUrl || (Array.isArray(variants) ? variants.find((v: string) => v.toLowerCase().endsWith('.gif')) : undefined) || variants?.[0]) : (Array.isArray(variants) ? variants[0] : originalUrl)
-      if (uploadedUrl) {
-        // store the direct URL in headerImageKeys for simplicity
-        const newKeys = [...headerImageKeys, uploadedUrl]
+      // prefer returned key
+      const uploadedKey = json?.result?.key || null
+      if (uploadedKey) {
+        const newKeys = [...headerImageKeys, uploadedKey]
         setHeaderImageKeys(newKeys)
 
-        // Persist immediately to server so refresh retains images
         try {
           const payload: any = { headerImageKeys: newKeys }
           const saveRes = await fetch('/api/admin/settings', {
@@ -287,7 +284,7 @@ export default function AdminSettingsPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           })
-            if (saveRes.ok) {
+          if (saveRes.ok) {
             const saved = await saveRes.json().catch(() => null)
             if (saved?.data) {
               setUser(saved.data)

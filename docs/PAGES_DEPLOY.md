@@ -23,7 +23,7 @@ pnpm dlx @cloudflare/open-next@latest build
 - Output directory: 空欄（Next.js integration を使う場合）。
 - 環境変数（例）:
   - `NEXT_PUBLIC_API_BASE_URL` = https://public-worker.shirasame-official.workers.dev
-  - `NEXT_PUBLIC_R2_PUBLIC_URL` = https://pub-...r2.dev
+  - `NEXT_PUBLIC_R2_PUBLIC_URL` = https://images.shirasame.com
   - `NEXT_PUBLIC_SITE_URL` = https://<your-pages-domain>
   - `IMAGES_TRANSFORM_BASE` = /cdn-cgi/image
 

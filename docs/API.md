@@ -13,7 +13,7 @@
 - 成功レスポンス例:
   - Cloudflare R2/S3 風の結果:
     ```json
-    { "ok": true, "result": { "url": "https://pub-XXX.r2.dev/...,", "key": "uploads/abc.jpg", "bucket": "public" } }
+    { "ok": true, "result": { "url": "https://images.shirasame.com/uploads/abc.jpg", "key": "uploads/abc.jpg", "bucket": "public" } }
     ```
   - Cloudflare Images の場合は `result.variants` を返すことがある。
 - 注意: `target` クエリや body フィールドを使い、`profile` / `header` / `recipe` など用途に応じた副作用（例: `users` テーブルの更新）を行う。

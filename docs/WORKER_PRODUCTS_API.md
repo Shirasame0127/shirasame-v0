@@ -40,7 +40,7 @@
 - 任意（Vars）
   - `PUBLIC_PROFILE_EMAIL`（オーナー解決に使用）
   - `PUBLIC_HOST` or `NEXT_PUBLIC_PUBLIC_HOST`
-  - `R2_PUBLIC_URL`（例: `https://<account>.r2.cloudflarestorage.com/<bucket>`）
+  - `R2_PUBLIC_URL`（例: `https://images.shirasame.com/<bucket>` または R2 の公開サブドメイン）
   - `IMAGES_TRANSFORM_BASE`（例: `https://public.example.com/cdn-cgi/image/`）
   - `LIST_IMAGE_WIDTH`（デフォルト 400）
 

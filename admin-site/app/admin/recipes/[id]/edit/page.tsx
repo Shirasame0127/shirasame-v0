@@ -36,6 +36,41 @@ import { useToast } from "@/hooks/use-toast"
 import { WEB_FONTS, getFontsByCategory } from "@/lib/fonts/web-fonts"
 import { getCurrentUser } from "@/lib/auth"
 import { getPublicImageUrl } from "@/lib/image-url"
+// Helper: ensure we can obtain an image key from an image object or URL
+function ensureImageKey(imgOrUrl: any): string | null {
+  try {
+    if (!imgOrUrl) return null
+    if (typeof imgOrUrl === 'string') {
+      const raw = imgOrUrl
+      try {
+        if (raw.startsWith('http')) {
+          const u = new URL(raw)
+          return (u.pathname || '').split('/').pop()?.split('?')[0] || null
+        }
+      } catch (e) {
+        // fallback to naive split
+        return String(raw).split('/').pop()?.split('?')[0] || null
+      }
+      return String(raw).split('/').pop()?.split('?')[0] || null
+    }
+    if (typeof imgOrUrl === 'object') {
+      if (imgOrUrl.key) return imgOrUrl.key
+      const u = imgOrUrl.url || imgOrUrl.imageUrl || imgOrUrl.src || null
+      if (!u) return null
+      try {
+        if (typeof u === 'string' && u.startsWith('http')) {
+          const uu = new URL(u)
+          return (uu.pathname || '').split('/').pop()?.split('?')[0] || null
+        }
+      } catch (e) {
+        return String(u).split('/').pop()?.split('?')[0] || null
+      }
+      return String(u).split('/').pop()?.split('?')[0] || null
+    }
+  } catch (e) {
+    return null
+  }
+}
 import { Label } from "@/components/ui/label"
 
 const DEFAULT_STAGE_ASPECT_RATIO = 3 / 2 // 画像がまだ無いときのフォールバック比率
@@ -865,6 +900,7 @@ export default function RecipeEditPage() {
     ;(async () => {
       // If imageDataUrl is a data URL, upload it to the server so we can store a public R2 URL
       let finalImageUrl: string | undefined = undefined
+      let finalImageKey: string | null = null
 
       try {
         if (imageDataUrl && imageDataUrl.startsWith("data:")) {
@@ -881,7 +917,8 @@ export default function RecipeEditPage() {
           if (uploadJson && uploadJson.ok && uploadJson.result) {
             // R2 path returns result: { url: publicUrl, key }
             if (typeof uploadJson.result === "object") {
-              finalImageUrl = uploadJson.result.url || (Array.isArray(uploadJson.result.variants) ? uploadJson.result.variants[0] : undefined)
+              finalImageKey = uploadJson.result.key || null
+              finalImageUrl = finalImageKey ? (getPublicImageUrl(finalImageKey) || uploadJson.result.url) : (uploadJson.result.url || (Array.isArray(uploadJson.result.variants) ? uploadJson.result.variants[0] : undefined))
             } else if (typeof uploadJson.result === "string") {
               finalImageUrl = uploadJson.result
             }
@@ -902,12 +939,12 @@ export default function RecipeEditPage() {
         published,
       }
 
-      // If the image was already a public URL (edited from existing), normalize to pub-domain when possible
+      // If the image was already a public URL (edited from existing), normalize to the canonical public domain when possible
       if (imageDataUrl && imageDataUrl.startsWith("http")) {
         payload.imageUrl = getPublicImageUrl(imageDataUrl) || imageDataUrl
         payload.imageDataUrl = undefined
       } else if (finalImageUrl) {
-        // finalImageUrl may be a path or account URL — normalize to public pub-domain
+        // finalImageUrl may be a path or account URL — normalize to the canonical public domain
         payload.imageUrl = getPublicImageUrl(finalImageUrl) || finalImageUrl
         payload.imageDataUrl = undefined
       } else {
@@ -925,7 +962,9 @@ export default function RecipeEditPage() {
             return u === primary
           })
           if (!exists) {
-            existingImages.unshift({ id: `image-${Date.now()}`, url: primary, uploadedAt: new Date().toISOString() })
+            const newImg: any = { id: `image-${Date.now()}`, url: primary, uploadedAt: new Date().toISOString() }
+            if (finalImageKey && primary === finalImageUrl) newImg.key = finalImageKey
+            existingImages.unshift(newImg)
           }
         }
         // assign images array to payload
@@ -953,10 +992,19 @@ export default function RecipeEditPage() {
         const imgsToPersist = Array.isArray(payload.images) ? payload.images : []
         for (const img of imgsToPersist) {
           try {
+            const body: any = { recipeId, id: img.id, width: img.width || null, height: img.height || null }
+            const key = ensureImageKey(img)
+            if (key) {
+              body.key = key
+            } else {
+              // If no key found, skip to avoid persisting full URLs in DB
+              console.warn('[v0] no image key available for persistence, skipping image', img)
+              continue
+            }
             await fetch('/api/admin/recipe-images/upsert', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ recipeId, id: img.id, url: img.url, width: img.width || null, height: img.height || null }),
+              body: JSON.stringify(body),
             })
           } catch (innerErr) {
             console.warn('[v0] failed to persist recipe image to server', innerErr)

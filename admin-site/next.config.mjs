@@ -23,10 +23,9 @@ try {
   addHost(process.env.R2_PUBLIC_URL)
   addHost(process.env.CDN_BASE_URL)
   addHost(process.env.NEXT_PUBLIC_CDN_BASE)
-  if (process.env.CLOUDFLARE_ACCOUNT_ID) {
-    nextConfig.images.remotePatterns.push({ protocol: 'https', hostname: `${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`, pathname: '/**' })
-  }
-  nextConfig.images.remotePatterns.push({ protocol: 'https', hostname: '*.r2.dev', pathname: '/**' })
+  // Allow canonical images domain(s) via env
+  addHost(process.env.NEXT_PUBLIC_IMAGES_DOMAIN)
+  addHost(process.env.IMAGES_DOMAIN)
 } catch {}
 
 export default nextConfig

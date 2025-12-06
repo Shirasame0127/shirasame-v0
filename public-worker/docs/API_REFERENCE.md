@@ -30,7 +30,7 @@
   - `id` | `slug` | `tag`（単一取得/タグ絞り）
 - 備考:
   - `PUBLIC_OWNER_USER_ID` が設定されている場合、`id/slug` 指定なしのときに owner で絞り込み
-  - 画像配列要素には `basePath` を付与（R2 の事前生成 `thumb-400/detail-800` 組立てに利用）
+  - 画像配列要素には `basePath` を付与します。`basePath` がある場合はクライアントが canonical な `publicUrl` を優先しつつ、必要に応じて Cloudflare Image Resizing（`/cdn-cgi/image`）で代表幅（200/400/800）に変換したオンデマンド URL を組み立てられるようにします（事前生成された固定ファイル名に依存しません）。
 
 ### 2) `GET /collections`
 - 用途: 公開コレクション一覧の取得（各コレクション内に商品を含む）。
@@ -64,7 +64,7 @@
 ## 実装上の注意
 - すべて読み取り API（GET のみ）として公開済みです。書き込みは管理アプリ/管理 API 経由で実行してください。
 - `ETag` による 304 応答と Edge Cache により、フロントからの反復取得で帯域を抑制します。
-- 画像 URL は R2 の公開 URL に正規化されることを前提としており、クライアント側では `basePath` があれば事前生成 variant を、無い/未生成時は公開 URL をフォールバックで使用してください。
+-- 画像 URL は R2 の公開 URL に正規化されることを前提とします。クライアントはまず canonical な `publicUrl` を優先し、`basePath` が存在する場合は代表幅（200/400/800）で Cloudflare Image Resizing を使ったオンデマンド変換 URL を組み立てることを想定しています。事前生成された固定ファイル名（`thumb-400.jpg` / `detail-800.jpg` 等）には依存しません。
 
 ---
 

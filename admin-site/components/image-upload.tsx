@@ -143,7 +143,8 @@ export function ImageUpload({
             } catch (e) {
               uploadedUrl = (Array.isArray(variants) && variants[0]) || originalUrl
             }
-            return { url: uploadedUrl }
+            const uploadedKey: string | undefined = json?.result?.key
+            return { url: uploadedUrl, key: uploadedKey }
           }
 
           try {
@@ -163,6 +164,7 @@ export function ImageUpload({
             }
 
             const uploadedUrl = result?.url
+            const uploadedKey = (result as any)?.key || (result as any)?.id || undefined
             if ((result as any)?.id) {
               try {
                 const completeTarget = aspectRatioType === 'profile'
@@ -186,7 +188,7 @@ export function ImageUpload({
               }
             }
 
-            if (uploadedUrl && onUploadComplete) onUploadComplete(uploadedUrl)
+            if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
           } catch (e) {
             console.error('upload failed', e)
           }
@@ -324,6 +326,7 @@ export function ImageUpload({
           }
 
           const uploadedUrl = result?.url
+          const uploadedKey = (result as any)?.key || (result as any)?.id || undefined
           if ((result as any)?.id) {
             // Notify server to persist metadata to Supabase
             try {
@@ -354,7 +357,7 @@ export function ImageUpload({
             }
           }
 
-          if (uploadedUrl && onUploadComplete) onUploadComplete(uploadedUrl)
+          if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
         } catch (e) {
           console.error('upload failed', e)
         }

@@ -49,7 +49,9 @@ SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 # 公開サイトのオーナー（単一サイト運用前提）。RLSで不要なら空でも可
 PUBLIC_OWNER_USER_ID = ""
 # R2 公開URLとバケット名（basePath導出の補助）
-R2_PUBLIC_URL = "https://pub-184f8243221740048da8add028429140.r2.dev"
+R2_PUBLIC_URL = "https://images.shirasame.com"
+# Prefer proxied images domain for runtime URL generation when available
+IMAGES_DOMAIN = "https://images.shirasame.com"
 R2_BUCKET = "images"
 
 # Cloudflare D1/Queues等は現状未使用。Supabase直取得に切替する場合はANONキー等を[vars]へ。
@@ -72,6 +74,7 @@ INTERNAL_API_BASE = ""
 SUPABASE_URL = "https://zikwelnhcpnnpurlomrf.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppa3dlbG5oY3BubnB1cmxvbXJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MjU3MjksImV4cCI6MjA3OTMwMTcyOX0.jpXt88FpfYpfni8eHAh2zAXl22biBruWHA-MPnu4F1A"
 PUBLIC_OWNER_USER_ID = ""
-R2_PUBLIC_URL = "https://pub-184f8243221740048da8add028429140.r2.dev"
+R2_PUBLIC_URL = "https://images.shirasame.com"
 R2_BUCKET = "images"
 PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"
+IMAGES_DOMAIN = "https://images.shirasame.com"

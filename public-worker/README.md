@@ -63,7 +63,7 @@ curl "http://127.0.0.1:8787/products?shallow=true&limit=24"
 働作原理（短い説明）
 - Worker は zod でクエリのバリデーションを行い、Supabase anon クライアントで DB から公開用データを取得します。
 - 取得結果は `cacheJson` ヘルパーを通し、Cache API を使って短期キャッシュと ETag 生成を行います。
-- 画像は R2 上に事前生成された `thumb-400.jpg/webp` / `detail-800.jpg/webp` を `basePath` で参照します。
+- 画像は R2 にオリジナルを保存し、Cloudflare Image Resizing（`/cdn-cgi/image`）によるオンデマンド変換で配信します。クライアントは canonical な `publicUrl` を優先し、`basePath` がある場合は代表幅（200/400/800）で変換 URL を組み立てて利用できます。事前生成された固定ファイル名に依存する運用は行いません。
 
 デバッグのヒント
 - 404/500 が出る時: Supabase の URL / anon key が正しいか、SQL のエラー有無を確認する。

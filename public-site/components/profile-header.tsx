@@ -65,7 +65,20 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
               {
                 (() => {
                   const resp = responsiveImageForUsage(image, 'header-large')
-                  return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={`ヘッダー画像 ${index + 1}`} className="w-full h-full object-cover" />
+                  return <img
+                    src={resp.src || "/placeholder.svg"}
+                    srcSet={resp.srcSet || undefined}
+                    sizes={resp.sizes}
+                    alt={`ヘッダー画像 ${index + 1}`}
+                    className="w-full h-full object-cover"
+                    onError={(e: any) => {
+                      try {
+                        e.currentTarget.onerror = null
+                        e.currentTarget.src = '/placeholder.svg'
+                        e.currentTarget.srcset = ''
+                      } catch {}
+                    }}
+                  />
                 })()
               }
             </div>
