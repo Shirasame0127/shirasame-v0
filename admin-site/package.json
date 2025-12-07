@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build && mkdir -p .next && cp -r .next/server/app/* .next/ || true",
+    "build": "next build && node ./scripts/postbuild-copy.js",
     "start": "next start",
     "lint": "eslint ."
   },

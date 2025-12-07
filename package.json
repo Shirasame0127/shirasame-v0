@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@8.7.0",
   "scripts": {
+    "build": "pnpm run build:admin",
     "build:pages": "cd public-site && pnpm install && pnpm run build:pages",
     "build:public": "cd public-site && pnpm install && pnpm run build:pages",
     "build:admin": "cd admin-site && pnpm install && pnpm run build"
