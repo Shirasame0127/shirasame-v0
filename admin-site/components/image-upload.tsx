@@ -7,7 +7,7 @@ import { ImageCropper } from "@/components/image-cropper"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Upload, X } from "lucide-react"
-import Image from "next/image"
+import { responsiveImageForUsage } from "@/lib/image-url"
 import apiFetch from '@/lib/api-client'
 
 // Lightweight client-side compression utility (skip GIFs)
@@ -188,7 +188,9 @@ export function ImageUpload({
                 console.warn('images/complete failed', err)
               }
 
-            if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
+              }
+
+              if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
           } catch (e) {
             console.error('upload failed', e)
           }
@@ -353,7 +355,7 @@ export function ImageUpload({
                 }),
               })
             } catch (err) {
-                              const signRes = await apiFetch('/api/images/direct-upload', { method: 'POST' })
+              console.warn('images/complete failed', err)
             }
           }
 
@@ -433,7 +435,18 @@ export function ImageUpload({
         {previewUrl ? (
           <div className="relative rounded-lg overflow-hidden border bg-muted">
             <div className={`relative ${aspectRatioType === "header" ? "aspect-3/1" : aspectRatioType === "recipe" || aspectRatioType === "background" ? "aspect-video" : "aspect-square"}`}>
-              <Image src={previewUrl || "/placeholder.svg"} alt="プレビュー" fill className="object-cover" />
+              {
+                (() => {
+                  // Determine usage mapping for preview
+                  const usage = aspectRatioType === 'header' ? 'header-large' : aspectRatioType === 'recipe' ? 'recipe' : aspectRatioType === 'profile' ? 'avatar' : aspectRatioType === 'product' ? 'list' : aspectRatioType === 'background' ? 'original' : 'list'
+                  // If previewUrl is a blob: or data: URL, use it directly
+                  if (typeof previewUrl === 'string' && (previewUrl.startsWith('blob:') || previewUrl.startsWith('data:'))) {
+                    return <img src={previewUrl} alt="プレビュー" className="w-full h-full object-cover" />
+                  }
+                  const resp = responsiveImageForUsage(previewUrl || null, usage as any)
+                  return <img src={resp.src || previewUrl || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt="プレビュー" className="w-full h-full object-cover" />
+                })()
+              }
             </div>
             <Button
               type="button"

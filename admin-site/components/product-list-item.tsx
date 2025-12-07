@@ -1,7 +1,6 @@
 "use client"
 
-import Image from "next/image"
-import { getPublicImageUrl } from "@/lib/image-url"
+import { responsiveImageForUsage } from "@/lib/image-url"
 import apiFetch from '@/lib/api-client'
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -43,12 +42,12 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
       <CardContent className="p-4 h-30">
         <div className="flex gap-4">
           <div className="relative w-24 h-24 shrink-0 rounded-lg overflow-hidden bg-muted">
-            <Image
-              src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg?height=200&width=200"}
-              alt={product.title}
-              fill
-              className="object-cover"
-            />
+            {
+              (() => {
+                const resp = responsiveImageForUsage(mainImage?.url || null, 'list')
+                return <img src={resp.src || "/placeholder.svg?height=200&width=200"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-cover" />
+              })()
+            }
           </div>
 
           <div className="flex-1 min-w-0">

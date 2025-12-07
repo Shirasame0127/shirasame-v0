@@ -2,9 +2,8 @@
 
 import type { MouseEvent } from "react"
 
-import Image from "next/image"
 import Link from "next/link"
-import { getPublicImageUrl } from "@/lib/image-url"
+import { responsiveImageForUsage } from "@/lib/image-url"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ExternalLink, Sparkles } from 'lucide-react'
@@ -61,8 +60,13 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
     const content = (
       <>
         <CardHeader className="p-0 relative">
-          <div className="relative aspect-3/2 overflow-hidden bg-muted flex items-center justify-center">
-            <Image src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg"} alt={product.title} fill className="object-contain object-center" />
+            <div className="relative aspect-3/2 overflow-hidden bg-muted flex items-center justify-center">
+            {
+              (() => {
+                const resp = responsiveImageForUsage(mainImage?.url || null, 'list')
+                return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center" />
+              })()
+            }
             {isOnSale && (
               <div className="absolute top-1 right-1 z-10">
                 <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 flex items-center gap-1">
@@ -101,12 +105,12 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
     <>
       <CardHeader className="p-0 relative">
         <div className="relative aspect-3/2 overflow-hidden bg-muted flex items-center justify-center">
-          <Image
-            src={getPublicImageUrl(mainImage?.url) || "/placeholder.svg"}
-            alt={product.title}
-            fill
-            className="object-contain object-center transition-transform duration-300"
-          />
+          {
+            (() => {
+              const resp = responsiveImageForUsage(mainImage?.url || null, 'list')
+              return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center transition-transform duration-300" />
+            })()
+          }
           {isOnSale && (
             <div className="absolute top-2 right-2 z-10">
               <Badge variant="destructive" className="text-xs px-2 py-1 flex items-center gap-1.5">

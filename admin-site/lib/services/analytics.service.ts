@@ -1,7 +1,6 @@
-export class AnalyticsService {
-  import apiFetch from '@/lib/api-client'
+﻿import apiFetch from '@/lib/api-client'
 
-  export class AnalyticsService {
+export class AnalyticsService {
   static trackEvent(name: string, props?: any) {
     try {
       // best-effort: fire-and-forget to server endpoint
@@ -12,7 +11,4 @@ export class AnalyticsService {
       }).catch(() => {})
     } catch (e) {}
   }
-}
-
-import apiFetch from '@/lib/api-client'
 }
