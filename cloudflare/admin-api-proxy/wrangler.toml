@@ -1,0 +1,9 @@
+[site]
+bucket = "public"
+
+name = "admin-api-proxy"
+main = "index.js"
+
+# Add API_BASE_ORIGIN here as a var or set it in the Cloudflare dashboard
+# Example:
+# vars = { API_BASE_ORIGIN = "https://public-worker.shirasame-official.workers.dev" }
