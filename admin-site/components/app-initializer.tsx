@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
+import apiFetch from '@/lib/api-client'
 
 export function AppInitializer() {
   useEffect(() => {
@@ -9,7 +10,7 @@ export function AppInitializer() {
     // Trigger profile endpoint to warm any server-side session checks.
     ;(async () => {
       try {
-        await fetch('/api/profile')
+        await apiFetch('/api/profile')
       } catch (e) {
         // ignore — server may return null when unauthenticated
       }

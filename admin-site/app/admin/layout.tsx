@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { Toaster } from "@/components/ui/toaster"
 import { useEffect, useState } from 'react'
 import { auth } from '@/lib/auth'
+import apiFetch from '@/lib/api-client'
 import AdminLoading from '@/components/admin-loading'
 
 export default function AdminLayout({
@@ -33,15 +34,37 @@ export default function AdminLayout({
       if (clientDisableAuth) {
         setIsAuthenticated(true)
       } else {
-        const user = auth.getCurrentUser()
-        if (!user) {
-          // Do not force client-side navigation to /admin/login here because
-          // middleware already redirects unauthenticated requests server-side.
-          // Forcing a push from the client can create redirect loops.
-          setIsAuthenticated(false)
-        } else {
-          setIsAuthenticated(true)
-        }
+        // Prefer authoritative server-side check rather than solely relying
+        // on localStorage. This ensures HttpOnly cookie sessions set by the
+        // Worker are respected and stale localStorage entries are cleared.
+        ;(async () => {
+          try {
+            const res = await apiFetch('/api/auth/whoami', { cache: 'no-store' })
+            if (res.ok) {
+              // If server reports authenticated, ensure local mirror exists.
+              const json = await res.json().catch(() => null)
+              try {
+                if (typeof window !== 'undefined') {
+                  const u = json?.user || json || null
+                  if (u && u.id) {
+                    localStorage.setItem('auth_user', JSON.stringify({ id: u.id, email: u.email || null, username: u.username || null }))
+                  }
+                }
+              } catch (e) {}
+              setIsAuthenticated(true)
+            } else {
+              // Not authenticated server-side: clear local mirror and mark unauthenticated
+              try {
+                if (typeof window !== 'undefined') localStorage.removeItem('auth_user')
+              } catch (e) {}
+              setIsAuthenticated(false)
+            }
+          } catch (e) {
+            // On network error or unauthenticated, fall back to local check to avoid blocking UI.
+            const user = auth.getCurrentUser()
+            setIsAuthenticated(!!user)
+          }
+        })()
       }
     } else {
       setIsAuthenticated(true)

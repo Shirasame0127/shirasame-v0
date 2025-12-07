@@ -30,6 +30,7 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import { useToast } from "@/hooks/use-toast"
 import { fileToBase64 } from "@/lib/utils/image-utils"
+import apiFetch from '@/lib/api-client'
 
 const generateSocialUrl = (platform: string, username: string): string => {
   const cleanUsername = username.replace(/^@/, "")
@@ -115,7 +116,7 @@ export default function AdminSettingsPage() {
     let mounted = true
     async function load() {
       try {
-        const res = await fetch('/api/admin/settings')
+        const res = await apiFetch('/api/admin/settings')
         const json = await res.json().catch(() => null)
         const serverUser = json?.data
         if (serverUser && mounted) {
@@ -269,7 +270,7 @@ export default function AdminSettingsPage() {
     try {
       const fd = new FormData()
       fd.append("file", file)
-      const res = await fetch("/api/images/upload", { method: "POST", body: fd })
+      const res = await apiFetch("/api/images/upload", { method: "POST", body: fd })
       const json = await res.json()
       // prefer a returned key from the upload API
       const uploadedKey = json?.result?.key || null
@@ -281,7 +282,7 @@ export default function AdminSettingsPage() {
         // Persist immediately to server so refresh retains images
         try {
           const payload: any = { headerImageKeys: newKeys }
-          const saveRes = await fetch('/api/admin/settings', {
+          const saveRes = await apiFetch('/api/admin/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -320,7 +321,7 @@ export default function AdminSettingsPage() {
     ;(async () => {
       try {
         const payload: any = { headerImageKeys: keys }
-        const res = await fetch('/api/admin/settings', {
+        const res = await apiFetch('/api/admin/settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -448,7 +449,7 @@ export default function AdminSettingsPage() {
     ;(async () => {
       try {
         const payload: any = { headerImageKeys: newKeys }
-        const res = await fetch('/api/admin/settings', {
+        const res = await apiFetch('/api/admin/settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -530,7 +531,7 @@ export default function AdminSettingsPage() {
       if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) {
         payload.id = maybeId
       }
-      const res = await fetch('/api/admin/settings', {
+      const res = await apiFetch('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -564,7 +565,7 @@ export default function AdminSettingsPage() {
       // If all credential fields are empty, skip saving — user intentionally left blank
       const hasAnyCred = (amazonAccessKey || amazonSecretKey || amazonAssociateId)?.toString().trim().length > 0
       if (hasAnyCred) {
-        const credRes = await fetch('/api/admin/amazon/credentials', {
+        const credRes = await apiFetch('/api/admin/amazon/credentials', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -711,7 +712,7 @@ export default function AdminSettingsPage() {
                   onUploadComplete={async (url) => {
                     if (!url) return
                     try {
-                      await fetch('/api/site-settings', {
+                      await apiFetch('/api/site-settings', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ key: 'loading_animation', value: { url } }),
@@ -740,7 +741,7 @@ export default function AdminSettingsPage() {
             <div>
               <Button variant="ghost" onClick={async () => {
                 try {
-                  await fetch('/api/site-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'loading_animation', value: { url: null } }) })
+                  await apiFetch('/api/site-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'loading_animation', value: { url: null } }) })
                   try { db.siteSettings.refresh().catch(() => {}) } catch (e) {}
                   toast({ title: 'クリアしました' })
                 } catch (e) {

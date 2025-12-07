@@ -2,6 +2,7 @@
 
 import Image from "next/image"
 import { getPublicImageUrl } from "@/lib/image-url"
+import apiFetch from '@/lib/api-client'
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -26,9 +27,9 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
     if (!confirm(`「${product.title}」を削除してもよろしいですか？`)) return
     
     try {
-      const res = await fetch(`/api/admin/products/${product.id}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/admin/products/${product.id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete')
-      
+
       if (onUpdate) onUpdate()
       window.location.reload()
     } catch (error) {

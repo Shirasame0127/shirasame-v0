@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import apiFetch from '@/lib/api-client'
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { db } from "@/lib/db/storage"
@@ -19,7 +20,7 @@ export function CustomFontUploader({ onUploaded }: { onUploaded?: () => void }) 
       fd.append("file", file)
       fd.append("name", file.name)
 
-      const res = await fetch(`/api/admin/custom-fonts`, {
+      const res = await apiFetch(`/api/admin/custom-fonts`, {
         method: "POST",
         body: fd,
       })

@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useEffect, useState } from 'react'
+import apiFetch from '@/lib/api-client'
 import { getPublicImageUrl } from '@/lib/image-url'
 
 export default function InitialLoading() {
@@ -19,7 +20,7 @@ export default function InitialLoading() {
 
     ;(async () => {
       try {
-        const res = await fetch('/api/site-settings')
+        const res = await apiFetch('/api/site-settings')
         if (!res.ok) throw new Error('failed')
         const json = await res.json()
         const raw = json?.data?.loading_animation
