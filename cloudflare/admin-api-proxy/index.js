@@ -289,6 +289,58 @@ async function handle(req) {
       return new Response(null, { status: 302, headers: respHeaders })
     }
 
+    // Refresh endpoint: use sb-refresh-token cookie to obtain new access token
+    if (url.pathname === '/api/auth/refresh' && req.method === 'POST') {
+      try {
+        const cookieHeader = req.headers.get('cookie') || ''
+        const match = cookieHeader.split(';').map(s => s.trim()).find(s => s.startsWith('sb-refresh-token='))
+        const refreshToken = match ? decodeURIComponent(match.split('=')[1]) : null
+
+        if (!refreshToken) {
+          return new Response(JSON.stringify({ ok: false, error: 'no_refresh_token' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+        }
+
+        const supabaseBase = typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL ? SUPABASE_URL.replace(/\/$/, '') : null
+        const anonKey = typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : ''
+        const serviceKey = typeof SUPABASE_SERVICE_ROLE_KEY !== 'undefined' ? SUPABASE_SERVICE_ROLE_KEY : null
+        if (!supabaseBase) return new Response(JSON.stringify({ ok: false, error: 'SUPABASE_URL not configured' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+
+        const tokenUrl = `${supabaseBase}/auth/v1/token`
+        const body = `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`
+        const headers = {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'apikey': anonKey
+        }
+        if (serviceKey) headers['Authorization'] = 'Bearer ' + serviceKey
+
+        const tokenRes = await fetch(tokenUrl, { method: 'POST', headers, body })
+        const tokenJson = await tokenRes.json().catch(() => null)
+        if (!tokenRes.ok || !tokenJson) {
+          return new Response(JSON.stringify({ ok: false, error: tokenJson || 'token_refresh_failed' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+        }
+
+        const accessToken = tokenJson.access_token || null
+        const newRefreshToken = tokenJson.refresh_token || null
+        const expiresIn = parseInt(tokenJson.expires_in || '0', 10) || null
+
+        const cookieHeaders = []
+        if (accessToken) {
+          const maxAge = expiresIn && expiresIn > 0 ? Math.min(expiresIn, 60 * 60 * 24 * 7) : 60 * 60 * 24 * 7
+          cookieHeaders.push(`sb-access-token=${encodeURIComponent(accessToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Secure; Domain=admin.shirasame.com`)
+        }
+        if (newRefreshToken) {
+          cookieHeaders.push(`sb-refresh-token=${encodeURIComponent(newRefreshToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}; Secure; Domain=admin.shirasame.com`)
+        }
+
+        const respHeaders = new Headers()
+        for (const c of cookieHeaders) respHeaders.append('Set-Cookie', c)
+        respHeaders.set('Content-Type', 'application/json')
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: respHeaders })
+      } catch (e) {
+        return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+      }
+    }
+
     // Simple server-side read proxies for common admin GET endpoints.
     // If the public worker doesn't implement these endpoints, fetch
     // directly from Supabase REST (server-side) using the Service Role
