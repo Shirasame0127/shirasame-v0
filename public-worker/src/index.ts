@@ -647,7 +647,7 @@ app.all('/admin/*', async (c) => {
 // CASE A: R2へ画像保存するWorkerエンドポイント
 // フォーマット: images/YYYY/MM/DD/<random>-<filename>
 // 返却: { ok: true, result: { key, publicUrl, size, contentType } }
-app.post('/upload-image', async (c) => {
+async function handleUploadImage(c: any) {
   try {
     const ct = c.req.header('content-type') || ''
     if (!ct.includes('multipart/form-data')) {
@@ -695,10 +695,60 @@ app.post('/upload-image', async (c) => {
       }
     }
 
-    return new Response(JSON.stringify({ ok: true, result: { key, publicUrl, size: buf.byteLength, contentType: file.type || null } }), {
+    // Provide a worker-served fallback URL so clients can use it when the
+    // configured `IMAGES_DOMAIN` is not publicly accessible.
+    const workerHost = ((c.env.WORKER_PUBLIC_HOST as string) || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
+    const workerUrl = `${workerHost}/images/${key.replace(new RegExp(`^${bucket}/`), '')}`
+
+    return new Response(JSON.stringify({ ok: true, result: { key, publicUrl, workerUrl, size: buf.byteLength, contentType: file.type || null } }), {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=60' }
     })
   } catch (e: any) {
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' } })
   }
-})
+}
+
+// Register upload handler under multiple paths for compatibility with
+// different proxying conventions (`/upload-image`, `/images/upload`, `/api/images/upload`).
+app.post('/upload-image', handleUploadImage)
+app.post('/images/upload', handleUploadImage)
+app.post('/api/images/upload', handleUploadImage)
+    
+    // Serve images directly from R2 through this Worker as a fallback
+    // This avoids depending on a custom proxied domain being configured for R2.
+    app.get('/images/*', async (c) => {
+      try {
+        const rawPath = c.req.path.replace(/^\/+/, '') // e.g. "images/images/2025/..."
+        const bucket = (c.env.R2_BUCKET || 'images').replace(/^\/+|\/+$/g, '')
+  
+        // Try several candidate keys depending on how the object was stored.
+        const candidates = [
+          rawPath,
+          // If the stored key included the bucket prefix (some code does), try with and without it
+          rawPath.replace(new RegExp(`^${bucket}\/`), ''),
+          `${bucket}/${rawPath}`
+        ]
+  
+        let obj: any = null
+        let usedKey: string | null = null
+        for (const k of candidates) {
+          try {
+            obj = await c.env.IMAGES.get(k, { allowIncomplete: false })
+            if (obj) { usedKey = k; break }
+          } catch (e) {
+            // ignore and try next
+          }
+        }
+  
+        if (!obj) {
+          return new Response('Not found', { status: 404 })
+        }
+  
+        const buf = await obj.arrayBuffer()
+        const contentType = (obj && obj.httpMetadata && obj.httpMetadata.contentType) ? obj.httpMetadata.contentType : 'application/octet-stream'
+        const headers = new Headers({ 'Content-Type': contentType, 'Cache-Control': 'public, max-age=2592000' })
+        return new Response(buf, { status: 200, headers })
+      } catch (e: any) {
+        return new Response(String(e?.message || e), { status: 500 })
+      }
+    })

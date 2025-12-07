@@ -83,7 +83,17 @@ if (typeof window !== "undefined") {
     warmCache("recipePins", "/api/recipe-pins")
     warmCache("amazonSaleSchedules", "/api/amazon-sale-schedules")
     // site settings (loading animation etc.)
-    warmCache("siteSettings", "/api/site-settings")
+    // The login page is public and does not need site-settings. Avoid
+    // warming site settings when the user is on the login page to prevent
+    // unnecessary /api calls and auth churn during unauthenticated views.
+    try {
+      const pathname = (typeof window !== 'undefined' && window.location && window.location.pathname) ? window.location.pathname : ''
+      if (!pathname.startsWith('/admin/login')) {
+        warmCache("siteSettings", "/api/site-settings")
+      }
+    } catch (e) {
+      // ignore and do not warm
+    }
   })()
 }
 

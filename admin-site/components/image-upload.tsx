@@ -166,6 +166,7 @@ export function ImageUpload({
 
             const uploadedUrl = result?.url
             const uploadedKey = (result as any)?.key || (result as any)?.id || undefined
+            try { console.log('[ImageUpload] gif upload result', { uploadedUrl, uploadedKey, hasId: !!(result as any)?.id }) } catch (e) {}
             if ((result as any)?.id) {
               try {
                 const completeTarget = aspectRatioType === 'profile'
@@ -327,6 +328,7 @@ export function ImageUpload({
             }
           }
 
+          try { console.log('[ImageUpload] upload result', { result }) } catch (e) {}
           const uploadedUrl = result?.url
           const uploadedKey = (result as any)?.key || (result as any)?.id || undefined
           if ((result as any)?.id) {
@@ -362,6 +364,10 @@ export function ImageUpload({
           if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
         } catch (e) {
           console.error('upload failed', e)
+          // Keep local preview visible as a fallback so the editor doesn't go blank
+          try {
+            if (!previewUrl && typeof croppedFile !== 'undefined') setPreviewUrl(URL.createObjectURL(croppedFile))
+          } catch (e2) {}
         }
     })()
 

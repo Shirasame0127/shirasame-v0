@@ -132,11 +132,13 @@ async function handle(req) {
         const cookieHeaders = []
         if (accessToken) {
           const maxAge = expiresIn && expiresIn > 0 ? Math.min(expiresIn, 60 * 60 * 24 * 7) : 60 * 60 * 24 * 7
-          cookieHeaders.push(`sb-access-token=${encodeURIComponent(accessToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Secure; Domain=admin.shirasame.com`)
+          cookieHeaders.push(`sb-access-token=${encodeURIComponent(accessToken)}; Path=/; HttpOnly; SameSite=None; Max-Age=${maxAge}; Secure; Domain=.shirasame.com`)
         }
         if (refreshToken) {
-          cookieHeaders.push(`sb-refresh-token=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}; Secure; Domain=admin.shirasame.com`)
+          cookieHeaders.push(`sb-refresh-token=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=None; Max-Age=${60 * 60 * 24 * 30}; Secure; Domain=.shirasame.com`)
         }
+
+        try { console.log('[set_tokens] received fragment post, hasAccess=', !!accessToken, 'hasRefresh=', !!refreshToken, 'isForm=', isForm) } catch (e) {}
 
         // If this request came from a form submit (typical when we POST from
         // a browser after capturing a URL fragment), redirect to /admin so the
@@ -277,16 +279,65 @@ async function handle(req) {
       // Build Set-Cookie headers for sb-access-token and sb-refresh-token
       const cookieHeaders = []
       if (accessToken) {
-        cookieHeaders.push(`sb-access-token=${encodeURIComponent(accessToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}${true ? '; Secure' : ''}`)
+        cookieHeaders.push(`sb-access-token=${encodeURIComponent(accessToken)}; Path=/; HttpOnly; SameSite=None; Max-Age=${60 * 60 * 24 * 7}${true ? '; Secure' : ''}; Domain=.shirasame.com`)
       }
       if (refreshToken) {
-        cookieHeaders.push(`sb-refresh-token=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}${true ? '; Secure' : ''}`)
+        cookieHeaders.push(`sb-refresh-token=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=None; Max-Age=${60 * 60 * 24 * 30}${true ? '; Secure' : ''}; Domain=.shirasame.com`)
       }
+
+      try { console.log('[callback] token exchange status=', tokenRes.status, 'has_access=', !!accessToken, 'has_refresh=', !!refreshToken, 'set_cookies=', cookieHeaders.length) } catch (e) {}
 
       const redirectTo = '/admin'
       const respHeaders = new Headers({ 'Location': redirectTo })
       for (const c of cookieHeaders) respHeaders.append('Set-Cookie', c)
       return new Response(null, { status: 302, headers: respHeaders })
+    }
+
+    // Accept a JSON POST to set server session cookies (used by client SDKs)
+    if (url.pathname === '/api/auth/session' && req.method === 'POST') {
+      try {
+        const body = await req.text().catch(() => '')
+        let data = null
+        try { data = body && body.length ? JSON.parse(body) : null } catch (e) { data = null }
+        if (!data) {
+          return new Response(JSON.stringify({ ok: false, error: 'invalid_body' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+        }
+        const accessToken = data.access_token || data.accessToken || null
+        const refreshToken = data.refresh_token || data.refreshToken || null
+        const expiresIn = parseInt(data.expires_in || data.expiresIn || '0', 10) || null
+
+        const cookieHeaders = []
+        if (accessToken) {
+          const maxAge = expiresIn && expiresIn > 0 ? Math.min(expiresIn, 60 * 60 * 24 * 7) : 60 * 60 * 24 * 7
+          cookieHeaders.push(`sb-access-token=${encodeURIComponent(accessToken)}; Path=/; HttpOnly; SameSite=None; Max-Age=${maxAge}; Secure; Domain=.shirasame.com`)
+        }
+        if (refreshToken) {
+          cookieHeaders.push(`sb-refresh-token=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=None; Max-Age=${60 * 60 * 24 * 30}; Secure; Domain=.shirasame.com`)
+        }
+
+        const respHeaders = new Headers()
+        for (const c of cookieHeaders) respHeaders.append('Set-Cookie', c)
+        respHeaders.set('Content-Type', 'application/json')
+        try { console.log('[session] set session cookies, hasAccess=', !!accessToken, 'hasRefresh=', !!refreshToken) } catch (e) {}
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: respHeaders })
+      } catch (e) {
+        return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+      }
+    }
+
+    // Logout: clear session cookies
+    if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
+      try {
+        const respHeaders = new Headers()
+        // Clear cookies by setting Max-Age=0
+        respHeaders.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+        respHeaders.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+        respHeaders.set('Content-Type', 'application/json')
+        try { console.log('[logout] cleared session cookies') } catch (e) {}
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: respHeaders })
+      } catch (e) {
+        return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+      }
     }
 
     // Refresh endpoint: use sb-refresh-token cookie to obtain new access token
@@ -297,12 +348,16 @@ async function handle(req) {
         const refreshToken = match ? decodeURIComponent(match.split('=')[1]) : null
 
         if (!refreshToken) {
+          // Debug: log missing refresh token
+          try { console.log('[refresh] no refresh token in cookies') } catch (e) {}
           return new Response(JSON.stringify({ ok: false, error: 'no_refresh_token' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
         }
 
         const supabaseBase = typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL ? SUPABASE_URL.replace(/\/$/, '') : null
         const anonKey = typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : ''
         const serviceKey = typeof SUPABASE_SERVICE_ROLE_KEY !== 'undefined' ? SUPABASE_SERVICE_ROLE_KEY : null
+        // Debug: indicate presence of critical env/secrets (do NOT log secret values)
+        try { console.log('[refresh] supabaseBase=', !!supabaseBase, 'anonKey=', !!anonKey, 'serviceKeyPresent=', !!serviceKey) } catch (e) {}
         if (!supabaseBase) return new Response(JSON.stringify({ ok: false, error: 'SUPABASE_URL not configured' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
 
         const tokenUrl = `${supabaseBase}/auth/v1/token`
@@ -313,8 +368,11 @@ async function handle(req) {
         }
         if (serviceKey) headers['Authorization'] = 'Bearer ' + serviceKey
 
+        // Perform token refresh and log status (without exposing token values)
         const tokenRes = await fetch(tokenUrl, { method: 'POST', headers, body })
-        const tokenJson = await tokenRes.json().catch(() => null)
+        let tokenJson = null
+        try { tokenJson = await tokenRes.json().catch(() => null) } catch (e) { tokenJson = null }
+        try { console.log('[refresh] token endpoint status=', tokenRes.status, 'hasBody=', !!tokenJson, 'has_access_token=', !!(tokenJson && tokenJson.access_token)) } catch (e) {}
         if (!tokenRes.ok || !tokenJson) {
           return new Response(JSON.stringify({ ok: false, error: tokenJson || 'token_refresh_failed' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
         }
@@ -326,10 +384,10 @@ async function handle(req) {
         const cookieHeaders = []
         if (accessToken) {
           const maxAge = expiresIn && expiresIn > 0 ? Math.min(expiresIn, 60 * 60 * 24 * 7) : 60 * 60 * 24 * 7
-          cookieHeaders.push(`sb-access-token=${encodeURIComponent(accessToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Secure; Domain=admin.shirasame.com`)
+          cookieHeaders.push(`sb-access-token=${encodeURIComponent(accessToken)}; Path=/; HttpOnly; SameSite=None; Max-Age=${maxAge}; Secure; Domain=.shirasame.com`)
         }
         if (newRefreshToken) {
-          cookieHeaders.push(`sb-refresh-token=${encodeURIComponent(newRefreshToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}; Secure; Domain=admin.shirasame.com`)
+          cookieHeaders.push(`sb-refresh-token=${encodeURIComponent(newRefreshToken)}; Path=/; HttpOnly; SameSite=None; Max-Age=${60 * 60 * 24 * 30}; Secure; Domain=.shirasame.com`)
         }
 
         const respHeaders = new Headers()
@@ -432,6 +490,7 @@ async function handle(req) {
       body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body
     }
 
+    try { console.log('[forward] attempting', destStrip, 'method=', req.method) } catch (e) {}
     // First attempt: stripped path
     let res = await fetch(destStrip, init)
     let usedDest = destStrip
@@ -439,6 +498,7 @@ async function handle(req) {
     // If the stripped path returns 404, try the /api-preserved path as fallback
     if (res.status === 404) {
       try {
+        try { console.log('[forward] stripped path 404, trying', destWithApi) } catch (e) {}
         const fallbackRes = await fetch(destWithApi, init)
         // If fallback didn't 404, use it instead
         if (fallbackRes.status !== 404) {
@@ -449,6 +509,8 @@ async function handle(req) {
         // ignore fallback network errors; we'll return the original 404 below
       }
     }
+
+    try { console.log('[forward] usedDest=', usedDest, 'status=', res.status) } catch (e) {}
 
     const resHeaders = new Headers()
     for (const [k, v] of res.headers.entries()) {
