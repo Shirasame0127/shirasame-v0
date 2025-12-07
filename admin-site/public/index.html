@@ -1,84 +1,10 @@
 <!doctype html>
-<html lang="ja">
+<html>
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Shirasame Admin — Smoke Test</title>
-    <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;margin:3rem;color:#111}a{color:#0366d6}</style>
+    <title>REMOVED</title>
   </head>
   <body>
-    <h1>Shirasame Admin — Smoke Test</h1>
-    <p>このページは Cloudflare Pages による配信（公開ルート・API プロキシ経路）の動作確認用の完全版スモークテストページです。</p>
-
-    <section>
-      <h2>目的</h2>
-      <ul>
-        <li>Pages が正しく公開されているかを即座に確認</li>
-        <li>代表的な管理 API が public worker 経由で応答するかをブラウザから確認</li>
-        <li>配信ヘッダ（プロキシ経路を示すヘッダ）を確認</li>
-      </ul>
-    </section>
-
-    <section>
-      <h2>基本情報</h2>
-      <p>作成日時: <strong id="ts"></strong></p>
-      <p>管理トップ: <a id="adminLink" href="/admin" target="_blank">/admin</a></p>
-    </section>
-
-    <section>
-      <h2>API 簡易チェック</h2>
-      <p>下のボタンで管理サイトの代表 API を叩きます。レスポンス本体・ステータス・重要ヘッダを表示します。</p>
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-        <button id="btnRecipes">/api/recipes</button>
-        <button id="btnWhoami">/api/auth/whoami</button>
-        <button id="btnHeaders">ヘッダのみ確認 (GET /)</button>
-      </div>
-      <pre id="out" style="white-space:pre-wrap;border:1px solid #eee;padding:1rem;margin-top:1rem;background:#fafafa;max-height:40vh;overflow:auto"></pre>
-    </section>
-
-    <section>
-      <h2>手動チェック手順</h2>
-      <ol>
-        <li>このページが表示されること（Pages 配信確認）</li>
-        <li>上の <code>/api/recipes</code> と <code>/api/auth/whoami</code> を押して 200 や 401 などの期待するステータスが返ること</li>
-        <li>レスポンスヘッダに Worker 固有のカスタムヘッダ（例: <code>x-shirasame-proxy</code> など）や <code>via</code> があればプロキシ経路が確認できます</li>
-        <li>必要ならブラウザ DevTools の Network タブで cookie（sb-access-token 等）が適切に送出されているか確認</li>
-      </ol>
-    </section>
-
-    <script>
-      document.getElementById('ts').textContent = new Date().toLocaleString();
-      document.getElementById('btnRecipes').addEventListener('click', () => runTest('/api/recipes'));
-      document.getElementById('btnWhoami').addEventListener('click', () => runTest('/api/auth/whoami'));
-      document.getElementById('btnHeaders').addEventListener('click', () => runHeaders('/'));
-
-      async function runTest(path) {
-        const out = document.getElementById('out');
-        out.textContent = `Requesting ${path} ...\n`;
-        try {
-          const resp = await fetch(path, { credentials: 'include' });
-          const headers = {};
-          resp.headers.forEach((v,k)=> headers[k]=v);
-          let body = '<no body>';
-          try { body = await resp.text(); } catch(e) { body = '<failed to read body>'; }
-          out.textContent += `Status: ${resp.status} ${resp.statusText}\n\nHeaders:\n` + JSON.stringify(headers, null, 2) + '\n\nBody:\n' + body;
-        } catch (err) {
-          out.textContent += 'Request failed:\n' + String(err);
-        }
-      }
-
-      async function runHeaders(path) {
-        const out = document.getElementById('out');
-        out.textContent = `HEAD ${path} ...\n`;
-        try {
-          const resp = await fetch(path, { method: 'HEAD' });
-          const headers = {};
-          resp.headers.forEach((v,k)=> headers[k]=v);
-          out.textContent += `Status: ${resp.status} ${resp.statusText}\n\nHeaders:\n` + JSON.stringify(headers, null, 2);
-        } catch (err) {
-          out.textContent += 'Request failed:\n' + String(err);
-        }
-      }
-    </script>
+    <p>このスモークテストページはリポジトリから削除されました。</p>
   </body>
 </html>
