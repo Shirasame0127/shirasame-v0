@@ -70,6 +70,7 @@ export function AdminNav() {
   const [isHydrated, setIsHydrated] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
+  const [profileData, setProfileData] = useState<any | null>(null)
 
   useEffect(() => {
     setIsHydrated(true)
@@ -92,8 +93,10 @@ export function AdminNav() {
         const res = await fetch("/api/profile", { cache: "no-store" })
         if (!res.ok) return
         const json = await res.json().catch(() => null)
-        const image = json?.data?.profileImage || json?.data?.avatarUrl || null
+        const data = json?.data || null
+        const image = data?.profileImage || data?.avatarUrl || null
         if (active) {
+          setProfileData(data)
           setProfileImageUrl(image || null)
         }
       } catch (error) {
@@ -125,12 +128,12 @@ export function AdminNav() {
   }
 
   const currentUser = auth.getCurrentUser()
-  const userLabel = currentUser?.username || currentUser?.email || "ログインユーザー"
+  const userLabel = profileData?.username || profileData?.displayName || currentUser?.username || currentUser?.email || "ログインユーザー"
 
   const initials = useMemo(() => {
-    if (!currentUser) return "?"
-    const name = currentUser.username || currentUser.email || ""
-    const sanitized = name.includes("@") ? name.split("@")[0] : name
+    const sourceName = profileData?.username || profileData?.displayName || currentUser?.username || currentUser?.email || ""
+    if (!sourceName) return "?"
+    const sanitized = sourceName.includes("@") ? sourceName.split("@")[0] : sourceName
     return (
       sanitized
         .split(" ")
@@ -139,7 +142,7 @@ export function AdminNav() {
         .slice(0, 2)
         .toUpperCase() || "?"
     )
-  }, [currentUser])
+  }, [currentUser, profileData])
 
   const renderNavItems = (showLabels: boolean, closeOnClick?: boolean) => (
     <div className="space-y-6">
