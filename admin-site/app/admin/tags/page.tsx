@@ -22,6 +22,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
+import apiFetch from '@/lib/api-client'
 
 export default function AdminTagsPage() {
   const SPECIAL_LINK_GROUP_NAME = "リンク先"
@@ -43,8 +44,8 @@ export default function AdminTagsPage() {
     ;(async () => {
       try {
         const [tagsRes, groupsRes] = await Promise.all([
-          fetch("/api/tags"),
-          fetch("/api/tag-groups"),
+          apiFetch("/api/tags"),
+          apiFetch("/api/tag-groups"),
         ])
 
         const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
@@ -69,7 +70,7 @@ export default function AdminTagsPage() {
           // Ensure the special LINK group exists in server-side groups. If missing, try to create it.
           if (!groupNames.includes(SPECIAL_LINK_GROUP_NAME)) {
             try {
-              await fetch('/api/admin/tag-groups', {
+              await apiFetch('/api/admin/tag-groups', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: SPECIAL_LINK_GROUP_NAME, label: SPECIAL_LINK_GROUP_NAME }),
@@ -146,7 +147,7 @@ export default function AdminTagsPage() {
     // persist order to server
     try {
       const groupsPayload = newArr.map((name, i) => ({ name, order: i }))
-      const res = await fetch('/api/admin/tag-groups/reorder', {
+      const res = await apiFetch('/api/admin/tag-groups/reorder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ groups: groupsPayload }),
@@ -226,13 +227,13 @@ export default function AdminTagsPage() {
 
     try {
       const groupsPayload = newArr.map((name, i) => ({ name, order: i }))
-      const res = await fetch('/api/admin/tag-groups/reorder', {
+      const res = await apiFetch('/api/admin/tag-groups/reorder', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groups: groupsPayload })
       })
       if (!res.ok) throw new Error('reorder failed')
 
       // refresh authoritative groups from server
-      const fresh = await fetch('/api/tag-groups')
+      const fresh = await apiFetch('/api/tag-groups')
       if (fresh.ok) {
         const freshJson = await fresh.json().catch(() => ({ data: [] }))
         const freshGroups = Array.isArray(freshJson) ? freshJson : freshJson.data || []
@@ -270,7 +271,7 @@ export default function AdminTagsPage() {
 
     try {
       const tagsPayload = newOrder.map((t, i) => ({ id: t.id, order: i, group: groupName }))
-      const res = await fetch('/api/admin/tags/reorder', {
+      const res = await apiFetch('/api/admin/tags/reorder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags: tagsPayload }),
@@ -278,7 +279,7 @@ export default function AdminTagsPage() {
       if (!res.ok) throw new Error('tags reorder failed')
 
       // refresh authoritative tags from server
-      const fresh = await fetch('/api/tags')
+      const fresh = await apiFetch('/api/tags')
       if (!fresh.ok) throw new Error('failed to fetch tags')
       const freshJson = await fresh.json().catch(() => ({ data: [] }))
       const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
@@ -343,7 +344,7 @@ export default function AdminTagsPage() {
     ;(async () => {
       try {
         const updated = [...tags, newTag]
-        const res = await fetch('/api/admin/tags/save', {
+        const res = await apiFetch('/api/admin/tags/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tags: updated }),
@@ -351,7 +352,7 @@ export default function AdminTagsPage() {
         if (!res.ok) throw new Error('save failed')
 
         // fetch authoritative tags
-        const fresh = await fetch('/api/tags')
+        const fresh = await apiFetch('/api/tags')
         const freshJson = await fresh.json().catch(() => ({ data: [] }))
         const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
         setTags(freshTags)
@@ -425,14 +426,14 @@ export default function AdminTagsPage() {
 
     ;(async () => {
       try {
-        const res = await fetch('/api/admin/tags/save', {
+        const res = await apiFetch('/api/admin/tags/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tags: updated }),
         })
         if (!res.ok) throw new Error('save failed')
 
-        const fresh = await fetch('/api/tags')
+        const fresh = await apiFetch('/api/tags')
         const freshJson = await fresh.json().catch(() => ({ data: [] }))
         const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
         setTags(freshTags)
@@ -464,14 +465,14 @@ export default function AdminTagsPage() {
             onClick={async () => {
             const updated = tags.filter((t) => t.id !== tagId)
             try {
-              const res = await fetch('/api/admin/tags/save', {
+              const res = await apiFetch('/api/admin/tags/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ tags: updated }),
               })
               if (!res.ok) throw new Error('delete failed')
 
-              const fresh = await fetch('/api/tags')
+              const fresh = await apiFetch('/api/tags')
               const freshJson = await fresh.json().catch(() => ({ data: [] }))
               const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
               setTags(freshTags)
@@ -500,7 +501,7 @@ export default function AdminTagsPage() {
     if (!newGroupName.trim() || !editingGroupName) return
     ;(async () => {
       try {
-        const res = await fetch('/api/admin/tag-groups', {
+        const res = await apiFetch('/api/admin/tag-groups', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: editingGroupName, newName: newGroupName.trim(), label: newGroupName.trim() }),
@@ -544,7 +545,7 @@ export default function AdminTagsPage() {
     
     ;(async () => {
       try {
-        const res = await fetch('/api/admin/tag-groups', {
+        const res = await apiFetch('/api/admin/tag-groups', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: trimmedGroupName, label: trimmedGroupName }),
@@ -651,12 +652,11 @@ export default function AdminTagsPage() {
 
     try {
       const payload = current.map((t, i) => ({ id: t.id, order: i, group: t.group }))
-      const res = await fetch('/api/admin/tags/reorder', {
+      const res = await apiFetch('/api/admin/tags/reorder', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: payload })
       })
       if (!res.ok) throw new Error('reorder failed')
-
-      const fresh = await fetch('/api/tags')
+      const fresh = await apiFetch('/api/tags')
       if (!fresh.ok) throw new Error('fetch tags failed')
       const freshJson = await fresh.json().catch(() => ({ data: [] }))
       const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
@@ -888,7 +888,7 @@ export default function AdminTagsPage() {
                             onClick={async () => {
                               if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
                               try {
-                                const res = await fetch('/api/admin/tag-groups', {
+                                const res = await apiFetch('/api/admin/tag-groups', {
                                   method: 'DELETE',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ name: groupName }),

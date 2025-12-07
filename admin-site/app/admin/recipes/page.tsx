@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Plus, Edit, Trash2, Eye, EyeOff } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { getCurrentUser } from '@/lib/auth'
+import apiFetch from '@/lib/api-client'
 
 /**
  * レシピ管理ページ
@@ -29,11 +30,7 @@ export default function RecipesManagementPage() {
       db.recipePins.refresh()
         .then((pins) => {
           try {
-            fetch('/api/debug/log', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ event: 'recipePins.refresh', count: (pins || []).length, sample: (pins || []).slice(0, 5).map((p: any) => ({ id: p.id, recipeId: p.recipeId, productId: p.productId })) }),
-            }).catch(() => {})
+            apiFetch('/api/debug/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'recipePins.refresh', count: (pins || []).length, sample: (pins || []).slice(0, 5).map((p: any) => ({ id: p.id, recipeId: p.recipeId, productId: p.productId })) }) }).catch(() => {})
           } catch (e) {}
         })
         .catch(() => {})
@@ -61,11 +58,7 @@ export default function RecipesManagementPage() {
           console.log("[v0] Refreshed recipes from server:", (fresh || []).length)
           const payloadBase = { event: 'recipes.refresh', userId: userId || null, total: (fresh || []).length }
           try {
-            fetch('/api/debug/log', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...payloadBase, sample: (fresh || []).slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }),
-            }).catch(() => {})
+            apiFetch('/api/debug/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payloadBase, sample: (fresh || []).slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }) }).catch(() => {})
           } catch (e) {}
           if (userId) {
             // Filter to current user's recipes only
@@ -89,22 +82,14 @@ export default function RecipesManagementPage() {
       const visible = (data || []).filter((r: any) => r?.userId === userId)
       console.log("[v0] Loaded recipes:", visible.length)
       try {
-        fetch('/api/debug/log', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ event: 'recipes.cache', userId, count: visible.length, sample: visible.slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }),
-        }).catch(() => {})
+        apiFetch('/api/debug/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'recipes.cache', userId, count: visible.length, sample: visible.slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }) }).catch(() => {})
       } catch (e) {}
       setRecipes(visible)
     } else {
       // No signed-in user info — use cache as-is (preserves previous behaviour)
       console.log("[v0] Loaded recipes (no user):", data.length)
       try {
-        fetch('/api/debug/log', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ event: 'recipes.cache', userId: null, count: data.length, sample: (data || []).slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }),
-        }).catch(() => {})
+        apiFetch('/api/debug/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'recipes.cache', userId: null, count: data.length, sample: (data || []).slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }) }).catch(() => {})
       } catch (e) {}
       setRecipes(data)
     }

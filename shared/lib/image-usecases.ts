@@ -74,11 +74,19 @@ export function getPublicImageUrl(raw?: string | null, domainOverride?: string |
       const bucket = (typeof process !== 'undefined' ? (process.env?.R2_BUCKET || '') : '') as string
       if (bucket && key.startsWith(`${bucket}/`)) key = key.slice(bucket.length + 1)
       key = key.replace(/^\/+/, '')
+      // Normalize duplicated uploads prefix like "uploads/uploads/..." => "uploads/..."
+      key = key.replace(/(^|\/)uploads\/+uploads\//, '$1uploads/')
+      // Collapse multiple slashes
+      key = key.replace(/\/+/g, '/')
       if (key) return `${imagesRoot}/${key}`
     } catch {}
     return raw
   }
-  return `${imagesRoot}/${raw.replace(/^\/+/, '')}`
+  // Normalize raw key strings (remove leading slashes, collapse duplicate segments)
+  let k = String(raw).replace(/^\/+/, '')
+  k = k.replace(/(^|\/)uploads\/+uploads\//, '$1uploads/')
+  k = k.replace(/\/+/g, '/')
+  return `${imagesRoot}/${k}`
 }
 
 export function buildResizedImageUrl(raw?: string | null, opts?: { width?: number; format?: 'auto' | 'webp' | 'jpeg'; quality?: number }, domainOverride?: string | null): string | null {

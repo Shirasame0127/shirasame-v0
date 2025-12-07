@@ -36,6 +36,7 @@ import { useToast } from "@/hooks/use-toast"
 import { WEB_FONTS, getFontsByCategory } from "@/lib/fonts/web-fonts"
 import { getCurrentUser } from "@/lib/auth"
 import { getPublicImageUrl } from "@/lib/image-url"
+import apiFetch from '@/lib/api-client'
 // Helper: ensure we can obtain an image key from an image object or URL
 function ensureImageKey(imgOrUrl: any): string | null {
   try {
@@ -912,7 +913,7 @@ export default function RecipeEditPage() {
           form.append("file", new File([blob], fileName, { type: blob.type || "image/png" }))
           form.append("target", "recipe")
 
-          const uploadResp = await fetch("/api/images/upload", { method: "POST", body: form })
+          const uploadResp = await fetch("/api/images/upload", { method: "POST", body: form, credentials: 'include' })
           const uploadJson = await uploadResp.json().catch(() => null)
           if (uploadJson && uploadJson.ok && uploadJson.result) {
             // R2 path returns result: { url: publicUrl, key }
@@ -1001,7 +1002,7 @@ export default function RecipeEditPage() {
               console.warn('[v0] no image key available for persistence, skipping image', img)
               continue
             }
-            await fetch('/api/admin/recipe-images/upsert', {
+            await apiFetch('/api/admin/recipe-images/upsert', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
@@ -1033,7 +1034,7 @@ export default function RecipeEditPage() {
     const next = !published
     setPublished(next)
     try {
-      const res = await fetch('/api/admin/recipes', {
+      const res = await apiFetch('/api/admin/recipes', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: recipeId, published: next }),
@@ -1053,7 +1054,7 @@ export default function RecipeEditPage() {
     const confirmed = window.confirm('このレシピを完全に削除しますか？この操作は取り消せません。')
     if (!confirmed) return
     try {
-      const res = await fetch('/api/admin/recipes', {
+      const res = await apiFetch('/api/admin/recipes', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: recipeId }),

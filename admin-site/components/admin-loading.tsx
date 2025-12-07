@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { getPublicImageUrl } from '@/lib/image-url'
+import apiFetch from '@/lib/api-client'
 
 export default function AdminLoading() {
   const [gifUrl, setGifUrl] = useState<string | null>(null)
@@ -10,7 +11,7 @@ export default function AdminLoading() {
     let mounted = true
     ;(async () => {
       try {
-        const res = await fetch('/api/site-settings')
+        const res = await apiFetch('/api/site-settings')
         if (!res.ok) return
         const json = await res.json()
         const raw = json?.data?.loading_animation

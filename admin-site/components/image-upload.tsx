@@ -7,7 +7,8 @@ import { ImageCropper } from "@/components/image-cropper"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Upload, X } from "lucide-react"
-import Image from "next/image"
+import { responsiveImageForUsage } from "@/lib/image-url"
+import apiFetch from '@/lib/api-client'
 
 // Lightweight client-side compression utility (skip GIFs)
 async function maybeCompressClientFile(file: File) {
@@ -82,7 +83,7 @@ export function ImageUpload({
           // reuse the same upload logic as handleCropComplete for GIFs (upload original)
           const trySignedUpload = async (fileToUpload: File) => {
             try {
-              const signRes = await fetch('/api/images/direct-upload', { method: 'POST' })
+              const signRes = await apiFetch('/api/images/direct-upload', { method: 'POST' })
               if (!signRes.ok) throw new Error('Failed to get direct upload URL')
               const signJson = await signRes.json()
               const uploadURL: string | undefined = signJson?.result?.uploadURL
@@ -127,7 +128,7 @@ export function ImageUpload({
               ? 'product'
               : 'other'
             fd.append('target', target)
-            const res = await fetch('/api/images/upload', { method: 'POST', body: fd })
+            const res = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
             if (!res.ok) {
               let errData: any = null
               try { errData = await res.json() } catch (e) { try { const txt = await res.text(); errData = { error: txt } } catch (e2) { errData = { error: 'unknown' } } }
@@ -178,7 +179,7 @@ export function ImageUpload({
                   : aspectRatioType === 'product'
                   ? 'product'
                   : 'other'
-                await fetch('/api/images/complete', {
+                await apiFetch('/api/images/complete', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ cf_id: (result as any).id, url: uploadedUrl, filename: file.name, target: completeTarget, aspect: '1:1' }),
@@ -186,9 +187,10 @@ export function ImageUpload({
               } catch (err) {
                 console.warn('images/complete failed', err)
               }
-            }
 
-            if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
+              }
+
+              if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
           } catch (e) {
             console.error('upload failed', e)
           }
@@ -214,7 +216,7 @@ export function ImageUpload({
     ;(async () => {
       const trySignedUpload = async (file: File) => {
         try {
-          const signRes = await fetch('/api/images/direct-upload', { method: 'POST' })
+          const signRes = await apiFetch('/api/images/direct-upload', { method: 'POST' })
           if (!signRes.ok) throw new Error('Failed to get direct upload URL')
           const signJson = await signRes.json()
           const uploadURL: string | undefined = signJson?.result?.uploadURL
@@ -262,7 +264,7 @@ export function ImageUpload({
           ? 'product'
           : 'other'
         fd.append('target', target)
-        const res = await fetch('/api/images/upload', { method: 'POST', body: fd })
+        const res = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
         if (!res.ok) {
            // try to parse JSON, otherwise fall back to text for better diagnostics
            let errData: any = null
@@ -341,7 +343,7 @@ export function ImageUpload({
                 : aspectRatioType === 'product'
                 ? 'product'
                 : 'other'
-              await fetch('/api/images/complete', {
+              await apiFetch('/api/images/complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -432,10 +434,19 @@ export function ImageUpload({
       <div className={`flex flex-col gap-3 ${getMaxSize()}`}>
         {previewUrl ? (
           <div className="relative rounded-lg overflow-hidden border bg-muted">
-            <div
-              className={`relative ${aspectRatioType === "header" ? "aspect-3/1" : aspectRatioType === "recipe" || aspectRatioType === "background" ? "aspect-video" : "aspect-square"}`}
-            >
-              <Image src={previewUrl || "/placeholder.svg"} alt="プレビュー" fill className="object-cover" />
+            <div className={`relative ${aspectRatioType === "header" ? "aspect-3/1" : aspectRatioType === "recipe" || aspectRatioType === "background" ? "aspect-video" : "aspect-square"}`}>
+              {
+                (() => {
+                  // Determine usage mapping for preview
+                  const usage = aspectRatioType === 'header' ? 'header-large' : aspectRatioType === 'recipe' ? 'recipe' : aspectRatioType === 'profile' ? 'avatar' : aspectRatioType === 'product' ? 'list' : aspectRatioType === 'background' ? 'original' : 'list'
+                  // If previewUrl is a blob: or data: URL, use it directly
+                  if (typeof previewUrl === 'string' && (previewUrl.startsWith('blob:') || previewUrl.startsWith('data:'))) {
+                    return <img src={previewUrl} alt="プレビュー" className="w-full h-full object-cover" />
+                  }
+                  const resp = responsiveImageForUsage(previewUrl || null, usage as any)
+                  return <img src={resp.src || previewUrl || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt="プレビュー" className="w-full h-full object-cover" />
+                })()
+              }
             </div>
             <Button
               type="button"

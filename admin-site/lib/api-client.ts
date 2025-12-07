@@ -7,7 +7,19 @@ export function apiPath(path: string) {
 
 export async function apiFetch(path: string, init?: RequestInit) {
   const url = apiPath(path)
-  return fetch(url, init)
+  const merged: RequestInit = Object.assign({ credentials: 'include', redirect: 'manual' }, init || {})
+  const res = await fetch(url, merged)
+  // If server reports unauthenticated for admin requests, redirect to login.
+  if (res.status === 401) {
+    try {
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+        // Replace location to avoid back navigation to protected page
+        window.location.replace('/admin/login')
+      }
+    } catch (e) {}
+    throw new Error('unauthenticated')
+  }
+  return res
 }
 
 export default apiFetch

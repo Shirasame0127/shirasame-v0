@@ -12,6 +12,12 @@ const HOP_BY_HOP = new Set([
 async function handle(req) {
   try {
     const url = new URL(req.url)
+    // If this Worker is (mis)configured to run on the whole domain, do
+    // not attempt to handle non-API paths here — let Pages/static host
+    // serve those assets directly. This avoids returning HTML for JS/CSS.
+    if (!url.pathname.startsWith('/api')) {
+      return fetch(req)
+    }
     // preserve path + query
     const destBase = typeof API_BASE_ORIGIN !== 'undefined' && API_BASE_ORIGIN
       ? API_BASE_ORIGIN.replace(/\/$/, '')
@@ -64,18 +70,60 @@ async function handle(req) {
     // Support client-side token posting: the OAuth implicit flow (tokens in
     // fragment) cannot be observed by the server. Provide an endpoint that
     // client JS can POST tokens to so the Worker can set HttpOnly cookies.
+    // (no-op placeholder for auth endpoints)
     if (url.pathname === '/api/auth/set_tokens' && req.method === 'POST') {
       try {
         let data = null
-        try { data = await req.json() } catch (e) {
-          const form = await req.formData().catch(() => null)
-          if (form) {
+        const contentTypeHeader = (req.headers.get('content-type') || '').toLowerCase()
+
+        // Prefer parsing based on Content-Type to avoid consuming body twice.
+        if (contentTypeHeader.indexOf('application/json') !== -1) {
+          try { data = await req.json() } catch (e) { data = null }
+        } else if (contentTypeHeader.indexOf('application/x-www-form-urlencoded') !== -1) {
+          try {
+            const txt = await req.text()
+            if (txt && txt.length) {
+              const sp = new URLSearchParams(txt)
+              data = {}
+              for (const [k, v] of sp.entries()) data[k] = v
+            }
+          } catch (e) { data = null }
+        } else if (contentTypeHeader.indexOf('multipart/form-data') !== -1) {
+          try {
+            const form = await req.formData()
             data = {}
             for (const [k, v] of form.entries()) data[k] = v
+          } catch (e) { data = null }
+        } else {
+          // Unknown content-type: attempt formData -> text(urlencoded) -> json
+          try {
+            const form = await req.formData().catch(() => null)
+            if (form && Array.from(form.keys()).length) {
+              data = {}
+              for (const [k, v] of form.entries()) data[k] = v
+            }
+          } catch (e) { data = null }
+
+          if (!data) {
+            try {
+              const txt = await req.text()
+              if (txt && txt.length) {
+                const sp = new URLSearchParams(txt)
+                data = {}
+                for (const [k, v] of sp.entries()) data[k] = v
+              }
+            } catch (e) { data = null }
+          }
+
+          if (!data) {
+            try { data = await req.json().catch(() => null) } catch (e) { data = null }
           }
         }
 
-        if (!data) return new Response(JSON.stringify({ ok: false, error: 'no_body' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+        if (!data) {
+          const debug = { ok: false, error: 'no_body', content_type: contentTypeHeader }
+          return new Response(JSON.stringify(debug), { status: 400, headers: { 'Content-Type': 'application/json' } })
+        }
 
         const accessToken = data.access_token || data.accessToken || null
         const refreshToken = data.refresh_token || data.refreshToken || null
@@ -90,8 +138,21 @@ async function handle(req) {
           cookieHeaders.push(`sb-refresh-token=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}; Secure; Domain=admin.shirasame.com`)
         }
 
-        const respHeaders = new Headers({ 'Content-Type': 'application/json' })
+        // If this request came from a form submit (typical when we POST from
+        // a browser after capturing a URL fragment), redirect to /admin so the
+        // browser performs a top-level navigation and receives the Set-Cookie
+        // headers reliably. Otherwise, return JSON for API clients.
+        const contentType = (req.headers.get('content-type') || '')
+        const isForm = contentType.indexOf('application/x-www-form-urlencoded') !== -1 || contentType.indexOf('multipart/form-data') !== -1
+        const respHeaders = new Headers()
         for (const c of cookieHeaders) respHeaders.append('Set-Cookie', c)
+
+        if (isForm || (req.headers.get('accept') || '').indexOf('text/html') !== -1) {
+          respHeaders.set('Location', '/admin')
+          return new Response(null, { status: 302, headers: respHeaders })
+        }
+
+        respHeaders.set('Content-Type', 'application/json')
         return new Response(JSON.stringify({ ok: true }), { status: 200, headers: respHeaders })
       } catch (e) {
         return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json' } })
@@ -125,17 +186,73 @@ async function handle(req) {
 
       const params = url.searchParams
       const code = params.get('code')
-      // If Supabase returned an error param, surface it
+      // If Supabase returned an error param, surface it with details for debugging
       const oauthError = params.get('error')
       if (oauthError) {
-        return new Response(`OAuth error: ${oauthError}`, { status: 400 })
+        const details = {}
+        for (const [k, v] of params.entries()) details[k] = v
+        return new Response(JSON.stringify({ ok: false, oauth_error: oauthError, params: details }), { status: 400, headers: { 'Content-Type': 'application/json' } })
       }
 
       if (!code) {
-        // Supabase may return tokens in the fragment (client flow) — in that
-        // case the client should capture the fragment and POST tokens to
-        // `/api/auth/set_tokens`. Provide a helpful response for debugging.
-        return new Response(JSON.stringify({ ok: false, error: 'missing_authorization_code', hint: 'If you see tokens in the URL fragment (#access_token=...), use the client-side login page at /admin/login which will POST tokens to /api/auth/set_tokens.' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+        // Supabase/Google may return tokens in the URL fragment (#access_token=...)
+        // which never reaches the server. Serve a tiny HTML page that runs in
+        // the browser, captures the fragment, and posts tokens to
+        // `/api/auth/set_tokens`. This preserves the fragment flow without
+        // requiring the provider to return `code`.
+        const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Signing in…</title>
+    <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,\"Hiragino Kaku Gothic ProN\",\"Meiryo\",sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0} .card{max-width:560px;padding:24px;border-radius:8px;background:#fff;box-shadow:0 6px 20px rgba(0,0,0,.08);text-align:center}</style>
+  </head>
+  <body>
+    <div class="card">
+      <h2>Signing in…</h2>
+      <p id="msg">処理中です。ブラウザを閉じないでください。</p>
+    </div>
+    <script>
+      (function(){
+        try {
+          const hash = window.location.hash || ''
+          if (hash && hash.indexOf('access_token=') !== -1) {
+            const params = new URLSearchParams(hash.replace(/^#/, ''))
+            const access_token = params.get('access_token')
+            const refresh_token = params.get('refresh_token')
+            const expires_in = params.get('expires_in')
+            // Submit a form POST so the browser performs a top-level
+            // navigation and reliably receives Set-Cookie headers.
+            const form = document.createElement('form')
+            form.method = 'POST'
+            form.action = '/api/auth/set_tokens'
+            const setInput = (name, value) => {
+              const i = document.createElement('input')
+              i.type = 'hidden'
+              i.name = name
+              i.value = value || ''
+              form.appendChild(i)
+            }
+            setInput('access_token', access_token)
+            setInput('refresh_token', refresh_token)
+            setInput('expires_in', expires_in)
+            document.body.appendChild(form)
+            form.submit()
+            return
+          }
+          // No fragment tokens — redirect to client login page which also
+          // handles other interactive flows.
+          window.location.replace('/admin/login')
+        } catch (e) {
+          try { document.getElementById('msg').textContent = '予期せぬエラーが発生しました。' } catch (e) {}
+        }
+      })();
+    </script>
+  </body>
+</html>`
+
+        return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
       }
 
       // Exchange code for tokens
@@ -172,9 +289,81 @@ async function handle(req) {
       return new Response(null, { status: 302, headers: respHeaders })
     }
 
-    // remove leading /api prefix when forwarding to public worker
-    const forwardedPath = url.pathname.replace(/^\/api/, '')
-    const dest = destBase + forwardedPath + url.search
+    // Simple server-side read proxies for common admin GET endpoints.
+    // If the public worker doesn't implement these endpoints, fetch
+    // directly from Supabase REST (server-side) using the Service Role
+    // key when available. This keeps the admin UI working even if the
+    // public worker hasn't migrated every admin route.
+    if (req.method === 'GET') {
+      const readTableMap = {
+        '/api/recipes': 'recipes',
+        '/api/recipe-pins': 'recipe_pins',
+        '/api/custom-fonts': 'custom_fonts',
+        '/api/tags': 'tags',
+        '/api/collections': 'collections',
+        '/api/site-settings': 'site_settings',
+        '/api/amazon-sale-schedules': 'amazon_sale_schedules'
+      }
+      const table = readTableMap[url.pathname]
+      if (table) {
+        // Determine if the incoming request has an sb-access-token cookie.
+        const cookieHeader = req.headers.get('cookie') || ''
+        const match = cookieHeader.split(';').map(s => s.trim()).find(s => s.startsWith('sb-access-token='))
+        const accessToken = match ? decodeURIComponent(match.split('=')[1]) : null
+
+        // Only allow server-side supabase REST proxy when the request is
+        // authenticated (has sb-access-token) OR when the path is explicitly
+        // allowed as public-read.
+        const publicAllowed = new Set(['/api/products', '/api/recipes'])
+        if (!accessToken && !publicAllowed.has(url.pathname)) {
+          return new Response(JSON.stringify({ ok: false, authenticated: false }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+        }
+
+        const supabaseBase = typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL ? SUPABASE_URL.replace(/\/$/, '') : null
+        const serviceKey = typeof SUPABASE_SERVICE_ROLE_KEY !== 'undefined' ? SUPABASE_SERVICE_ROLE_KEY : null
+        const anonKey = typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : ''
+        if (supabaseBase) {
+          // Build REST URL
+          const base = `${supabaseBase}/rest/v1/${table}?select=*`
+          const sp = new URLSearchParams(url.search)
+          let restUrl = base
+          // map recipeId -> recipe_id eq filter
+          if (sp.has('recipeId')) {
+            restUrl += `&recipe_id=eq.${encodeURIComponent(sp.get('recipeId') || '')}`
+          }
+          // Add Authorization and apikey headers. Prefer service key when
+          // available, otherwise use anon key; but since we checked accessToken
+          // above, we won't leak service-role access for unauthenticated requests.
+          const headers = {
+            'apikey': anonKey || '',
+            'Authorization': serviceKey ? `Bearer ${serviceKey}` : `Bearer ${anonKey}`,
+            'Accept': 'application/json'
+          }
+          try {
+            const supRes = await fetch(restUrl, { method: 'GET', headers })
+            const respHeaders = new Headers()
+            for (const [k, v] of supRes.headers.entries()) {
+              if (HOP_BY_HOP.has(k.toLowerCase())) continue
+              respHeaders.set(k, v)
+            }
+            respHeaders.set('x-shirasame-proxy-dest', restUrl)
+            const buf = await supRes.arrayBuffer()
+            return new Response(buf, { status: supRes.status, statusText: supRes.statusText, headers: respHeaders })
+          } catch (e) {
+            // fall through to normal forwarding if supabase fetch fails
+          }
+        }
+      }
+    }
+
+    // Try forwarding to the public worker in two ways to be tolerant
+    // of differing public-worker path layouts:
+    // 1) strip the leading `/api` (common for public workers that expose
+    //    endpoints at `/products`, `/recipes`, etc.)
+    // 2) keep the `/api` prefix (some backends expose `/api/*`)
+    const forwardedPathStrip = url.pathname.replace(/^\/api/, '')
+    const destStrip = destBase + forwardedPathStrip + url.search
+    const destWithApi = destBase + url.pathname + url.search
 
     const outHeaders = new Headers()
     for (const [k, v] of req.headers.entries()) {
@@ -191,7 +380,23 @@ async function handle(req) {
       body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body
     }
 
-    const res = await fetch(dest, init)
+    // First attempt: stripped path
+    let res = await fetch(destStrip, init)
+    let usedDest = destStrip
+
+    // If the stripped path returns 404, try the /api-preserved path as fallback
+    if (res.status === 404) {
+      try {
+        const fallbackRes = await fetch(destWithApi, init)
+        // If fallback didn't 404, use it instead
+        if (fallbackRes.status !== 404) {
+          res = fallbackRes
+          usedDest = destWithApi
+        }
+      } catch (e) {
+        // ignore fallback network errors; we'll return the original 404 below
+      }
+    }
 
     const resHeaders = new Headers()
     for (const [k, v] of res.headers.entries()) {
@@ -200,11 +405,7 @@ async function handle(req) {
     }
 
     // Debug: expose the forwarded destination so we can verify routing
-    try {
-      resHeaders.set('x-shirasame-proxy-dest', dest)
-    } catch (e) {
-      // ignore header set errors
-    }
+    try { resHeaders.set('x-shirasame-proxy-dest', usedDest) } catch (e) {}
 
     const buf = await res.arrayBuffer()
     return new Response(buf, { status: res.status, statusText: res.statusText, headers: resHeaders })

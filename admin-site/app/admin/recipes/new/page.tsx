@@ -13,6 +13,7 @@ import { getPublicImageUrl } from "@/lib/image-url"
 import { convertImageToBase64 } from "@/lib/utils/image-utils"
 import type { Recipe } from "@/lib/db/schema"
 import { useToast } from "@/hooks/use-toast"
+import apiFetch from '@/lib/api-client'
 
 export default function RecipeNewPage() {
   const router = useRouter()
@@ -59,7 +60,7 @@ export default function RecipeNewPage() {
         form.append('file', new File([blob], fileName, { type: blob.type || 'image/png' }))
         form.append('target', 'recipe')
 
-        const uploadResp = await fetch('/api/images/upload', { method: 'POST', body: form })
+        const uploadResp = await apiFetch('/api/images/upload', { method: 'POST', body: form })
         const uploadJson = await uploadResp.json().catch(() => null)
         if (uploadJson && uploadJson.ok && uploadJson.result) {
           if (typeof uploadJson.result === 'object') {
@@ -101,7 +102,7 @@ export default function RecipeNewPage() {
         // CASE A: do not persist full URLs to the server DB. Skip server upsert when no key available.
         console.warn('[v0] no finalKey obtained; skipping server persist to avoid storing URLs in DB')
       }
-      await fetch('/api/admin/recipe-images/upsert', {
+      await apiFetch('/api/admin/recipe-images/upsert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

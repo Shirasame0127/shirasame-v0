@@ -1,4 +1,5 @@
 import supabaseClient from '@/lib/supabase/client'
+import apiFetch from '@/lib/api-client'
 
 export type AuthUser = {
   id: string
@@ -56,7 +57,7 @@ export const auth = {
 
       // Ensure there is a users row linked to this auth user
       try {
-        await fetch('/api/auth/link', {
+        await apiFetch('/api/auth/link', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: user.id, email: user.email }),
@@ -70,11 +71,11 @@ export const auth = {
       const session = data?.session
       if (session?.access_token) {
         try {
-          await fetch('/api/auth/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-          })
+          await apiFetch('/api/auth/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
+            })
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
         }
@@ -92,7 +93,7 @@ export const auth = {
     try {
       // Prevent duplicate signup if an app-level users row already exists with this email
       try {
-        const chk = await fetch('/api/auth/check-email', {
+        const chk = await apiFetch('/api/auth/check-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email }),
@@ -121,7 +122,7 @@ export const auth = {
 
       // Create or link a users row on the server side
       try {
-        await fetch('/api/auth/link', {
+        await apiFetch('/api/auth/link', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: user.id, email: user.email, username }),
@@ -134,11 +135,11 @@ export const auth = {
       const session = data?.session
       if (session?.access_token) {
         try {
-          await fetch('/api/auth/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-          })
+          await apiFetch('/api/auth/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
+            })
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
         }
@@ -157,11 +158,11 @@ export const auth = {
     try {
       // Run server-side logout and Supabase signOut in parallel with timeouts.
       const serverLogout = (async () => {
-        try {
-          const controller = new AbortController()
-          const id = setTimeout(() => controller.abort(), 5000)
-          try {
-            await fetch('/api/auth/logout', { method: 'POST', signal: controller.signal })
+            try {
+            const controller = new AbortController()
+            const id = setTimeout(() => controller.abort(), 5000)
+            try {
+            await apiFetch('/api/auth/logout', { method: 'POST', signal: controller.signal })
           } catch (e) {
             // ignore network errors — still proceed to clear client state
           } finally {
@@ -207,7 +208,7 @@ export const auth = {
   // Try to refresh session server-side using refresh token cookie
   refresh: async (): Promise<{ success: boolean; error?: string }> => {
     try {
-      const res = await fetch('/api/auth/refresh', { method: 'POST' })
+      const res = await apiFetch('/api/auth/refresh', { method: 'POST' })
       if (!res.ok) {
         const j = await res.json().catch(() => null)
         // On refresh failure: clear local mirror. Only redirect/logout when
@@ -302,20 +303,20 @@ if (typeof window !== 'undefined' && supabaseClient?.auth && (supabaseClient as 
           // When auth state changes (e.g., OAuth / magic link), send session tokens to server
           try {
             const sess = session?.access_token ? { access_token: session.access_token, refresh_token: session.refresh_token } : null
-            if (sess) {
-              fetch('/api/auth/session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(sess),
-              }).catch((e) => console.warn('[auth] link after auth state change failed', e))
-            }
+              if (sess) {
+                apiFetch('/api/auth/session', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(sess),
+                }).catch((e) => console.warn('[auth] link after auth state change failed', e))
+              }
           } catch (e) {
             console.warn('[auth] session sync failed', e)
           }
 
           writeLocalUser(authUser)
           // Ensure server-side app users row exists
-          fetch('/api/auth/link', {
+          apiFetch('/api/auth/link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId: user.id, email: user.email }),
