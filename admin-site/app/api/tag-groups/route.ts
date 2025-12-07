@@ -1,17 +1,11 @@
-import { NextResponse } from 'next/server'
-import supabaseAdmin from '@/lib/supabase'
+import { forwardToPublicWorker } from '@/lib/api-proxy'
 
-export async function GET(req: Request) {
-  try {
-    const res = await supabaseAdmin.from('tag_groups').select('*').order('sort_order', { ascending: true })
-    if (res.error) {
-      console.error('[api/tag-groups] supabase error', res.error)
-      return NextResponse.json({ error: res.error.message || String(res.error) }, { status: 500 })
-    }
-    return NextResponse.json({ data: res.data || [] })
-  } catch (e: any) {
-    console.error('[api/tag-groups] exception', e)
-    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 })
-  }
-}
+export async function GET(req: Request) { return forwardToPublicWorker(req) }
+export async function POST(req: Request) { return forwardToPublicWorker(req) }
+export async function PUT(req: Request) { return forwardToPublicWorker(req) }
+export async function DELETE(req: Request) { return forwardToPublicWorker(req) }
+export async function PATCH(req: Request) { return forwardToPublicWorker(req) }
+export async function OPTIONS(req: Request) { return forwardToPublicWorker(req) }
+
+export const runtime = 'nodejs'
 

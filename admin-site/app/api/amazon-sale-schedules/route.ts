@@ -1,17 +1,11 @@
-import { NextResponse } from 'next/server'
-import supabaseAdmin from '@/lib/supabase'
+import { forwardToPublicWorker } from '@/lib/api-proxy'
 
-export async function GET() {
-  try {
-    const res = await supabaseAdmin.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true })
-    if (res.error) {
-      console.warn('[api/amazon-sale-schedules] supabase warning', res.error)
-      return NextResponse.json({ data: [] })
-    }
-    return NextResponse.json({ data: res.data || [] })
-  } catch (e: any) {
-    console.error('[api/amazon-sale-schedules] exception', e)
-    return NextResponse.json({ data: [] })
-  }
-}
+export async function GET(req: Request) { return forwardToPublicWorker(req) }
+export async function POST(req: Request) { return forwardToPublicWorker(req) }
+export async function PUT(req: Request) { return forwardToPublicWorker(req) }
+export async function DELETE(req: Request) { return forwardToPublicWorker(req) }
+export async function PATCH(req: Request) { return forwardToPublicWorker(req) }
+export async function OPTIONS(req: Request) { return forwardToPublicWorker(req) }
+
+export const runtime = 'nodejs'
 

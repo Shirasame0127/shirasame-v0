@@ -1,56 +1,53 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-// Protect all /admin routes server-side. If the request contains a valid
-// sb-access-token cookie and the token resolves to a user via the internal
-// /api/auth/whoami route, allow the request to proceed. Otherwise redirect
-// to /admin/login.
+const DEFAULT_API_BASE = 'https://public-worker.shirasame-official.workers.dev'
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Only guard admin routes
-  if (!pathname.startsWith('/admin')) return NextResponse.next()
+  // 1) If this is an API request, proxy to the public worker
+  if (pathname.startsWith('/api/')) {
+    const destOrigin = process.env.API_BASE_ORIGIN || process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE
+    const destUrl = destOrigin.replace(/\/$/, '') + req.nextUrl.pathname + req.nextUrl.search
 
-  // Allow the login page and static/_next assets without auth
-  if (pathname === '/admin/login' || pathname.startsWith('/admin/_next') || pathname.startsWith('/_next')) {
-    return NextResponse.next()
-  }
+    const headers = new Headers(req.headers as any)
+    headers.delete('host')
 
-  // Forward cookies to our internal whoami endpoint to validate token.
-  try {
-    const origin = req.nextUrl.origin
-    const res = await fetch(`${origin}/api/auth/whoami`, {
-      method: 'GET',
-      headers: {
-        cookie: req.headers.get('cookie') || ''
-      },
-      // keep same credentials behaviour
-      redirect: 'manual'
-    })
-
-    if (!res.ok) {
-      const login = new URL('/admin/login', origin)
-      login.searchParams.set('r', pathname)
-      return NextResponse.redirect(login)
+    let body: BodyInit | undefined = undefined
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      try { body = await req.text() } catch { body = undefined }
     }
 
-    const json = await res.json().catch(() => null)
-    if (!json || !json.ok || !json.user || !json.user.id) {
-      const login = new URL('/admin/login', origin)
-      login.searchParams.set('r', pathname)
-      return NextResponse.redirect(login)
+    const res = await fetch(destUrl, { method: req.method, headers, body, redirect: 'manual' })
+    const responseHeaders = new Headers(res.headers)
+    responseHeaders.delete('transfer-encoding')
+    const buf = await res.arrayBuffer()
+    return new NextResponse(buf, { status: res.status, headers: responseHeaders })
+  }
+
+  // 2) Admin route guard
+  if (pathname.startsWith('/admin')) {
+    // Allow the login page and _next assets
+    if (pathname === '/admin/login' || pathname.startsWith('/admin/_next') || pathname.startsWith('/_next')) {
+      return NextResponse.next()
     }
 
-    // Authenticated — proceed
-    return NextResponse.next()
-  } catch (e) {
-    const login = new URL('/admin/login', req.nextUrl.origin)
-    login.searchParams.set('r', pathname)
-    return NextResponse.redirect(login)
+    try {
+      const origin = req.nextUrl.origin
+      const whoami = await fetch(`${origin}/api/auth/whoami`, { method: 'GET', headers: { cookie: req.headers.get('cookie') || '' }, redirect: 'manual' })
+      if (!whoami.ok) {
+        const login = new URL('/admin/login', origin); login.searchParams.set('r', pathname); return NextResponse.redirect(login)
+      }
+      const json = await whoami.json().catch(() => null)
+      if (!json || !json.ok || !json.user || !json.user.id) { const login = new URL('/admin/login', origin); login.searchParams.set('r', pathname); return NextResponse.redirect(login) }
+      return NextResponse.next()
+    } catch (e) {
+      const login = new URL('/admin/login', req.nextUrl.origin); login.searchParams.set('r', pathname); return NextResponse.redirect(login)
+    }
   }
+
+  return NextResponse.next()
 }
 
-export const config = {
-  matcher: ['/admin/:path*']
-}
+export const config = { matcher: ['/api/:path*', '/admin/:path*'] }
