@@ -1,9 +1,17 @@
-[site]
-bucket = "public"
-
 name = "admin-api-proxy"
 main = "index.js"
+type = "javascript"
+compatibility_date = "2025-12-07"
 
-# Add API_BASE_ORIGIN here as a var or set it in the Cloudflare dashboard
-# Example:
-# vars = { API_BASE_ORIGIN = "https://public-worker.shirasame-official.workers.dev" }
+# NOTE: Fill `account_id` with your Cloudflare Account ID before publishing.
+# You can find it in the Cloudflare dashboard (Account Home) or run `wrangler whoami`.
+account_id = "cc4a35b866542fbddca136b1cfc53037"
+
+# Route: this worker should only handle admin API paths. Do NOT use admin.shirasame.com/*
+route = "admin.shirasame.com/api/*"
+
+# Worker global variables (optional). You can also set these in the Cloudflare dashboard UI.
+[vars]
+API_BASE_ORIGIN = "https://public-worker.shirasame-official.workers.dev"
+SUPABASE_URL = "https://zikwelnhcpnnpurlomrf.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppa3dlbG5oY3BubnB1cmxvbXJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MjU3MjksImV4cCI6MjA3OTMwMTcyOX0.jpXt88FpfYpfni8eHAh2zAXl22biBruWHA-MPnu4F1A"

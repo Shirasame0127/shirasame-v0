@@ -1,4 +1,57 @@
 "use client"
+import { useEffect, useState } from 'react'
+
+export default function AdminLoginPage() {
+  const [status, setStatus] = useState('idle')
+
+  useEffect(() => {
+    // If tokens are present in the URL fragment (#access_token=...), post them
+    // to the server so the Worker can set HttpOnly cookies for the admin domain.
+    try {
+      const hash = window.location.hash || ''
+      if (!hash) return
+      const params = new URLSearchParams(hash.replace(/^#/, ''))
+      const access_token = params.get('access_token')
+      const refresh_token = params.get('refresh_token')
+      const expires_in = params.get('expires_in')
+      if (access_token) {
+        setStatus('posting')
+        fetch('/api/auth/set_tokens', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ access_token, refresh_token, expires_in })
+        }).then(r => r.json()).then(j => {
+          if (j && j.ok) {
+            // remove fragment and navigate to admin
+            window.history.replaceState({}, document.title, window.location.pathname + window.location.search)
+            window.location.href = '/admin'
+          } else {
+            setStatus('error')
+          }
+        }).catch(() => setStatus('error'))
+      }
+    } catch (e) {
+      setStatus('error')
+    }
+  }, [])
+
+  return (
+    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 24 }}>
+      <h1>Admin Login</h1>
+      <p>
+        Use your provider to sign in. If your browser redirects with tokens in the URL
+        fragment ("#access_token=…"), this page will pick them up and sign you in.
+      </p>
+      <div style={{ marginTop: 16 }}>
+        <a href="/api/auth/google">Sign in with Google</a>
+      </div>
+      <div style={{ marginTop: 16 }}>
+        <strong>Status:</strong> {status}
+      </div>
+    </div>
+  )
+}
+"use client"
 
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
