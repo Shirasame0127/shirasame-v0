@@ -190,32 +190,76 @@ async function verifyTokenWithSupabase(token: string, c: any): Promise<string | 
 async function getRequestUserId(c: any): Promise<string | null> {
   try {
     const auth = c.req.header('authorization') || c.req.header('Authorization') || ''
-    if (auth && auth.toLowerCase().startsWith('bearer ')) {
+    if (auth.toLowerCase().startsWith('bearer ')) {
       const token = auth.slice(7).trim()
-      // まず Supabase のユーザー情報エンドポイントを使って検証を試みる
+
+      // ✅ 検証できた場合のみ返す
       const viaSupabase = await verifyTokenWithSupabase(token, c)
-      if (viaSupabase) return viaSupabase
-      // 検証できない場合はペイロードをデコードしてフォールバック
-      const payload = parseJwtPayload(token)
-      if (payload) return payload.sub || payload.user_id || payload.userId || null
+      return viaSupabase ?? null
     }
 
-    // Supabase の cookie 名である sb-access-token をチェック
     const cookieHeader = c.req.header('cookie') || ''
     const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
-    if (m && m[1]) {
+    if (m?.[1]) {
       const token = decodeURIComponent(m[1])
       const viaSupabase = await verifyTokenWithSupabase(token, c)
-      if (viaSupabase) return viaSupabase
-      const payload = parseJwtPayload(token)
-      if (payload) return payload.sub || payload.user_id || payload.userId || null
+      return viaSupabase ?? null
     }
 
     return null
-  } catch (e) {
+  } catch {
     return null
   }
 }
+
+// Centralized request user context resolver.
+// Returns { userId, authType, trusted } where authType is one of:
+//  - 'user-token'   : verified Supabase token (highest trust)
+//  - 'internal-key' : request authenticated by INTERNAL_API_KEY (trusted)
+//  - 'none'         : no trusted identity
+async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userId: string | null; authType: 'user-token' | 'internal-key' | 'none'; trusted: boolean }> {
+  try {
+    // 1) Check bearer token or sb-access-token cookie first
+    const auth = c.req.header('authorization') || c.req.header('Authorization') || ''
+    if (auth.toLowerCase().startsWith('bearer ')) {
+      const token = auth.slice(7).trim()
+      const viaSupabase = await verifyTokenWithSupabase(token, c)
+      if (viaSupabase) return { userId: viaSupabase, authType: 'user-token', trusted: true }
+    }
+
+    const cookieHeader = c.req.header('cookie') || ''
+    const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
+    if (m?.[1]) {
+      const token = decodeURIComponent(m[1])
+      const viaSupabase = await verifyTokenWithSupabase(token, c)
+      if (viaSupabase) return { userId: viaSupabase, authType: 'user-token', trusted: true }
+    }
+
+    // 2) If internal key present, trust payload.userId or x-user-id header
+    const provided = c.req.header('x-internal-key') || c.req.header('X-Internal-Key') || ''
+    const expected = (c.env.INTERNAL_API_KEY || '').toString()
+    const hasValidInternalKey = !!(expected && provided && provided === expected)
+    if (hasValidInternalKey) {
+      // prefer explicit payload.userId, then x-user-id header
+      let uid: string | null = null
+      if (payload && (payload.userId || payload.user_id)) uid = (payload.userId || payload.user_id)
+      const headerUser = c.req.header('x-user-id') || c.req.header('X-User-Id') || ''
+      if (!uid && headerUser) uid = headerUser
+      return { userId: uid || null, authType: 'internal-key', trusted: true }
+    }
+
+    // 3) x-user-id alone is not trusted for write operations. Treat as none.
+    const headerUser = c.req.header('x-user-id') || c.req.header('X-User-Id') || ''
+    if (headerUser) {
+      return { userId: headerUser || null, authType: 'none', trusted: false }
+    }
+
+    return { userId: null, authType: 'none', trusted: false }
+  } catch (e) {
+    return { userId: null, authType: 'none', trusted: false }
+  }
+}
+
 
 // Direct implementations for collections/profile/recipes/tag-groups/tags
 // All of these use Supabase anon client (RLS assumed) and share cache/ETag behavior.
@@ -234,9 +278,10 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
       // If authenticated, return that user's collections (all visibility). Otherwise fall back to PUBLIC_OWNER_USER_ID or only public collections.
       let collections: any[] = []
       let total: number | null = null
-      const reqUserId = await getRequestUserId(c)
+      const ctx = await resolveRequestUserContext(c)
       // 管理ページ用途: 認証がない場合はアクセス拒否
-      if (!reqUserId) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      const reqUserId = ctx.userId
       if (limit && limit > 0) {
         if (wantCount) {
           let query = supabase.from('collections').select('*', { count: 'exact' }).order('created_at', { ascending: false })
@@ -287,7 +332,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
         const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
         const baseSelect = '*, images:product_images(*), affiliateLinks:affiliate_links(*)'
         // 認証情報から userId を取得して優先的に絞り込む
-        const reqUserId = await getRequestUserId(c)
+        // Use outer scoped reqUserId (resolved above for collections)
         let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('published', true)
         if (reqUserId) {
           prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('user_id', reqUserId)
@@ -383,9 +428,9 @@ app.get('/recipes', zValidator('query', listQuery.partial()), async (c) => {
   return cacheJson(c, key, async () => {
     try {
       // 管理用途: 認証必須（ログイン画面からの呼び出しを除く）
-      const reqUserId = await getRequestUserId(c)
-      if (!reqUserId) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      let recipesQuery = supabase.from('recipes').select('*').order('created_at', { ascending: false }).eq('user_id', reqUserId)
+      const ctx = await resolveRequestUserContext(c)
+      if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      let recipesQuery = supabase.from('recipes').select('*').order('created_at', { ascending: false }).eq('user_id', ctx.userId)
       const { data: recipes = [], error: recipesErr } = await recipesQuery
       if (recipesErr) return new Response(JSON.stringify({ error: recipesErr.message }), { status: 500 })
       const recipeIds = recipes.map((r: any) => r.id)
@@ -468,10 +513,10 @@ app.get('/tag-groups', zValidator('query', listQuery.partial()), async (c) => {
   return cacheJson(c, key, async () => {
     try {
       // If request is authenticated, return that user's tag groups. Otherwise fall back to configured PUBLIC_OWNER_USER_ID or global list.
-        const reqUserId = await getRequestUserId(c)
+        const ctx = await resolveRequestUserContext(c)
         // 管理用途のタグ群は認証必須
-        if (!reqUserId) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-        const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', reqUserId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
+        if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+        const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ctx.userId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
         if (res.error) return new Response(JSON.stringify({ data: [] }))
         return new Response(JSON.stringify({ data: res.data || [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     } catch (e: any) {
@@ -487,11 +532,11 @@ app.get('/tags', zValidator('query', listQuery.partial()), async (c) => {
   return cacheJson(c, key, async () => {
     try {
       // If authenticated, return only that user's tags. Otherwise return global tags or PUBLIC_OWNER_USER_ID-scoped tags.
-      const reqUserId = await getRequestUserId(c)
+      const ctx = await resolveRequestUserContext(c)
       // 管理用途のタグは認証必須
-      if (!reqUserId) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
       let query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
-      query = query.eq('user_id', reqUserId)
+      query = query.eq('user_id', ctx.userId)
       const res = await query
       if (res.error) return new Response(JSON.stringify({ data: [] }))
       const mapped = (res.data || []).map((row: any) => ({ id: row.id, name: row.name, group: row.group ?? undefined, linkUrl: row.link_url ?? undefined, linkLabel: row.link_label ?? undefined, userId: row.user_id ?? undefined, sortOrder: row.sort_order ?? 0, createdAt: row.created_at }))
@@ -509,10 +554,10 @@ app.get('/amazon-sale-schedules', async (c) => {
   return cacheJson(c, key, async () => {
     try {
       // Scope schedules to authenticated user if present, otherwise PUBLIC_OWNER_USER_ID if configured
-      const reqUserId = await getRequestUserId(c)
+      const ctx = await resolveRequestUserContext(c)
       // 管理用途のスケジュールは認証必須
-      if (!reqUserId) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      let query = supabase.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true }).eq('user_id', reqUserId)
+      if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      let query = supabase.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true }).eq('user_id', ctx.userId)
       const { data = [], error } = await query
       if (error) return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
       const mapped = (data || []).map((row: any) => ({
@@ -568,8 +613,14 @@ app.get('/site-settings', async (c) => {
 app.get('/api/admin/settings', async (c) => {
   try {
     const internal = upstream(c, '/api/admin/settings')
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    // require authenticated user or internal key for admin settings
+    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     if (internal) {
-      const res = await fetch(internal, { method: 'GET', headers: makeUpstreamHeaders(c) })
+      const headers = makeUpstreamHeaders(c)
+      if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
+      const res = await fetch(internal, { method: 'GET', headers })
       const json = await res.json().catch(() => ({ data: {} }))
       return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     }
@@ -634,8 +685,13 @@ app.put('/api/admin/settings', async (c) => {
   try {
     const internal = upstream(c, '/api/admin/settings')
     const bodyText = await c.req.text()
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     if (internal) {
-      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers: { ...makeUpstreamHeaders(c) } })
+      const headers = { ...makeUpstreamHeaders(c) }
+      if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
+      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers })
       const buf = await res.arrayBuffer()
       return new Response(buf, { status: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' } })
     }
@@ -674,8 +730,14 @@ app.put('/admin/settings', async (c) => {
   try {
     const internal = upstream(c, '/api/admin/settings')
     const bodyText = await c.req.text()
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    // require authenticated user or internal key for admin settings
+    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     if (internal) {
-      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers: { ...makeUpstreamHeaders(c) } })
+      const headers = { ...makeUpstreamHeaders(c) }
+      if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
+      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers })
       const buf = await res.arrayBuffer()
       return new Response(buf, { status: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' } })
     }
@@ -755,7 +817,8 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
 
       // 単一オーナーの公開サイト前提の場合の追加絞り込み
       // Prefer authenticated user scope when available; otherwise fall back to PUBLIC_OWNER_USER_ID for single-owner sites
-      const reqUserId = await getRequestUserId(c)
+      const ctx = await resolveRequestUserContext(c)
+      const reqUserId = ctx.trusted ? ctx.userId : null
       if (!id && !slug) {
         if (reqUserId) {
           query = query.eq('user_id', reqUserId)
@@ -868,12 +931,11 @@ app.all('/admin/*', async (c) => {
     // シンプルなキー認証
     const provided = c.req.header('x-internal-key') || c.req.header('X-Internal-Key') || ''
     const expected = (c.env.INTERNAL_API_KEY || '').toString()
-    // Validate user identity: prefer JWT/session verification, fallback to internal key.
-    // Use getRequestUserId to verify token via Supabase auth endpoint or cookie. This ensures
-    // a real authenticated user is present rather than only checking header existence.
-    const reqUserId = await getRequestUserId(c)
-    const hasValidInternalKey = !!(expected && provided && provided === expected)
-    if (!reqUserId && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+    // Resolve request user context (centralized). This enforces a single source of truth
+    // for user identity: token -> internal-key -> none.
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
 
     const rest = c.req.path.replace(/^\/admin/, '') || '/'
     // クエリは upstream() で追加されるので path 部分のみを組み立て
@@ -890,6 +952,8 @@ app.all('/admin/*', async (c) => {
     if (authHeader) headers['authorization'] = authHeader
     const cookieHeader = c.req.header('cookie')
     if (cookieHeader) headers['cookie'] = cookieHeader
+    // Forward resolved user id to upstream so internal API can apply owner filtering
+    if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
 
     const body = (method === 'GET' || method === 'HEAD') ? undefined : await c.req.text()
     const resp = await fetch(upstreamUrl, { method, headers, body })
@@ -908,9 +972,10 @@ app.all('/api/admin/*', async (c) => {
     if (!internalBase) return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502 })
     const provided = c.req.header('x-internal-key') || c.req.header('X-Internal-Key') || ''
     const expected = (c.env.INTERNAL_API_KEY || '').toString()
-    const reqUserId = await getRequestUserId(c)
-    const hasValidInternalKey = !!(expected && provided && provided === expected)
-    if (!reqUserId && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    // Require authentication (user token) or internal key for all admin proxying
+    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
 
     const rest = c.req.path.replace(/^\/api\/admin/, '') || '/'
     const upstreamUrl = internalBase + rest + (Object.keys(c.req.query() || {}).length > 0 ? ('?' + new URLSearchParams(c.req.query() as any as Record<string,string>).toString()) : '')
@@ -924,6 +989,8 @@ app.all('/api/admin/*', async (c) => {
     if (authHeader) headers['authorization'] = authHeader
     const cookieHeader = c.req.header('cookie')
     if (cookieHeader) headers['cookie'] = cookieHeader
+    // Forward resolved user id to upstream so internal API can apply owner filtering
+    if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
 
     const body = (method === 'GET' || method === 'HEAD') ? undefined : await c.req.text()
     const resp = await fetch(upstreamUrl, { method, headers, body })
@@ -952,6 +1019,17 @@ app.put('/api/admin/users/:id', async (c) => {
 
     const id = c.req.param('id')
     const payload = JSON.parse(bodyText || '{}')
+    const ctx = await resolveRequestUserContext(c, payload)
+    // Only allow users to update their own profile unless internal key is provided
+    if (ctx.authType === 'user-token') {
+      if (!ctx.userId || ctx.userId !== id) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      }
+    } else if (ctx.authType === 'internal-key') {
+      // allowed to act on behalf when internal key is used
+    } else {
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
     // Update profiles table by id (assuming profiles table exists with id column)
     const url = `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(id)}`
     const res = await fetch(url, {
@@ -1056,8 +1134,14 @@ app.post('/api/images/complete', async (c) => {
     if (payload?.aspect) metadata.aspect = payload.aspect
     if (payload?.extra) metadata.extra = payload.extra
 
-    // Attempt to determine user id from request (if available)
-    const userId = await getRequestUserId(c)
+    // Resolve user context centrally (token > internal-key > none)
+    const ctx = await resolveRequestUserContext(c, payload)
+    if (!ctx.trusted) {
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    }
+
+    // effectiveUserId: token-authenticated users or internal-key supplied user id
+    const effectiveUserId = ctx.userId || null
 
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
@@ -1072,7 +1156,7 @@ app.post('/api/images/complete', async (c) => {
     // If the insert is ignored due to an existing row (race), the POST returns an empty array; in that case
     // we fetch the existing row and return existing=true. This avoids race conditions.
     try {
-      const insertBody = [{ key, filename, metadata: Object.keys(metadata).length ? metadata : null, user_id: userId || null, created_at: new Date().toISOString() }]
+      const insertBody = [{ key, filename, metadata: Object.keys(metadata).length ? metadata : null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
       const upsertUrl = `${supabaseUrl}/rest/v1/images?on_conflict=key`
       const upsertRes = await fetch(upsertUrl, {
         method: 'POST',
@@ -1085,33 +1169,99 @@ app.post('/api/images/complete', async (c) => {
         body: JSON.stringify(insertBody),
       })
 
-      if (!upsertRes.ok) {
-        const txt = await upsertRes.text().catch(() => '')
-        return new Response(JSON.stringify({ error: 'failed to persist image metadata', detail: txt }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-      }
-
-      const inserted = await upsertRes.json().catch(() => [])
-      if (Array.isArray(inserted) && inserted.length > 0) {
-        // Inserted successfully (no existing conflict)
-        return new Response(JSON.stringify({ key, existing: false }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-      }
-
-      // Insert was ignored due to conflict — fetch the existing record atomically
-      try {
-        const encodedKey = encodeURIComponent(key)
-        const qUrl = `${supabaseUrl}/rest/v1/images?select=id,key,filename,metadata,user_id,created_at&key=eq.${encodedKey}&limit=1`
-        const qRes = await fetch(qUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
-        if (qRes.ok) {
-          const existing = await qRes.json().catch(() => null)
-          return new Response(JSON.stringify({ key, existing: true, record: Array.isArray(existing) && existing.length > 0 ? existing[0] : null }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+      // Successful atomic upsert path (requires DB unique constraint on images.key)
+      if (upsertRes.ok) {
+        const inserted = await upsertRes.json().catch(() => [])
+        if (Array.isArray(inserted) && inserted.length > 0) {
+          return new Response(JSON.stringify({ key, existing: false }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
         }
-      } catch (e) {
-        // If fetch fails, still return success to caller (best-effort)
+
+        // Insert was ignored due to conflict — fetch the existing record
+        try {
+          const encodedKey = encodeURIComponent(key)
+          const qUrl = `${supabaseUrl}/rest/v1/images?select=id,key,filename,metadata,user_id,created_at&key=eq.${encodedKey}&limit=1`
+          const qRes = await fetch(qUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+          if (qRes.ok) {
+            const existing = await qRes.json().catch(() => null)
+            return new Response(JSON.stringify({ key, existing: true, record: Array.isArray(existing) && existing.length > 0 ? existing[0] : null }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+          }
+        } catch (e) {
+          return new Response(JSON.stringify({ key, existing: true }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+        }
         return new Response(JSON.stringify({ key, existing: true }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
       }
 
-      // Fallback success
-      return new Response(JSON.stringify({ key, existing: true }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+      // If upsert failed, inspect the response for Postgres-on-conflict support error (42P10)
+      const upsertText = await upsertRes.text().catch(() => '')
+      const isNoOnConflict = String(upsertText).includes('42P10') || String(upsertText).toLowerCase().includes('no unique or exclusion constraint') || String(upsertText).toLowerCase().includes('on conflict')
+
+      // Try RPC-based atomic insert-if-not-exists if the DB provides such a function
+      if (isNoOnConflict) {
+        try {
+          const rpcUrl = `${supabaseUrl}/rpc/images_insert_if_not_exists`
+          const rpcRes = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ p_key: key, p_filename: filename, p_metadata: metadata && Object.keys(metadata).length ? metadata : null, p_user_id: effectiveUserId || null }),
+          })
+          if (rpcRes.ok) {
+            const rec = await rpcRes.json().catch(() => null)
+            return new Response(JSON.stringify({ key, existing: !!rec, record: rec }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+          }
+        } catch (e) {
+          // ignore and fallback to SELECT/INSERT loop below
+        }
+      }
+
+      // Final fallback: SELECT -> INSERT with retry to reduce race window.
+      // This is not as strong as server-side transaction, but only used when
+      // DB lacks ON CONFLICT support or RPC. The production-safe path is to
+      // run the DB dedupe + unique index (see docs). We attempt 3 tries.
+      try {
+        const encodedKey = encodeURIComponent(key)
+        for (let attempt = 0; attempt < 3; attempt++) {
+          // Check existing
+          const qUrl = `${supabaseUrl}/rest/v1/images?select=id,key,filename,metadata,user_id,created_at&key=eq.${encodedKey}&limit=1`
+          const qRes = await fetch(qUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+          if (qRes.ok) {
+            const existing = await qRes.json().catch(() => null)
+            if (Array.isArray(existing) && existing.length > 0) {
+              return new Response(JSON.stringify({ key, existing: true, record: existing[0] }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+            }
+          }
+
+          // Not found -> attempt insert
+          const insBody = [{ key, filename, metadata: Object.keys(metadata).length ? metadata : null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
+          const insUrl = `${supabaseUrl}/rest/v1/images`
+          const insRes = await fetch(insUrl, { method: 'POST', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: JSON.stringify(insBody) })
+          if (insRes.ok) {
+            const rec = await insRes.json().catch(() => [])
+            if (Array.isArray(rec) && rec.length > 0) {
+              return new Response(JSON.stringify({ key, existing: false, record: rec[0] }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+            }
+          } else {
+            const txt = await insRes.text().catch(() => '')
+            // If this indicates a duplicate was created concurrently, treat as existing and return
+            if (String(txt).toLowerCase().includes('duplicate') || String(txt).includes('unique')) {
+              // Re-query to return existing record
+              const reQ = await fetch(qUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+              if (reQ.ok) {
+                const existing = await reQ.json().catch(() => null)
+                if (Array.isArray(existing) && existing.length > 0) {
+                  return new Response(JSON.stringify({ key, existing: true, record: existing[0] }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+                }
+              }
+            }
+          }
+
+          // Small jitter before retry
+          await new Promise((res) => setTimeout(res, 100 + Math.floor(Math.random() * 200)))
+        }
+        // After retries, return error
+        return new Response(JSON.stringify({ error: 'failed to persist image metadata after retries' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+      } catch (e: any) {
+        return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+      }
     } catch (e: any) {
       return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
     }

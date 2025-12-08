@@ -1,25 +1,50 @@
 import type { Product, Recipe, Collection, User, CustomFont } from "@/lib/db/schema"
 import { getPublicImageUrl } from "@/lib/image-url"
+import apiFetchBase from '@/lib/api-client'
 
-// Generic fetch helper to our server API
+// Wrapper that uses shared api-client and attaches X-User-Id header when available
 async function apiFetch(method: string, path: string, body?: any) {
   try {
-    const res = await fetch(path, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : undefined,
-      credentials: "include",
-    })
-    if (!res.ok) {
-      const text = await res.text().catch(() => "")
-      throw new Error(`${method} ${path} failed: ${res.status} ${res.statusText} ${text}`)
-    }
+    // Attempt to read local mirror of auth user
+    let userId: string | null = null
+    try {
+      if (typeof window !== 'undefined') {
+        const raw = localStorage.getItem('auth_user')
+        if (raw) {
+          try { const parsed = JSON.parse(raw); userId = parsed?.id || null } catch {}
+        }
+        // Also support runtime __env__ override
+        if (!userId && (window as any).__env__?.USER_ID) userId = (window as any).__env__.USER_ID
+      }
+    } catch (e) {}
+
+    const headers: Record<string,string> = { 'Content-Type': 'application/json' }
+    if (userId) headers['X-User-Id'] = userId
+
+    const res = await apiFetchBase(path, { method, headers, body: body ? JSON.stringify(body) : undefined })
     const data = await res.json().catch(() => null)
     return data
-  } catch (err) {
-    console.error("[v0] apiFetch error", method, path, err)
+  } catch (err: any) {
+    console.error('[v0] apiFetch error', method, path, err?.message || err)
     return null
   }
+}
+
+function resolveUserId(fallback?: string | undefined) {
+  try {
+    if (fallback) return fallback
+    // Prefer cached users (warmCache sets this). Fallback to localStorage mirror.
+    const owner = (caches.users || [])[0]
+    if (owner && owner.id) return owner.id
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem('auth_user')
+      if (raw) {
+        try { const p = JSON.parse(raw); if (p?.id) return p.id } catch {}
+      }
+      if ((window as any).__env__?.USER_ID) return (window as any).__env__?.USER_ID
+    }
+  } catch (e) {}
+  return undefined
 }
 
 // In-memory caches. These are NOT persisted to localStorage—volatile only.
@@ -133,7 +158,8 @@ export const db = {
       return (caches.products || []).find((p: any) => p.id === id) || null
     },
     create: (product: Product) => {
-      const obj = { ...product, createdAt: product.createdAt || nowISO(), updatedAt: product.updatedAt || nowISO() }
+      const resolvedUserId = resolveUserId((product as any)?.userId)
+      const obj = { ...product, userId: resolvedUserId || (product as any)?.userId, createdAt: product.createdAt || nowISO(), updatedAt: product.updatedAt || nowISO() }
       caches.products = [...(caches.products || []), obj]
       // best-effort send to server (fire-and-log)
       apiFetch("POST", "/api/admin/products", obj)
@@ -263,7 +289,7 @@ export const db = {
       } else {
         caches.recipeImages = [...(caches.recipeImages || []), image]
       }
-      apiFetch("POST", "/api/admin/recipe-images/upsert", image)
+      apiFetch("POST", "/api/admin/recipe-images/upsert", { ...(image || {}), userId: resolveUserId((image||{}).userId) })
     },
   },
 
@@ -272,7 +298,7 @@ export const db = {
     getByRecipeId: (recipeId: string) => (caches.recipeItems || []).filter((it: any) => it.recipeId === recipeId),
     create: (item: any) => {
       caches.recipeItems = [...(caches.recipeItems || []), item]
-      apiFetch("POST", "/api/admin/recipe-items", item)
+      apiFetch("POST", "/api/admin/recipe-items", { ...(item || {}), userId: resolveUserId((item||{}).userId) })
       return item
     },
     update: (id: string, updates: any) => {
@@ -285,7 +311,7 @@ export const db = {
     },
     bulkUpdate: (items: any[]) => {
       caches.recipeItems = items
-      apiFetch("POST", "/api/admin/recipe-items/bulk", { items })
+      apiFetch("POST", "/api/admin/recipe-items/bulk", { items: items.map((it: any) => ({ ...(it||{}), userId: resolveUserId((it||{}).userId) })) })
     },
   },
 
@@ -316,7 +342,7 @@ export const db = {
     create: (collection: any) => {
       const full = { id: collection.id || `col-${Date.now()}`, createdAt: nowISO(), updatedAt: nowISO(), ...collection }
       caches.collections = [...(caches.collections || []), full]
-      apiFetch("POST", "/api/admin/collections", full)
+      apiFetch("POST", "/api/admin/collections", { ...full, userId: resolveUserId((full||{}).userId) })
       return full
     },
     update: (id: string, updates: any) => {
@@ -337,11 +363,11 @@ export const db = {
       const maxOrder = Math.max(0, ...items.filter((i: any) => i.collectionId === collectionId).map((i: any) => i.order || 0))
       const newItem = { id: `col-item-${Date.now()}`, collectionId, productId, order: maxOrder + 1, addedAt: nowISO() }
       caches.collectionItems = [...items, newItem]
-      apiFetch("POST", "/api/admin/collection-items", newItem)
+      apiFetch("POST", "/api/admin/collection-items", { ...newItem, userId: resolveUserId((newItem||{}).userId) })
     },
     removeProduct: (collectionId: string, productId: string) => {
       caches.collectionItems = (caches.collectionItems || []).filter((it: any) => !(it.collectionId === collectionId && it.productId === productId))
-      apiFetch("DELETE", "/api/admin/collection-items", { collectionId, productId })
+      apiFetch("DELETE", "/api/admin/collection-items", { collectionId, productId, userId: resolveUserId() })
     },
   },
 
@@ -354,7 +380,7 @@ export const db = {
     },
     create: (user: User) => {
       caches.users = [...(caches.users || []), user]
-      apiFetch("POST", "/api/admin/users", user)
+      apiFetch("POST", "/api/admin/users", { ...user, userId: resolveUserId((user||{}).id) })
     },
     update: (userId: string, updates: Partial<User>) => {
       caches.users = (caches.users || []).map((u: any) => (u.id === userId ? { ...u, ...updates } : u))
@@ -381,7 +407,7 @@ export const db = {
     get: () => caches.theme,
     set: (theme: any) => {
       caches.theme = theme
-      apiFetch("POST", "/api/admin/theme", { theme })
+      apiFetch("POST", "/api/admin/theme", { theme, userId: resolveUserId() })
     },
   },
 
@@ -434,18 +460,18 @@ export const db = {
     getAllWithPlaceholders: () => caches.tags || [],
     saveAll: (tags: any[]) => {
       caches.tags = tags
-      apiFetch("POST", "/api/admin/tags/save", { tags })
+      apiFetch("POST", "/api/admin/tags/save", { tags, userId: resolveUserId() })
     },
     getCustomTags: () => (caches.tags || []).filter((t: any) => t.category === "カスタム").map((t: any) => t.name),
     saveCustomTags: (tags: string[]) => {
-      apiFetch("POST", "/api/admin/tags/custom", { tags })
+      apiFetch("POST", "/api/admin/tags/custom", { tags, userId: resolveUserId() })
       // update cache best-effort
       const existing = caches.tags || []
       const customTags = tags.map((name) => ({ id: `tag-${Date.now()}-${Math.random()}`, name, category: "カスタム", userId: "user-shirasame", createdAt: nowISO() }))
       caches.tags = [...existing.filter((t: any) => t.category !== "カスタム"), ...customTags]
     },
     saveCategoryTags: (category: string, tags: string[]) => {
-      apiFetch("POST", "/api/admin/tags/category", { category, tags })
+      apiFetch("POST", "/api/admin/tags/category", { category, tags, userId: resolveUserId() })
       // update cache
       const existing = caches.tags || []
       const categoryTags = tags.map((name) => ({ id: `tag-${Date.now()}-${Math.random()}`, name, category, userId: null, createdAt: nowISO() }))
@@ -482,14 +508,14 @@ export const db = {
     },
     create: (pin: any) => {
       caches.recipePins = [...(caches.recipePins || []), pin]
-      apiFetch("POST", "/api/admin/recipe-pins", pin)
+      apiFetch("POST", "/api/admin/recipe-pins", { ...(pin||{}), userId: resolveUserId((pin||{}).userId) })
       return pin
     },
     updateAll: (recipeId: string, pins: any[]) => {
       caches.recipePins = [...(caches.recipePins || []).filter((p: any) => p.recipeId !== recipeId), ...pins]
       // Persist and then refresh cache for that recipe to pick up any DB-side transforms/ids
       // Return the promise so callers can await persistence if needed (e.g. on save flow)
-      return apiFetch("POST", "/api/admin/recipe-pins/bulk", { recipeId, pins })
+      return apiFetch("POST", "/api/admin/recipe-pins/bulk", { recipeId, pins: (pins || []).map((p: any) => ({ ...(p||{}), userId: resolveUserId((p||{}).userId) })) })
         .then(() => {
           return db.recipePins.refresh(recipeId).catch(() => null)
         })
@@ -532,7 +558,7 @@ export const db = {
     create: (schedule: any) => {
       const newSchedule = { id: `sale-${Date.now()}`, ...schedule, createdAt: nowISO(), updatedAt: nowISO() }
       caches.amazonSaleSchedules = [...(caches.amazonSaleSchedules || []), newSchedule]
-      apiFetch("POST", "/api/admin/amazon-sale-schedules", newSchedule)
+      apiFetch("POST", "/api/admin/amazon-sale-schedules", { ...(newSchedule||{}), userId: resolveUserId((newSchedule||{}).userId) })
       return newSchedule
     },
     update: (id: string, updates: any) => {
@@ -576,7 +602,7 @@ export const db = {
     create: (font: any) => {
       const newFont = { id: `custom-font-${Date.now()}`, ...font, createdAt: nowISO() }
       caches.customFonts = [...(caches.customFonts || []), newFont]
-      apiFetch("POST", "/api/admin/custom-fonts", newFont)
+      apiFetch("POST", "/api/admin/custom-fonts", { ...(newFont||{}), userId: resolveUserId((newFont||{}).userId) })
       return newFont
     },
     delete: (id: string) => {
