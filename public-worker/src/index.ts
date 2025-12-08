@@ -230,14 +230,22 @@ async function verifyTokenWithSupabase(token: string, c: any): Promise<string | 
     if (!token) return null
     const now = Date.now()
     const cached = tokenUserCache.get(token)
-    if (cached && (now - cached.ts) < 60_000) return cached.id
+    if (cached && (now - cached.ts) < 60_000) {
+      try { console.log('verifyTokenWithSupabase: cache hit userId=', cached.id) } catch {}
+      return cached.id
+    }
+
+    // TEMP LOG: observe verification attempts (don't print token)
+    try { console.log('verifyTokenWithSupabase: verifying token length=', token ? token.length : 0) } catch {}
     // Delegate to shared fetchUserFromToken so whoami and token verification share logic
     const user = await fetchUserFromToken(token, c)
     if (!user) {
+      try { console.log('verifyTokenWithSupabase: fetchUserFromToken returned null') } catch {}
       tokenUserCache.set(token, { id: null, ts: now })
       return null
     }
     const id = user?.id || user?.user?.id || user?.sub || user?.user_id || null
+    try { console.log('verifyTokenWithSupabase: resolved userId=', id) } catch {}
     tokenUserCache.set(token, { id: id || null, ts: now })
     return id || null
   } catch (e) {
@@ -265,9 +273,13 @@ async function fetchUserFromToken(token: string | null, c: any): Promise<any | n
     if (!token) return null
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     if (!supabaseUrl) return null
+    // TEMP LOG: do not log token contents; log masked metadata for debugging
+    try { console.log('fetchUserFromToken: tokenPresent=', !!token, 'tokenLen=', token ? token.length : 0) } catch {}
     const res = await fetch(`${supabaseUrl}/auth/v1/user`, { method: 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } })
+    try { console.log('fetchUserFromToken: supabase /user status=', res.status) } catch {}
     if (!res.ok) return null
     const user = await res.json().catch(() => null)
+    try { console.log('fetchUserFromToken: got user id=', user?.id || user?.user?.id || user?.sub || user?.user_id || null) } catch {}
     return user || null
   } catch {
     return null
