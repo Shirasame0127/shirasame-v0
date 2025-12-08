@@ -1613,7 +1613,6 @@ async function handleUploadImage(c: any) {
 
     // Save to R2
     // Use key path relative to the R2 bucket (strip any leading bucket prefix)
-    const bucket = (c.env.R2_BUCKET || 'images').replace(/^\/+|\/+$/g, '')
     const putKey = key.replace(new RegExp(`^${bucket}\/`), '')
     // @ts-ignore IMAGES binding from wrangler.toml
     const putRes = await c.env.IMAGES.put(putKey, buf, { httpMetadata: { contentType: file.type || 'application/octet-stream', cacheControl: 'public, max-age=2592000' } })
@@ -1624,7 +1623,10 @@ async function handleUploadImage(c: any) {
     // Prefer a configured custom images domain (proxied Cloudflare domain) if present.
     // Fall back to R2 public host if not provided.
     const imagesDomain = ((c.env.IMAGES_DOMAIN as string) || (c.env.R2_PUBLIC_URL as string) || '').replace(/\/$/, '')
-    let publicUrl = imagesDomain ? `${imagesDomain}/${putKey}` : null
+    // Prefer public URL that uses the Worker fallback path `/images/<path>` so
+    // the worker's `/images/*` handler can serve objects if the custom domain
+    // is not directly pointing at R2. This keeps public URLs resilient.
+    let publicUrl = imagesDomain ? `${imagesDomain}/images/${putKey}` : null
     // Normalize: strip query string and fragment to avoid accidental unique transforms
     if (publicUrl) {
       try {
@@ -1642,10 +1644,32 @@ async function handleUploadImage(c: any) {
       }
     }
 
+    // Also prepare a date-prefixed public URL (no /images/ prefix):
+    // e.g. https://images.shirasame.com/2025/12/08/<putKey>
+    let publicUrlDatePrefixed: string | null = null
+    if (imagesDomain) {
+      publicUrlDatePrefixed = `${imagesDomain}/${putKey}`
+      try {
+        const u2 = new URL(publicUrlDatePrefixed)
+        u2.search = ''
+        u2.hash = ''
+        publicUrlDatePrefixed = u2.toString().replace(/\/$/, '')
+      } catch (e) {
+        publicUrlDatePrefixed = publicUrlDatePrefixed.split(/[?#]/)[0].replace(/\/$/, '')
+      }
+      if (!/^https?:\/\//i.test(publicUrlDatePrefixed)) publicUrlDatePrefixed = `https://${publicUrlDatePrefixed}`
+    }
+
     // Provide a worker-served fallback URL so clients can use it when the
     // configured `IMAGES_DOMAIN` is not publicly accessible.
     const workerHost = ((c.env.WORKER_PUBLIC_HOST as string) || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
     const workerUrl = `${workerHost}/images/${putKey}`
+
+    // Parse optional aspect/ratio and caption (alt text) info from form
+    const ratioRaw = (form.get('ratio') as string) || (form.get('aspect') as string) || ''
+    const aspect = ratioRaw ? ratioRaw.toString() : null
+    const captionRaw = (form.get('alt') as string) || (form.get('caption') as string) || (form.get('description') as string) || ''
+    const caption = captionRaw ? captionRaw.toString() : null
 
     // Attempt to persist metadata immediately (best-effort). This makes
     // uploads durable immediately without requiring a separate
@@ -1657,8 +1681,12 @@ async function handleUploadImage(c: any) {
       const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
       const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
       if (supabaseUrl && serviceKey) {
-        // Persist key without bucket prefix so DB stores canonical path
-        const insertBody = [{ key: putKey, filename: safeName, metadata: null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
+        // Persist DB key including bucket prefix (e.g. `images/YYYY/MM/DD/...`) so
+        // stored keys match the project "key-only" policy.
+        const metadataObj: any = {}
+        if (aspect) metadataObj.aspect = aspect
+        if (caption) metadataObj.caption = caption
+        const insertBody = [{ key, filename: safeName, metadata: Object.keys(metadataObj).length ? metadataObj : null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
         const upsertUrl = `${supabaseUrl}/rest/v1/images?on_conflict=key`
         // Fire-and-forget but await so we can log failures
         const upsertRes = await fetch(upsertUrl, {
@@ -1681,10 +1709,115 @@ async function handleUploadImage(c: any) {
       try { console.warn('images: immediate persist failed', String(e?.message || e)) } catch(e){}
     }
 
+    // Optional: allow callers to request assignment of the uploaded key to another table
+    // Supported `assign` values (multipart form field):
+    //  - 'users.profile'         : Set `users.profile_image_key = <key>` for target user
+    //  - 'users.header_append'   : Append `key` into `users.header_image_keys` array for target user
+    //  - 'product'               : Insert a row into `product_images` with product_id=targetId and key
+    // Security: assignment only performed when request is trusted (token or internal-key). If internal-key is used,
+    // the client may specify `targetId`. If token-authenticated, we default target to the token's user id unless
+    // an internal-key is present.
+    try {
+      const assign = (form.get('assign') as string) || ''
+      if (assign && (ctx.trusted || hasValidInternalKey)) {
+        const supabaseUrl2 = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+        const serviceKey2 = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+        if (supabaseUrl2 && serviceKey2) {
+          // target id may be provided in form as 'targetId' or 'userId' or 'productId'
+          const targetId = (form.get('targetId') as string) || (form.get('userId') as string) || (form.get('productId') as string) || null
+          // Decide effective target for user-scoped assigns
+          const effectiveTargetUserId = targetId || ctx.userId || null
+
+          if (assign === 'users.profile') {
+            if (!effectiveTargetUserId) {
+              try { console.warn('[images] assign=users.profile requested but no target user id available') } catch(e){}
+            } else {
+              const patchUrl = `${supabaseUrl2}/rest/v1/users?id=eq.${effectiveTargetUserId}`
+              try {
+                const patchRes = await fetch(patchUrl, {
+                  method: 'PATCH',
+                  headers: { apikey: serviceKey2, Authorization: `Bearer ${serviceKey2}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+                  body: JSON.stringify({ profile_image_key: key })
+                })
+                if (!patchRes.ok) {
+                  try { console.warn('[images] failed to assign profile image', await patchRes.text().catch(() => '')) } catch(e){}
+                }
+              } catch (e) {
+                try { console.warn('[images] exception assigning profile image', String(e)) } catch(e){}
+              }
+            }
+          } else if (assign === 'users.header_append') {
+            if (!effectiveTargetUserId) {
+              try { console.warn('[images] assign=users.header_append requested but no target user id available') } catch(e){}
+            } else {
+              const getUrl = `${supabaseUrl2}/rest/v1/users?select=header_image_keys&id=eq.${effectiveTargetUserId}`
+              try {
+                const getRes = await fetch(getUrl, { headers: { apikey: serviceKey2, Authorization: `Bearer ${serviceKey2}` } })
+                if (getRes.ok) {
+                  const rows = await getRes.json().catch(() => null)
+                  let arr: any[] = []
+                  if (Array.isArray(rows) && rows.length > 0) {
+                    const cur = rows[0].header_image_keys
+                    if (Array.isArray(cur)) arr = cur.slice()
+                    else if (cur) arr = [cur]
+                  }
+                  arr.push(key)
+                  const patchUrl = `${supabaseUrl2}/rest/v1/users?id=eq.${effectiveTargetUserId}`
+                  const patchRes = await fetch(patchUrl, {
+                    method: 'PATCH',
+                    headers: { apikey: serviceKey2, Authorization: `Bearer ${serviceKey2}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+                    body: JSON.stringify({ header_image_keys: arr })
+                  })
+                  if (!patchRes.ok) {
+                    try { console.warn('[images] failed to append header image key', await patchRes.text().catch(() => '')) } catch(e){}
+                  }
+                } else {
+                  try { console.warn('[images] failed to fetch user for header append', await getRes.text().catch(() => '')) } catch(e){}
+                }
+              } catch (e) {
+                try { console.warn('[images] exception during header append', String(e)) } catch(e){}
+              }
+            }
+          } else if (assign === 'product') {
+            // Insert into product_images: requires productId in form
+            const productId = (form.get('productId') as string) || targetId || null
+            if (!productId) {
+              try { console.warn('[images] assign=product requested but no productId provided') } catch(e){}
+            } else {
+              const insertUrl = `${supabaseUrl2}/rest/v1/product_images`
+              const payload: any = { product_id: productId, key, created_at: new Date().toISOString() }
+              if (aspect) payload.aspect = aspect
+              if (caption) payload.caption = caption
+              try {
+                const insRes = await fetch(insertUrl, {
+                  method: 'POST',
+                  headers: { apikey: serviceKey2, Authorization: `Bearer ${serviceKey2}`, 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=representation' },
+                  body: JSON.stringify([payload])
+                })
+                if (!insRes.ok) {
+                  try { console.warn('[images] failed to insert product_images', await insRes.text().catch(() => '')) } catch(e){}
+                }
+              } catch (e) {
+                try { console.warn('[images] exception inserting product_images', String(e)) } catch(e){}
+              }
+            }
+          } else {
+            try { console.warn('[images] unknown assign value:', assign) } catch(e){}
+          }
+        } else {
+          try { console.warn('SUPABASE_SERVICE_ROLE_KEY not configured; cannot perform assign operations') } catch(e){}
+        }
+      }
+    } catch (e:any) {
+      try { console.warn('images: assign handling failed', String(e?.message || e)) } catch(e){}
+    }
+
     // Return a richer shape to support callers that expect either
     // `{ key }` or `{ ok:true, result:{ key } }`.
     // Return canonical key (without bucket prefix) so clients and DB use the same identifier
-    const result = { ok: true, result: { key: putKey, publicUrl, size: buf?.byteLength || null, contentType: file.type || null } }
+    // Return DB-canonical key (including bucket prefix) so clients save the
+    // same identifier to Supabase (e.g. `images/2025/12/06/abcd1234.jpg`).
+    const result = { ok: true, result: { key, publicUrl, publicUrlDatePrefixed: publicUrlDatePrefixed || null, workerUrl, size: buf?.byteLength || null, contentType: file.type || null } }
     return new Response(JSON.stringify(result), {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=60' }
     })
@@ -2039,42 +2172,51 @@ app.post('/api/auth/logout', async (c) => {
 })
     
     // Serve images directly from R2 through this Worker as a fallback
-    // This avoids depending on a custom proxied domain being configured for R2.
-    app.get('/images/*', async (c) => {
+    // Accept both `/images/*` and date-prefixed paths like `/YYYY/MM/DD/*` so
+    // the images domain can be pointed directly at this worker and older
+    // URLs without the `/images/` prefix still resolve.
+    async function tryServeImageCandidates(c: any, rawPath: string) {
       try {
-        const rawPath = c.req.path.replace(/^\/+/, '') // e.g. "images/images/2025/..."
         const bucket = (c.env.R2_BUCKET || 'images').replace(/^\/+|\/+$/g, '')
-  
-        // Try several candidate keys depending on how the object was stored.
+        // Candidate keys: as-requested, with/without bucket prefix, and with images/ prefix
         const candidates = [
           rawPath,
-          // If the stored key included the bucket prefix (some code does), try with and without it
           rawPath.replace(new RegExp(`^${bucket}\/`), ''),
-          `${bucket}/${rawPath}`
+          `${bucket}/${rawPath}`,
+          `images/${rawPath}`,
+          `${bucket}/images/${rawPath}`,
         ]
-  
+
         let obj: any = null
-        let usedKey: string | null = null
         for (const k of candidates) {
           try {
             obj = await c.env.IMAGES.get(k, { allowIncomplete: false })
-            if (obj) { usedKey = k; break }
+            if (obj) {
+              const buf = await obj.arrayBuffer()
+              const contentType = (obj && obj.httpMetadata && obj.httpMetadata.contentType) ? obj.httpMetadata.contentType : 'application/octet-stream'
+              const headers = new Headers({ 'Content-Type': contentType, 'Cache-Control': 'public, max-age=2592000' })
+              return new Response(buf, { status: 200, headers })
+            }
           } catch (e) {
             // ignore and try next
           }
         }
-  
-        if (!obj) {
-          return new Response('Not found', { status: 404 })
-        }
-  
-        const buf = await obj.arrayBuffer()
-        const contentType = (obj && obj.httpMetadata && obj.httpMetadata.contentType) ? obj.httpMetadata.contentType : 'application/octet-stream'
-        const headers = new Headers({ 'Content-Type': contentType, 'Cache-Control': 'public, max-age=2592000' })
-        return new Response(buf, { status: 200, headers })
+
+        return new Response('Not found', { status: 404 })
       } catch (e: any) {
         return new Response(String(e?.message || e), { status: 500 })
       }
+    }
+
+    app.get('/:year(\\d{4})/:month(\\d{2})/:day(\\d{2})/*', async (c) => {
+      // Handle requests like `/2025/12/08/<key>` by treating them equivalent to `/images/<key>`
+      const rawPath = c.req.path.replace(/^\/+/, '') // e.g. "2025/12/08/xxx"
+      return await tryServeImageCandidates(c, rawPath)
+    })
+
+    app.get('/images/*', async (c) => {
+      const rawPath = c.req.path.replace(/^\/+/, '') // e.g. "images/images/2025/..."
+      return await tryServeImageCandidates(c, rawPath)
     })
 
 // Simple FastAPI-like tester UI for the Worker
