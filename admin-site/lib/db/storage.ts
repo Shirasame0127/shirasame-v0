@@ -437,7 +437,9 @@ export const db = {
     // Per CASE A: DO NOT persist full URLs or base64 data to the DB — server should store `key` only.
     saveUpload: (key: string, url?: string | null) => {
       caches.imageUploads = { ...(caches.imageUploads || {}), [key]: url }
-      apiFetch("POST", "/api/images/save", { key }).then((r) => {
+      // Persist image metadata via server endpoint. Use existing /api/images/complete
+      // which accepts a { key } payload and persists metadata server-side.
+      apiFetch("POST", "/api/images/complete", { key }).then((r) => {
         if (!r) console.warn("[v0] images.saveUpload: server save failed")
       })
     },

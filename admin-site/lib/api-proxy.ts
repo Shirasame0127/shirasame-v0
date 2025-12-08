@@ -12,9 +12,10 @@ export async function forwardToPublicWorker(req: Request) {
   const apiBase = process.env.API_BASE_ORIGIN || 'https://public-worker.shirasame-official.workers.dev'
   try {
     const url = new URL(req.url)
-    // Map incoming /api/... paths to public-worker routes which are mounted
-    // at the root (e.g. /tag-groups). Strip a leading /api prefix when present.
-    const incomingPath = url.pathname.replace(/^\/api(?=\/|$)/, '')
+    // Preserve the incoming path when proxying to the public worker so
+    // server routes defined with `/api/...` continue to match. Do not
+    // strip the `/api` prefix here.
+    const incomingPath = url.pathname
     const dest = apiBase.replace(/\/$/, '') + incomingPath + url.search
 
     // Build proxy headers from scratch to avoid Cloudflare Workers

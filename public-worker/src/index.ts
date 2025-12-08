@@ -839,6 +839,52 @@ app.get('/site-settings', async (c) => {
   })
 })
 
+// Allow admin clients to update a single site setting via POST /site-settings
+app.post('/site-settings', async (c) => {
+  try {
+    const internal = upstream(c, '/api/site-settings')
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    // require authenticated admin user or internal key
+    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    // If there's an internal API configured, proxy the write upstream
+    if (internal) {
+      const headers = makeUpstreamHeaders(c)
+      if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
+      const bodyText = await c.req.text()
+      const res = await fetch(internal, { method: 'POST', body: bodyText, headers })
+      const buf = await res.arrayBuffer()
+      return new Response(buf, { status: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' } })
+    }
+
+    // Otherwise perform upsert directly to Supabase site_settings using service role
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'not_configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const body = await c.req.json().catch(() => null)
+    if (!body || typeof body.key !== 'string') return new Response(JSON.stringify({ error: 'bad_request' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const valueRaw = body.value === undefined ? null : body.value
+    const value = typeof valueRaw === 'string' ? valueRaw : JSON.stringify(valueRaw)
+
+    const upUrl = `${supabaseUrl}/rest/v1/site_settings?on_conflict=key`
+    const res = await fetch(upUrl, {
+      method: 'POST',
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify({ key: body.key, value })
+    })
+
+    if (!res.ok) return new Response(JSON.stringify({ error: 'upsert_failed' }), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const j = await res.json().catch(() => null)
+    const outVal = j && Array.isArray(j) && j.length > 0 ? j[0].value : null
+    return new Response(JSON.stringify({ data: { [body.key]: outVal } }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+
 // Admin settings endpoint (fallback when INTERNAL_API_BASE is not configured)
 app.get('/api/admin/settings', async (c) => {
   try {
@@ -1470,6 +1516,48 @@ app.put('/api/admin/users/:id', async (c) => {
     })
     const j = await res.json().catch(() => null)
     return new Response(JSON.stringify({ data: j }), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+
+// Save Amazon credentials for a user (admin-only). Accepts { id, accessKey, secretKey, associateId }
+app.post('/api/admin/amazon/credentials', async (c) => {
+  try {
+    const internal = upstream(c, '/api/admin/amazon/credentials')
+    const bodyText = await c.req.text().catch(() => '')
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    if (internal) {
+      const headers = { ...makeUpstreamHeaders(c) }
+      if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
+      const res = await fetch(internal, { method: 'POST', body: bodyText, headers })
+      const buf = await res.arrayBuffer()
+      return new Response(buf, { status: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' } })
+    }
+
+    const payload = JSON.parse(bodyText || '{}')
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'not_configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const id = payload?.id || payload?.userId || 'default'
+    const accessKey = payload?.accessKey || payload?.access_key || null
+    const secretKey = payload?.secretKey || payload?.secret_key || null
+    const associateId = payload?.associateId || payload?.associate_id || null
+
+    const upUrl = `${supabaseUrl}/rest/v1/amazon_credentials?on_conflict=id`
+    const res = await fetch(upUrl, {
+      method: 'POST',
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify({ id, access_key: accessKey, secret_key: secretKey, associate_id: associateId })
+    })
+
+    if (!res.ok) return new Response(JSON.stringify({ error: 'upsert_failed' }), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const j = await res.json().catch(() => null)
+    return new Response(JSON.stringify({ data: j && Array.isArray(j) && j.length > 0 ? j[0] : null }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   } catch (e: any) {
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   }
