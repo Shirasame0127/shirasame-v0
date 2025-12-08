@@ -88,6 +88,29 @@ export default function LoginPage() {
     setIsLoading(false)
   }
 
+  const handleSendPasswordReset = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!loginEmail) {
+      toast({ title: '入力エラー', description: 'メールアドレスを入力してください', variant: 'destructive' })
+      return
+    }
+    setIsLoading(true)
+    try {
+      const redirectTo = `${location.origin}/admin/reset`
+      // supabase-js v2: resetPasswordForEmail(email, { redirectTo })
+      const { data, error } = await supabaseClient.auth.resetPasswordForEmail(loginEmail, { redirectTo })
+      if (error) {
+        toast({ title: '送信失敗', description: error.message || String(error), variant: 'destructive' })
+      } else {
+        toast({ title: 'メール送信済み', description: 'パスワード再設定用のリンクをメールで送信しました。メール内のリンクから操作してください。' })
+      }
+    } catch (e) {
+      console.error('[auth] password reset error', e)
+      toast({ title: '送信中にエラー', description: String(e), variant: 'destructive' })
+    }
+    setIsLoading(false)
+  }
+
   const handleGoogleLogin = async () => {
     try {
       // Prefer an explicit admin API origin when configured so the OAuth
@@ -278,7 +301,8 @@ export default function LoginPage() {
                 <Button type="submit" className="w-full" disabled={isLoading}>{isLoading ? 'ログイン中...' : 'ログイン'}</Button>
                 <div className="flex items-center gap-2">
                   <Button type="button" variant="ghost" onClick={handleGoogleLogin} disabled={isLoading} className="flex-1">Googleでログイン</Button>
-                  <Button type="button" variant="outline" onClick={handleSendMagicLink} disabled={isLoading} className="flex-1">メール認証</Button>
+                    <Button type="button" variant="outline" onClick={handleSendMagicLink} disabled={isLoading} className="flex-1">メール認証</Button>
+                    <Button type="button" variant="link" onClick={handleSendPasswordReset} disabled={isLoading} className="flex-1">パスワードをリセット</Button>
                 </div>
               </form>
             </TabsContent>
