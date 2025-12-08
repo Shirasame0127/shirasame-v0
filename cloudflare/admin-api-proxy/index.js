@@ -346,11 +346,31 @@ async function handle(req) {
           cookieHeaders.push(`sb-refresh-token=${encodeURIComponent(refreshToken)}; Path=/; HttpOnly; SameSite=None; Max-Age=${60 * 60 * 24 * 30}; Secure; Domain=.shirasame.com`)
         }
 
+        // Attempt to fetch user info to return to client so it can trust auth
+        let userInfo = null
+        try {
+          const supabaseBase = typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL ? SUPABASE_URL.replace(/\/$/, '') : null
+          const supabaseKey = typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : ''
+          if (accessToken && supabaseBase) {
+            try {
+              const ures = await fetch(supabaseBase + '/auth/v1/user', {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + accessToken, 'apikey': supabaseKey, 'Accept': 'application/json' }
+              })
+              if (ures && ures.ok) userInfo = await ures.json().catch(() => null)
+            } catch (e) {
+              try { console.warn('[session] failed to fetch user info', e) } catch (e) {}
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+
         const respHeaders = new Headers()
         for (const c of cookieHeaders) respHeaders.append('Set-Cookie', c)
         respHeaders.set('Content-Type', 'application/json')
         try { console.log('[session] set session cookies, hasAccess=', !!accessToken, 'hasRefresh=', !!refreshToken) } catch (e) {}
-        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: respHeaders })
+        return new Response(JSON.stringify({ ok: true, user: userInfo }), { status: 200, headers: respHeaders })
       } catch (e) {
         return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json' } })
       }

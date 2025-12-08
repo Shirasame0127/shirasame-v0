@@ -89,6 +89,13 @@ export const auth = {
             const msg = j?.error || 'サーバーにセッションを保存できませんでした'
             return { success: false, error: msg }
           }
+          const j = await res.json().catch(() => null)
+          if (!j || !j.ok || !j.user) {
+            const msg = j?.error || 'サーバーでユーザー情報を確認できませんでした'
+            return { success: false, error: msg }
+          }
+          // update local mirror from returned user
+          try { writeLocalUser({ id: j.user.id, email: j.user.email || null, username: j.user.username || null }) } catch (e) {}
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
           return { success: false, error: 'サーバーに接続できませんでした' }
@@ -167,6 +174,12 @@ export const auth = {
             const msg = j?.error || 'サーバーにセッションを保存できませんでした'
             return { success: false, error: msg }
           }
+          const j = await res.json().catch(() => null)
+          if (!j || !j.ok || !j.user) {
+            const msg = j?.error || 'サーバーでユーザー情報を確認できませんでした'
+            return { success: false, error: msg }
+          }
+          try { writeLocalUser({ id: j.user.id, email: j.user.email || null, username: j.user.username || null }) } catch (e) {}
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
           return { success: false, error: 'サーバーに接続できませんでした' }
