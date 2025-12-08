@@ -113,27 +113,48 @@ export default function LoginPage() {
         if (access_token) {
           try { console.log('[login] フラグメントでトークンを検出しました（トークンの値は出しません）', 'hasAccess=true', 'hasRefresh=' + (!!refresh_token), 'expires_in=' + (expires_in || '')) } catch (e) {}
           // Send tokens to the proxy so it can set HttpOnly cookies for admin domain
-          fetch('/api/auth/set_tokens', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ access_token, refresh_token, expires_in })
-          }).then(async (r) => {
-            try { console.log('[login] /api/auth/set_tokens response', 'status=' + r.status, 'ok=' + r.ok) } catch (e) {}
-            const keys = []
-            try { for (const h of r.headers.keys()) keys.push(h) } catch (e) {}
-            try { console.log('[login] /api/auth/set_tokens response headers keys', keys) } catch (e) {}
-            const j = await r.json().catch(() => null)
-            if (j && j.ok) {
-              window.history.replaceState({}, document.title, window.location.pathname + window.location.search)
-              window.location.href = '/admin'
-            } else {
+          (async () => {
+            try {
+              const params = new URLSearchParams()
+              params.set('access_token', access_token || '')
+              params.set('refresh_token', refresh_token || '')
+              params.set('expires_in', expires_in || '')
+
+              const r = await fetch('/api/auth/set_tokens', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString(),
+                redirect: 'manual'
+              })
+
+              try { console.log('[login] /api/auth/set_tokens response', 'status=' + r.status, 'ok=' + r.ok) } catch (e) {}
+              const keys: string[] = []
+              try { for (const h of r.headers.keys()) keys.push(h) } catch (e) {}
+              try { console.log('[login] /api/auth/set_tokens response headers keys', keys) } catch (e) {}
+
+              // If server returns JSON ok, treat as success
+              if (r.ok) {
+                const j = await r.json().catch(() => null)
+                if (j && j.ok) {
+                  window.history.replaceState({}, document.title, window.location.pathname + window.location.search)
+                  window.location.href = '/admin'
+                  return
+                }
+              }
+
+              // If server indicated redirect (302), treat as success as well
+              if (r.status === 302) {
+                window.location.href = '/admin'
+                return
+              }
+
               toast({ title: 'ログイン失敗', description: 'トークンを保存できませんでした。', variant: 'destructive' })
+            } catch (err) {
+              try { console.error('[login] /api/auth/set_tokens ネットワークエラー', err) } catch (e) {}
+              toast({ title: 'ログイン失敗', description: 'ネットワークエラーが発生しました。', variant: 'destructive' })
             }
-          }).catch((err) => {
-            try { console.error('[login] /api/auth/set_tokens ネットワークエラー', err) } catch (e) {}
-            toast({ title: 'ログイン失敗', description: 'ネットワークエラーが発生しました。', variant: 'destructive' })
-          })
+          })()
           return
         }
       }

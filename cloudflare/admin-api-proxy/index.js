@@ -224,23 +224,41 @@ async function handle(req) {
             const access_token = params.get('access_token')
             const refresh_token = params.get('refresh_token')
             const expires_in = params.get('expires_in')
-            // Submit a form POST so the browser performs a top-level
-            // navigation and reliably receives Set-Cookie headers.
-            const form = document.createElement('form')
-            form.method = 'POST'
-            form.action = '/api/auth/set_tokens'
-            const setInput = (name, value) => {
-              const i = document.createElement('input')
-              i.type = 'hidden'
-              i.name = name
-              i.value = value || ''
-              form.appendChild(i)
-            }
-            setInput('access_token', access_token)
-            setInput('refresh_token', refresh_token)
-            setInput('expires_in', expires_in)
-            document.body.appendChild(form)
-            form.submit()
+            // POST tokens using fetch so we can control credentials and
+            // ensure the browser accepts HttpOnly Set-Cookie headers.
+            (async function(){
+              try {
+                const params = new URLSearchParams()
+                params.set('access_token', access_token || '')
+                params.set('refresh_token', refresh_token || '')
+                params.set('expires_in', expires_in || '')
+
+                const resp = await fetch('/api/auth/set_tokens', {
+                  method: 'POST',
+                  credentials: 'include',
+                  headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+                  body: params.toString(),
+                  redirect: 'manual'
+                })
+
+                // If server returns 200 JSON {ok:true} treat as success.
+                if (resp.ok) {
+                  try { const j = await resp.json().catch(() => null); if (j && j.ok) { window.history.replaceState({}, document.title, window.location.pathname + window.location.search); window.location.href = '/admin'; return } } catch (e) {}
+                }
+
+                // If server responded with a redirect (302) consider it success too.
+                if (resp.status === 302) {
+                  window.location.href = '/admin'
+                  return
+                }
+
+                // Fallback: go to login page to surface error
+                window.location.replace('/admin/login')
+                return
+              } catch (e) {
+                try { document.getElementById('msg').textContent = '予期せぬエラーが発生しました。' } catch (e) {}
+              }
+            })()
             return
           }
           // No fragment tokens — redirect to client login page which also
