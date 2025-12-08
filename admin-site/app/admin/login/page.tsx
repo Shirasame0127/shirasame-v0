@@ -184,67 +184,21 @@ export default function LoginPage() {
 
     async function checkSignedInOnce() {
       try {
-        // Per design, login page is the only place that calls supabase.auth.getSession().
-        const s = await (supabaseClient as any).auth.getSession()
-        const session = s?.data?.session
-        try { console.log('[login] supabase.getSession result: hasSession=' + (!!session), 'userId=' + (session?.user?.id || 'null')) } catch (e) {}
-
-        if (!session) {
-          try { console.log('[login] supabase.getSession returned no session — trying server whoami') } catch (e) {}
-          // If Supabase client has no in-memory session (common after
-          // server-side code flow where the Worker set HttpOnly cookies),
-          // check the authoritative server whoami endpoint which reads
-          // HttpOnly cookies. If whoami reports a user, proceed.
-          try {
-            const who = await fetch('/api/auth/whoami', { method: 'GET', credentials: 'include', cache: 'no-store' })
-            try { console.log('[login] GET /api/auth/whoami status=' + who.status) } catch (e) {}
-            if (who.ok) {
-              const j = await who.json().catch(() => null)
-              try { console.log('[login] whoami response ok=', !!j, 'user=', j?.user?.id || null) } catch (e) {}
-              // Navigate to admin — server cookies are present so subsequent
-              // admin requests will be authenticated.
-              location.replace('/admin')
-              return
-            } else {
-              toast({ title: 'ログイン情報が見つかりません', description: 'サインイン情報が見つかりません。再度ログインしてください。', variant: 'destructive' })
-              return
-            }
-          } catch (e) {
-            try { console.error('[login] whoami check failed', e) } catch (e) {}
-            toast({ title: 'ログイン情報が見つかりません', description: 'サインイン情報が見つかりません。再度ログインしてください。', variant: 'destructive' })
-            return
-          }
-        }
-
-        // Try to sync session to server-side cookies. Only navigate to /admin
-        // if the sync succeeds.
-        try {
-          const res = await fetch('/api/auth/session', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-          })
-          try { console.log('[login] POST /api/auth/session response status=' + res.status + ' ok=' + res.ok) } catch (e) {}
-          const hdrs = []
-          try { for (const h of res.headers.keys()) hdrs.push(h) } catch (e) {}
-          try { console.log('[login] POST /api/auth/session response headers keys', hdrs) } catch (e) {}
-
-          if (!res.ok) {
-            toast({ title: 'セッション同期に失敗しました', description: 'セッションをサーバーへ同期できませんでした。', variant: 'destructive' })
-            return
-          }
-
-          // Successful sync — go to admin.
+        // Use server-side cookie authoritative check instead of supabase client
+        // which can be out-of-sync during the redirect flow.
+        try { console.log('[login] trying server whoami as primary source') } catch (e) {}
+        const who = await fetch('/api/auth/whoami', { method: 'GET', credentials: 'include', cache: 'no-store' })
+        try { console.log('[login] GET /api/auth/whoami status=' + who.status) } catch (e) {}
+        if (who.ok) {
+          const j = await who.json().catch(() => null)
+          try { console.log('[login] whoami response ok=', !!j, 'user=', j?.user?.id || null) } catch (e) {}
           location.replace('/admin')
           return
-        } catch (e) {
-          try { console.error('[auth] session sync error', e) } catch (e) {}
-          toast({ title: 'セッション同期に失敗しました', description: 'ネットワークエラーにより同期できませんでした。', variant: 'destructive' })
-          return
         }
+        // Not authenticated — remain on login page (do not call supabase.getSession())
+        return
       } catch (e) {
-        console.warn('[auth] checkSignedInOnce exception', e)
+        try { console.warn('[auth] whoami check exception', e) } catch (e) {}
       }
     }
     checkSignedInOnce()
