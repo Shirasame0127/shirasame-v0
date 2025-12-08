@@ -90,7 +90,11 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     try {
-      window.location.href = '/api/auth/google'
+      // Prefer an explicit admin API origin when configured so the OAuth
+      // flow runs on the admin domain (where the Worker can set cookies).
+      const adminBase = (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE || '').replace(/\/$/, '')
+      const dest = adminBase ? `${adminBase}/api/auth/google` : '/api/auth/google'
+      window.location.href = dest
     } catch (e) {
       console.error('[auth] google oauth start error', e)
       toast({ title: 'Googleログイン失敗', description: '開始処理でエラーが発生しました: ' + String(e), variant: 'destructive' })
