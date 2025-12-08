@@ -140,22 +140,35 @@ async function handle(req) {
 
         try { console.log('[set_tokens] received fragment post, hasAccess=', !!accessToken, 'hasRefresh=', !!refreshToken, 'isForm=', isForm) } catch (e) {}
 
-        // If this request came from a form submit (typical when we POST from
-        // a browser after capturing a URL fragment), redirect to /admin so the
-        // browser performs a top-level navigation and receives the Set-Cookie
-        // headers reliably. Otherwise, return JSON for API clients.
-        const contentType = (req.headers.get('content-type') || '')
-        const isForm = contentType.indexOf('application/x-www-form-urlencoded') !== -1 || contentType.indexOf('multipart/form-data') !== -1
-        const respHeaders = new Headers()
-        for (const c of cookieHeaders) respHeaders.append('Set-Cookie', c)
-
-        if (isForm || (req.headers.get('accept') || '').indexOf('text/html') !== -1) {
-          respHeaders.set('Location', '/admin')
-          return new Response(null, { status: 302, headers: respHeaders })
+        // Try to fetch the user info from Supabase using the provided access token
+        let userInfo = null
+        try {
+          const supabaseBase = typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL ? SUPABASE_URL.replace(/\/$/, '') : null
+          const supabaseKey = typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : ''
+          if (accessToken && supabaseBase) {
+            try {
+              const ures = await fetch(supabaseBase + '/auth/v1/user', {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + accessToken, 'apikey': supabaseKey, 'Accept': 'application/json' }
+              })
+              if (ures && ures.ok) {
+                userInfo = await ures.json().catch(() => null)
+              }
+            } catch (e) {
+              try { console.warn('[set_tokens] failed to fetch user info', e) } catch (e) {}
+            }
+          }
+        } catch (e) {
+          // ignore user fetch errors
         }
 
+        // Return JSON including user info (if available) and include Set-Cookie headers.
+        // Client can trust this response to decide when to navigate because the
+        // Worker has set HttpOnly cookies in the response.
+        const respHeaders = new Headers()
+        for (const c of cookieHeaders) respHeaders.append('Set-Cookie', c)
         respHeaders.set('Content-Type', 'application/json')
-        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: respHeaders })
+        return new Response(JSON.stringify({ ok: true, user: userInfo }), { status: 200, headers: respHeaders })
       } catch (e) {
         return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json' } })
       }
