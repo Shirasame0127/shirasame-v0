@@ -265,6 +265,9 @@ export default function RecipeEditPage() {
   // ===========================
   async function loadData() {
     console.log("[v0] Loading recipe data:", recipeId)
+    // Resolve current user id early so refreshes can be scoped
+    const currentUser = getCurrentUser && getCurrentUser()
+    const uid = currentUser?.id || currentUserId || undefined
 
     // Try to read from cache first
     let recipe: any = db.recipes.getById(recipeId)
@@ -272,7 +275,7 @@ export default function RecipeEditPage() {
     // If not found in cache, refresh recipes from server once and re-check
     if (!recipe) {
       try {
-        await db.recipes.refresh()
+        await db.recipes.refresh(uid)
         recipe = db.recipes.getById(recipeId)
       } catch (e) {
         console.warn('[v0] recipes.refresh failed in loadData', e)
@@ -386,8 +389,6 @@ export default function RecipeEditPage() {
     }
 
     // すべての商品を取得（現在のユーザーにスコープ）
-    const currentUser = getCurrentUser && getCurrentUser()
-    const uid = currentUser?.id || currentUserId || undefined
     const productsData = db.products.getAll(uid)
     setProducts(productsData)
     // If cached products are empty (warmCache may still be in-flight), try a direct refresh

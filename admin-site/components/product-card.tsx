@@ -22,6 +22,7 @@ interface Product {
   price?: number
 }
 import { db } from "@/lib/db/storage"
+import { getCurrentUser } from '@/lib/auth'
 
 interface ProductCardProps {
   product: Product
@@ -35,11 +36,14 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
   const mainImage = images.find((img: ProductImage) => img?.role === "main") || images[0] || null
 
   const getActiveSaleInfo = () => {
-    const activeSchedules = db.amazonSaleSchedules?.getActiveSchedules() || []
-    
+    const me = getCurrentUser && getCurrentUser()
+    const uid = me?.id
+    const activeSchedules = db.amazonSaleSchedules?.getActiveSchedules(uid) || []
+
     for (const schedule of activeSchedules) {
       const collection = db.collections.getById(schedule.collectionId)
-      if (collection && collection.productIds.includes(product.id)) {
+      // Ensure the collection belongs to the current user (when known)
+      if (collection && (!uid || !collection.userId || collection.userId === uid) && collection.productIds.includes(product.id)) {
         return { isOnSale: true, saleName: schedule.saleName }
       }
     }

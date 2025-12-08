@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import apiFetch from '@/lib/api-client'
+import { getCurrentUser } from '@/lib/auth'
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { db } from "@/lib/db/storage"
@@ -25,7 +26,9 @@ export function CustomFontUploader({ onUploaded }: { onUploaded?: () => void }) 
         body: fd,
       })
       if (!res.ok) throw new Error("upload failed")
-      await db.customFonts.refresh().catch(() => {})
+      const me = getCurrentUser && getCurrentUser()
+      const uid = me?.id
+      await db.customFonts.refresh(uid).catch(() => {})
       toast({ title: "フォントをアップロードしました" })
       onUploaded?.()
     } catch (e) {

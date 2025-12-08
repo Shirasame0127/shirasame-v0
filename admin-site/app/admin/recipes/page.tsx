@@ -24,18 +24,7 @@ import apiFetch from '@/lib/api-client'
 
 export default function RecipesManagementPage() {
   const router = useRouter()
-  // ensure recipePins cache is populated
-  useEffect(() => {
-    try {
-      db.recipePins.refresh()
-        .then((pins) => {
-          try {
-            apiFetch('/api/debug/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'recipePins.refresh', count: (pins || []).length, sample: (pins || []).slice(0, 5).map((p: any) => ({ id: p.id, recipeId: p.recipeId, productId: p.productId })) }) }).catch(() => {})
-          } catch (e) {}
-        })
-        .catch(() => {})
-    } catch (e) {}
-  }, [])
+  // recipePins: defer per-recipe refresh after recipes are loaded
   const [recipes, setRecipes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -84,6 +73,12 @@ export default function RecipesManagementPage() {
         apiFetch('/api/debug/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'recipes.cache', userId, count: visible.length, sample: visible.slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }) }).catch(() => {})
       } catch (e) {}
       setRecipes(visible)
+      // Refresh pins only for this user's recipes to avoid fetching other users' pins
+      try {
+        ;(visible || []).forEach((r: any) => {
+          try { db.recipePins.refresh(r.id).catch(() => {}) } catch (e) {}
+        })
+      } catch (e) {}
     } else {
       // No signed-in user info — use cache as-is (preserves previous behaviour)
       console.log("[v0] Loaded recipes (no user):", data.length)
