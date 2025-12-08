@@ -251,16 +251,41 @@ export default function AdminSettingsPage() {
 
   const addHeaderImage = async () => {
     if (newHeaderImageFile) {
-      const imageKey = `header-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      const headerBase64 = await fileToBase64(newHeaderImageFile)
-      db.images.saveUpload(imageKey, headerBase64)
+      try {
+        const fd = new FormData()
+        fd.append('file', newHeaderImageFile)
+        const res = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
+        const json = await res.json().catch(() => null)
+        const uploadedKey = json?.result?.key || json?.key || null
+        if (uploadedKey) {
+          const newKeys = [...headerImageKeys, uploadedKey]
+          setHeaderImageKeys(newKeys)
+          setNewHeaderImageFile(null)
+          // Persist keys immediately
+          try {
+            const payload: any = { headerImageKeys: newKeys }
+            const saveRes = await apiFetch('/api/admin/settings', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+            if (saveRes.ok) {
+              const saved = await saveRes.json().catch(() => null)
+              if (saved?.data) {
+                setUser(saved.data)
+                try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch (e) {}
+              }
+            }
+          } catch (e) {}
 
-      setHeaderImageKeys([...headerImageKeys, imageKey])
-      setNewHeaderImageFile(null)
-      toast({
-        title: "追加完了",
-        description: "ヘッダー画像を追加しました",
-      })
+          toast({ title: '追加完了', description: 'ヘッダー画像を追加しました' })
+        } else {
+          toast({ variant: 'destructive', title: 'アップロード失敗', description: '画像アップロードに失敗しました' })
+        }
+      } catch (e) {
+        console.error(e)
+        toast({ variant: 'destructive', title: 'エラー', description: '画像アップロード中にエラーが発生しました' })
+      }
     }
   }
 
@@ -388,19 +413,48 @@ export default function AdminSettingsPage() {
 
             <div className="flex gap-2 items-start">
               <div className="flex-1">
-                <ImageUpload
-                  value={imageUrl || ""}
-                  onChange={async (file) => {
-                    if (file) {
-                      const imageKey = headerImageKeys[index]
-                      const headerBase64 = await fileToBase64(file)
-                      db.images.saveUpload(imageKey, headerBase64)
-                      setHeaderImageKeys([...headerImageKeys])
-                      toast({ title: "更新完了", description: `ヘッダー画像 ${index + 1} を更新しました` })
-                    }
-                  }}
-                  aspectRatioType="header"
-                />
+                      <ImageUpload
+                        value={imageUrl || ""}
+                        onChange={async (file) => {
+                          if (!file) return
+                          try {
+                            const oldKey = headerImageKeys[index]
+                            const fd = new FormData()
+                            fd.append('file', file)
+                            const res = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
+                            const json = await res.json().catch(() => null)
+                            const uploadedKey = json?.result?.key || json?.key || null
+                            if (uploadedKey) {
+                              const newArr = [...headerImageKeys]
+                              newArr[index] = uploadedKey
+                              setHeaderImageKeys(newArr)
+
+                              // Persist updated keys
+                              try {
+                                const payload: any = { headerImageKeys: newArr }
+                                const saveRes = await apiFetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+                                if (saveRes.ok) {
+                                  const saved = await saveRes.json().catch(() => null)
+                                  if (saved?.data) { setUser(saved.data); try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){} }
+                                }
+                              } catch (e) {}
+
+                              // Delete old key asynchronously
+                              if (oldKey) {
+                                try { await apiFetch(`/api/images/${encodeURIComponent(String(oldKey))}`, { method: 'DELETE' }) } catch (e) { console.warn('failed to delete old image', e) }
+                              }
+
+                              toast({ title: "更新完了", description: `ヘッダー画像 ${index + 1} を更新しました` })
+                            } else {
+                              toast({ variant: 'destructive', title: 'アップロード失敗', description: '画像アップロードに失敗しました' })
+                            }
+                          } catch (e) {
+                            console.error(e)
+                            toast({ variant: 'destructive', title: 'エラー', description: '画像更新中にエラーが発生しました' })
+                          }
+                        }}
+                        aspectRatioType="header"
+                      />
               </div>
 
               <div className="flex flex-col gap-2">
@@ -442,12 +496,23 @@ export default function AdminSettingsPage() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
 
   const removeHeaderImage = (index: number) => {
+    const removedKey = headerImageKeys[index]
     const newKeys = headerImageKeys.filter((_, i) => i !== index)
     setHeaderImageKeys(newKeys)
 
-    // Persist deletion immediately
+    // Attempt to delete the object from R2 + DB, then persist updated keys
     ;(async () => {
       try {
+        // Best-effort: attempt to delete the key from server storage
+        if (removedKey) {
+          try {
+            await apiFetch(`/api/images/${encodeURIComponent(String(removedKey))}`, { method: 'DELETE' })
+          } catch (e) {
+            // log but continue — preserving keys state is primary
+            console.warn('[settings] image delete request failed', e)
+          }
+        }
+
         const payload: any = { headerImageKeys: newKeys }
         const res = await apiFetch('/api/admin/settings', {
           method: 'PUT',
@@ -466,10 +531,7 @@ export default function AdminSettingsPage() {
       }
     })()
 
-    toast({
-      title: '削除完了',
-      description: 'ヘッダー画像を削除しました',
-    })
+    toast({ title: '削除完了', description: 'ヘッダー画像を削除しました' })
   }
 
   const handleSave = async () => {

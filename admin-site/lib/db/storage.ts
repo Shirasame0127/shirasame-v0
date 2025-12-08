@@ -433,15 +433,55 @@ export const db = {
 
   // images: no localStorage — use server to persist metadata. getUpload returns in-memory cache URL if present
   images: {
-    // Save a local upload preview (base64) keyed by object key, and inform server of the key only.
-    // Per CASE A: DO NOT persist full URLs or base64 data to the DB — server should store `key` only.
-    saveUpload: (key: string, url?: string | null) => {
+    // Save a local upload preview keyed by object key, and inform server.
+    // If `url` is a data URL (base64), upload the binary to the server immediately
+    // so R2 + DB are updated. If `url` is already a key or public URL, persist key-only.
+    saveUpload: async (key: string, url?: string | null) => {
       caches.imageUploads = { ...(caches.imageUploads || {}), [key]: url }
-      // Persist image metadata via server endpoint. Use existing /api/images/complete
-      // which accepts a { key } payload and persists metadata server-side.
-      apiFetch("POST", "/api/images/complete", { key }).then((r) => {
-        if (!r) console.warn("[v0] images.saveUpload: server save failed")
-      })
+
+      // If caller passed a data URL (client-side capture), convert to Blob and upload
+      try {
+          if (url && typeof url === 'string' && url.startsWith('data:')) {
+            // Convert data URL to Blob using fetch
+            try {
+              const blob = await (await fetch(url)).blob()
+              const fd = new FormData()
+              // try to preserve original filename via key suffix
+              const inferredName = (key || 'upload').toString().split('/').pop() || 'upload'
+              fd.append('file', new File([blob], inferredName, { type: blob.type || 'application/octet-stream' }))
+              // Include requested key so worker can store under the same identifier
+              if (key) fd.append('key', String(key))
+              // Upload to the public worker; it will persist metadata when possible
+              const up = await apiFetchBase('/api/images/upload', { method: 'POST', body: fd })
+              const upj = await up.json().catch(() => null)
+              const returnedKey = upj?.result?.key || upj?.key || null
+              if (returnedKey) {
+                // Map returnedKey to the same preview data
+                caches.imageUploads = { ...(caches.imageUploads || {}), [returnedKey]: caches.imageUploads[key] }
+                // Persist metadata explicitly (compat); public-worker may already have persisted
+                try {
+                  await apiFetch("POST", "/api/images/complete", { key: returnedKey })
+                } catch (e) {
+                  // ignore
+                }
+                return returnedKey
+              }
+              // Fall through to key-only persist if upload didn't return a key
+            } catch (e) {
+              console.warn('[v0] images.saveUpload: failed to upload data URL', e)
+            }
+          }
+
+        // If url is already a key or public URL, persist key-only
+        const persistKey = (url && typeof url === 'string' && !url.startsWith('http') && !url.startsWith('/')) ? url : key
+        apiFetch("POST", "/api/images/complete", { key: persistKey }).then((r) => {
+          if (!r) console.warn("[v0] images.saveUpload: server save failed")
+        })
+        return persistKey
+      } catch (err) {
+        console.error('[v0] images.saveUpload error', err)
+      }
+      return null
     },
     getUpload: (key: string) => {
       const raw = (caches.imageUploads || {})[key]

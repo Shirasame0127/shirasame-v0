@@ -1580,6 +1580,8 @@ async function handleUploadImage(c: any) {
     }
     const form = await c.req.formData()
     const file = form.get('file') as File | null
+    // Allow client to suggest a key. If provided, we'll use it (after sanitization)
+    const clientKeyRaw = (form.get('key') as string) || (form.get('desiredKey') as string) || ''
     if (!file) return new Response(JSON.stringify({ error: 'file is required' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
 
     const buf = await file.arrayBuffer()
@@ -1590,8 +1592,24 @@ async function handleUploadImage(c: any) {
     const rand = Math.random().toString(36).slice(2, 10)
     const safeName = (file.name || 'upload').replace(/[^a-zA-Z0-9._-]/g, '_')
     const bucket = (c.env.R2_BUCKET || 'images').replace(/^\/+|\/+$/g, '')
-    // Store objects under `images/YYYY/MM/DD/...` within the R2 bucket.
-    const key = `images/${yyyy}/${mm}/${dd}/${rand}-${safeName}`
+    // If client provided a key, sanitize and use it; otherwise generate one.
+    let key: string
+    if (clientKeyRaw && typeof clientKeyRaw === 'string') {
+      // Strip any leading/trailing slashes and disallow .. segments
+      let cleaned = clientKeyRaw.replace(/^\/+/, '').replace(/\/+$|\.\./g, '')
+      // If cleaned looks like a filename (no directories), prepend date path
+      if (!/\//.test(cleaned)) cleaned = `${yyyy}/${mm}/${dd}/${cleaned}`
+      // Ensure filename portion is safe
+      const parts = cleaned.split('/')
+      const last = parts.pop() || safeName
+      const cleanedLast = last.replace(/[^a-zA-Z0-9._-]/g, '_')
+      parts.push(cleanedLast)
+      const joined = parts.join('/')
+      key = `${bucket}/${joined}`.replace(/\/+/g, '/')
+    } else {
+      // Store objects under `images/YYYY/MM/DD/...` within the R2 bucket.
+      key = `images/${yyyy}/${mm}/${dd}/${rand}-${safeName}`
+    }
 
     // Save to R2
     // @ts-ignore IMAGES binding from wrangler.toml
@@ -1626,9 +1644,43 @@ async function handleUploadImage(c: any) {
     const workerHost = ((c.env.WORKER_PUBLIC_HOST as string) || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
     const workerUrl = `${workerHost}/images/${key.replace(new RegExp(`^${bucket}/`), '')}`
 
-    // Return key-only to enforce key-only policy. Clients should call
-    // POST /api/images/complete to persist metadata in the DB.
-    return new Response(JSON.stringify({ key }), {
+    // Attempt to persist metadata immediately (best-effort). This makes
+    // uploads durable immediately without requiring a separate
+    // POST /api/images/complete call from clients. If the service role
+    // key is not configured, we still return success but log a warning.
+    try {
+      const ctx2 = ctx // reuse resolved context above
+      const effectiveUserId = ctx2.userId || null
+      const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+      const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+      if (supabaseUrl && serviceKey) {
+        const insertBody = [{ key, filename: safeName, metadata: null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
+        const upsertUrl = `${supabaseUrl}/rest/v1/images?on_conflict=key`
+        // Fire-and-forget but await so we can log failures
+        const upsertRes = await fetch(upsertUrl, {
+          method: 'POST',
+          headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=ignore-duplicates,return=representation'
+          },
+          body: JSON.stringify(insertBody),
+        })
+        if (!upsertRes.ok) {
+          try { console.warn('[images] failed to persist image metadata on upload', await upsertRes.text().catch(() => '')) } catch(e){}
+        }
+      } else {
+        try { console.warn('SUPABASE_SERVICE_ROLE_KEY not configured; upload did not persist to DB') } catch(e){}
+      }
+    } catch (e:any) {
+      try { console.warn('images: immediate persist failed', String(e?.message || e)) } catch(e){}
+    }
+
+    // Return a richer shape to support callers that expect either
+    // `{ key }` or `{ ok:true, result:{ key } }`.
+    const result = { ok: true, result: { key, publicUrl, size: buf?.byteLength || null, contentType: file.type || null } }
+    return new Response(JSON.stringify(result), {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=60' }
     })
   } catch (e: any) {
@@ -1792,6 +1844,51 @@ app.post('/api/images/complete', async (c) => {
     }
   } catch (e: any) {
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+  }
+})
+
+// DELETE /api/images/:key - remove image from R2 and DB (authenticated)
+app.delete('/api/images/:key', async (c) => {
+  try {
+    const keyParam = c.req.param('key')
+    if (!keyParam) return new Response(JSON.stringify({ error: 'key required' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    // Resolve user context and ensure authorized
+    const ctx = await resolveRequestUserContext(c)
+    const allowed = ctx.trusted || ctx.authType === 'internal-key'
+    if (!allowed) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const key = decodeURIComponent(keyParam)
+    // Delete from R2 (best-effort)
+    try {
+      // @ts-ignore R2 binding
+      if (c.env.IMAGES) {
+        await c.env.IMAGES.delete(key).catch(() => {})
+      }
+    } catch (e) {
+      try { console.warn('R2 delete failed', e) } catch(e){}
+    }
+
+    // Remove DB row if service key present
+    try {
+      const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+      const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+      if (supabaseUrl && serviceKey) {
+        const deleteUrl = `${supabaseUrl}/rest/v1/images?key=eq.${encodeURIComponent(key)}`
+        const delRes = await fetch(deleteUrl, { method: 'DELETE', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+        if (!delRes.ok) {
+          try { console.warn('Failed to delete images row', await delRes.text().catch(() => '')) } catch(e){}
+        }
+      } else {
+        try { console.warn('SUPABASE_SERVICE_ROLE_KEY not configured; DB row not deleted for', key) } catch(e){}
+      }
+    } catch (e:any) {
+      try { console.warn('images delete DB operation failed', String(e?.message || e)) } catch(e){}
+    }
+
+    return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  } catch (e:any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   }
 })
 
