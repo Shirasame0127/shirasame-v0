@@ -37,11 +37,26 @@ export default function AdminLayout({
         setIsLoading(false)
       } else {
         // Authoritative server-side check. Do NOT accept localStorage mirror as
-        // sufficient for admin UI. Wait for whoami to complete, then update state.
+        // sufficient for admin UI. Attempt whoami and retry briefly if it
+        // initially fails to allow short cookie propagation delays after login.
         (async () => {
           try {
-            const res = await apiFetch('/api/auth/whoami', { cache: 'no-store' })
-            if (res.ok) {
+            let res = null
+            const maxAttempts = 3
+            const delayMs = 250
+            for (let i = 0; i < maxAttempts; i++) {
+              try {
+                // apiFetch already includes credentials: 'include'
+                res = await apiFetch('/api/auth/whoami', { cache: 'no-store' })
+                if (res && res.ok) break
+              } catch (e) {
+                // swallow and retry
+              }
+              // Small delay before retrying
+              await new Promise((r) => setTimeout(r, delayMs))
+            }
+
+            if (res && res.ok) {
               const json = await res.json().catch(() => null)
               try {
                 if (typeof window !== 'undefined') {
