@@ -182,24 +182,43 @@ export default function LoginPage() {
       } catch {}
     }
 
-    async function checkSignedInOnce() {
+    async function tryWhoami(attempts = 3, delayMs = 250) {
       try {
-        // Use server-side cookie authoritative check instead of supabase client
-        // which can be out-of-sync during the redirect flow.
-        try { console.log('[login] trying server whoami as primary source') } catch (e) {}
-        const who = await fetch('/api/auth/whoami', { method: 'GET', credentials: 'include', cache: 'no-store' })
-        try { console.log('[login] GET /api/auth/whoami status=' + who.status) } catch (e) {}
-        if (who.ok) {
-          const j = await who.json().catch(() => null)
-          try { console.log('[login] whoami response ok=', !!j, 'user=', j?.user?.id || null) } catch (e) {}
-          location.replace('/admin')
-          return
+        try { console.log('[login] trying server whoami (attempts=', attempts, ')') } catch (e) {}
+        for (let i = 0; i < attempts; i++) {
+          try {
+            const who = await fetch('/api/auth/whoami', { method: 'GET', credentials: 'include', cache: 'no-store' })
+            try { console.log('[login] GET /api/auth/whoami attempt=' + (i+1) + ' status=' + who.status) } catch (e) {}
+            if (who.ok) {
+              const j = await who.json().catch(() => null)
+              try { console.log('[login] whoami response ok=', !!j, 'user=', j?.user?.id || null) } catch (e) {}
+              return true
+            }
+            // If 401 and more attempts remain, wait a bit and retry
+            if (i < attempts - 1) {
+              await new Promise((res) => setTimeout(res, delayMs))
+            }
+          } catch (e) {
+            try { console.warn('[login] whoami attempt failed', e) } catch (e) {}
+            if (i < attempts - 1) await new Promise((res) => setTimeout(res, delayMs))
+          }
         }
-        // Not authenticated — remain on login page (do not call supabase.getSession())
-        return
+        return false
       } catch (e) {
-        try { console.warn('[auth] whoami check exception', e) } catch (e) {}
+        try { console.warn('[auth] whoami retry exception', e) } catch (e) {}
+        return false
       }
+    }
+
+    async function checkSignedInOnce() {
+      const ok = await tryWhoami(4, 300)
+      if (ok) {
+        try { console.log('[login] whoami confirmed — redirecting to /admin') } catch (e) {}
+        location.replace('/admin')
+        return
+      }
+      // Not authenticated — remain on login page
+      try { console.log('[login] whoami not confirmed after retries') } catch (e) {}
     }
     checkSignedInOnce()
     return () => { mounted = false }
