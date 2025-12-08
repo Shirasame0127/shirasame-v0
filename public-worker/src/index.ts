@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { cors } from 'hono/cors'
+// custom CORS handling (dynamic origin + credentials)
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { makeWeakEtag } from './utils/etag'
@@ -57,26 +57,57 @@ const app = new Hono<{ Bindings: Env }>()
 
 // Debug and global error middleware: キャッチされなかった例外を詳細に返す（DEBUG_WORKER=true の場合は stack を含める）
 app.use('*', async (c, next) => {
+  // Error wrapper + dynamic CORS headers helper
+  function getCorsHeaders(): Record<string, string> {
+    const origin = c.req.header('Origin') || ''
+    const allowed = ((c.env as any).PUBLIC_ALLOWED_ORIGINS || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+    let acOrigin = '*'
+    if (origin) {
+      if (allowed.length === 0 || allowed.indexOf('*') !== -1 || allowed.indexOf(origin) !== -1) {
+        acOrigin = origin
+      } else if (allowed.length > 0) {
+        // fallback: use first allowed origin (best-effort)
+        acOrigin = allowed[0]
+      }
+    } else if (allowed.length > 0) {
+      acOrigin = allowed[0]
+    }
+    return {
+      'Access-Control-Allow-Origin': acOrigin,
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Allow-Headers': 'Content-Type, If-None-Match, Authorization, X-Internal-Key',
+      'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS,POST,PUT,DELETE',
+      'Access-Control-Expose-Headers': 'ETag',
+      'Vary': 'Origin',
+    }
+  }
+
+  // Handle preflight immediately
+  if (c.req.method === 'OPTIONS') {
+    const headers = getCorsHeaders()
+    return new Response(null, { status: 204, headers })
+  }
+
   try {
-    return await next()
+    const res = await next()
+    // attach CORS headers to downstream response
+    try {
+      const ch = getCorsHeaders()
+      for (const k of Object.keys(ch)) {
+        // set only if not present to preserve any specific headers
+        try { res.headers.set(k, (ch as any)[k]) } catch {}
+      }
+    } catch {}
+    return res
   } catch (e: any) {
     const body: any = { error: e?.message || String(e) }
     try {
       if ((c.env as any).DEBUG_WORKER === 'true') body.stack = e?.stack || null
     } catch {}
-    return new Response(JSON.stringify(body), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    const headers = getCorsHeaders()
+    headers['Content-Type'] = 'application/json; charset=utf-8'
+    return new Response(JSON.stringify(body), { status: 500, headers })
   }
-})
-
-// CORS: すべてのエンドポイントで広く許可（CASE A準拠）
-app.use('*', (c, next) => {
-  return cors({
-    origin: '*',
-    allowHeaders: ['Content-Type', 'If-None-Match', 'Authorization', 'X-Internal-Key'],
-    allowMethods: ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'DELETE'],
-    exposeHeaders: ['ETag'],
-    maxAge: 600,
-  })(c, next)
 })
 
 // NOTE: このワーカーは単体完結構成 (public-worker がすべての API を実装)
