@@ -1612,8 +1612,11 @@ async function handleUploadImage(c: any) {
     }
 
     // Save to R2
+    // Use key path relative to the R2 bucket (strip any leading bucket prefix)
+    const bucket = (c.env.R2_BUCKET || 'images').replace(/^\/+|\/+$/g, '')
+    const putKey = key.replace(new RegExp(`^${bucket}\/`), '')
     // @ts-ignore IMAGES binding from wrangler.toml
-    const putRes = await c.env.IMAGES.put(key, buf, { httpMetadata: { contentType: file.type || 'application/octet-stream', cacheControl: 'public, max-age=2592000' } })
+    const putRes = await c.env.IMAGES.put(putKey, buf, { httpMetadata: { contentType: file.type || 'application/octet-stream', cacheControl: 'public, max-age=2592000' } })
     if (!putRes) {
       return new Response(JSON.stringify({ error: 'failed to put object' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
     }
@@ -1621,7 +1624,7 @@ async function handleUploadImage(c: any) {
     // Prefer a configured custom images domain (proxied Cloudflare domain) if present.
     // Fall back to R2 public host if not provided.
     const imagesDomain = ((c.env.IMAGES_DOMAIN as string) || (c.env.R2_PUBLIC_URL as string) || '').replace(/\/$/, '')
-    let publicUrl = imagesDomain ? `${imagesDomain}/${key.replace(new RegExp(`^${bucket}/`), '')}` : null
+    let publicUrl = imagesDomain ? `${imagesDomain}/${putKey}` : null
     // Normalize: strip query string and fragment to avoid accidental unique transforms
     if (publicUrl) {
       try {
@@ -1642,7 +1645,7 @@ async function handleUploadImage(c: any) {
     // Provide a worker-served fallback URL so clients can use it when the
     // configured `IMAGES_DOMAIN` is not publicly accessible.
     const workerHost = ((c.env.WORKER_PUBLIC_HOST as string) || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
-    const workerUrl = `${workerHost}/images/${key.replace(new RegExp(`^${bucket}/`), '')}`
+    const workerUrl = `${workerHost}/images/${putKey}`
 
     // Attempt to persist metadata immediately (best-effort). This makes
     // uploads durable immediately without requiring a separate
@@ -1654,7 +1657,8 @@ async function handleUploadImage(c: any) {
       const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
       const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
       if (supabaseUrl && serviceKey) {
-        const insertBody = [{ key, filename: safeName, metadata: null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
+        // Persist key without bucket prefix so DB stores canonical path
+        const insertBody = [{ key: putKey, filename: safeName, metadata: null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
         const upsertUrl = `${supabaseUrl}/rest/v1/images?on_conflict=key`
         // Fire-and-forget but await so we can log failures
         const upsertRes = await fetch(upsertUrl, {
@@ -1679,7 +1683,8 @@ async function handleUploadImage(c: any) {
 
     // Return a richer shape to support callers that expect either
     // `{ key }` or `{ ok:true, result:{ key } }`.
-    const result = { ok: true, result: { key, publicUrl, size: buf?.byteLength || null, contentType: file.type || null } }
+    // Return canonical key (without bucket prefix) so clients and DB use the same identifier
+    const result = { ok: true, result: { key: putKey, publicUrl, size: buf?.byteLength || null, contentType: file.type || null } }
     return new Response(JSON.stringify(result), {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=60' }
     })
