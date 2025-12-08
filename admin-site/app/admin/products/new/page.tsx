@@ -19,6 +19,7 @@ import { fileToBase64 } from "@/lib/utils/image-utils"
 import { useToast } from "@/hooks/use-toast"
 
 import { db } from "@/lib/db/storage"
+import apiFetch from '@/lib/api-client'
 import { getPublicImageUrl } from "@/lib/image-url"
 
 // (省略せずに元実装をそのまま移植しました)
@@ -119,7 +120,7 @@ export default function ProductNewPage() {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch(`/api/admin/product-drafts?userId=${currentUser.id}`)
+        const res = await apiFetch(`/api/admin/product-drafts`)
         if (!res.ok) return
         const json = await res.json()
         if (!json?.data || cancelled) return
@@ -188,7 +189,7 @@ export default function ProductNewPage() {
       fetch('/api/admin/product-drafts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id, data: draftState }),
+        body: JSON.stringify({ data: draftState }),
         signal: controller.signal,
       }).catch((err) => console.warn('Draft save failed', err))
     }, 1000)

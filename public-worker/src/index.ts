@@ -341,8 +341,27 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
       // Path を取り出す（c.req.path があれば利用、なければ URL を解析）
       const reqPath = (typeof c.req.path === 'string' && c.req.path) ? c.req.path : (new URL(c.req.url || '', 'http://localhost')).pathname
       if (headerUser && !reqPath.startsWith('/api/auth')) {
-        try { console.log('resolveRequestUserContext: trusting X-User-Id header as authoritative user=', headerUser) } catch {}
-        return { userId: headerUser, authType: 'user-token', trusted: true }
+        // If an admin UI provided X-User-Id, require a valid token and ensure they match.
+        try {
+          const token = await getTokenFromRequest(c)
+          if (!token) {
+            try { console.log('resolveRequestUserContext: X-User-Id present but no token found -> unauthenticated') } catch {}
+            return { userId: null, authType: 'none', trusted: false }
+          }
+          const viaSupabase = await verifyTokenWithSupabase(token, c)
+          if (!viaSupabase) {
+            try { console.log('resolveRequestUserContext: token verification failed for headerUser=', headerUser) } catch {}
+            return { userId: null, authType: 'none', trusted: false }
+          }
+          if (viaSupabase !== headerUser) {
+            try { console.log('resolveRequestUserContext: token user mismatch header=', headerUser, 'tokenUser=', viaSupabase) } catch {}
+            return { userId: null, authType: 'none', trusted: false }
+          }
+          try { console.log('resolveRequestUserContext: header and token match, user=', headerUser) } catch {}
+          return { userId: headerUser, authType: 'user-token', trusted: true }
+        } catch (e) {
+          return { userId: null, authType: 'none', trusted: false }
+        }
       }
     } catch (e) {}
     // 1) Check bearer token or sb-access-token cookie first

@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react"
 import { getCurrentUser } from '@/lib/auth'
+import apiFetch from '@/lib/api-client'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ProductListItem } from "@/components/product-list-item"
@@ -40,7 +41,7 @@ export default function AdminProductsPage() {
           setProducts([])
           return
         }
-        const res = await fetch(`/api/admin/products?userId=${encodeURIComponent(current.id)}`)
+        const res = await apiFetch(`/api/admin/products`)
         if (!res.ok) throw new Error('Failed to fetch products')
         const data = await res.json()
         const list = Array.isArray(data) ? data : data.products || []
