@@ -34,15 +34,14 @@ export default function AdminLayout({
 
       if (clientDisableAuth) {
         setIsAuthenticated(true)
+        setIsLoading(false)
       } else {
-        // Prefer authoritative server-side check rather than solely relying
-        // on localStorage. This ensures HttpOnly cookie sessions set by the
-        // Worker are respected and stale localStorage entries are cleared.
-        ;(async () => {
+        // Authoritative server-side check. Do NOT accept localStorage mirror as
+        // sufficient for admin UI. Wait for whoami to complete, then update state.
+        (async () => {
           try {
             const res = await apiFetch('/api/auth/whoami', { cache: 'no-store' })
             if (res.ok) {
-              // If server reports authenticated, ensure local mirror exists.
               const json = await res.json().catch(() => null)
               try {
                 if (typeof window !== 'undefined') {
@@ -58,19 +57,23 @@ export default function AdminLayout({
               try {
                 if (typeof window !== 'undefined') localStorage.removeItem('auth_user')
               } catch (e) {}
-                setIsAuthenticated(false)
+              setIsAuthenticated(false)
             }
           } catch (e) {
-            // On network error or unauthenticated, fall back to local check to avoid blocking UI.
-            const user = auth.getCurrentUser()
-            setIsAuthenticated(!!user)
+            // On network error: treat as unauthenticated for admin UI to be safe.
+            try {
+              if (typeof window !== 'undefined') localStorage.removeItem('auth_user')
+            } catch (e) {}
+            setIsAuthenticated(false)
+          } finally {
+            setIsLoading(false)
           }
         })()
       }
     } else {
       setIsAuthenticated(true)
+      setIsLoading(false)
     }
-    setIsLoading(false)
   }, [pathname, isLoginPage])
 
   // Redirect to login when unauthenticated to prevent viewing admin UI
