@@ -5,6 +5,12 @@
 目的:
 - プロジェクト全体で画像の取り扱いを厳格に統一します。以後、以下に定めるルール以外で画像を保存・表示・変換してはなりません。これにより運用の安定化、キャッシュ効率の最大化、無料枠内運用を保証します。
 
+重要な構成決定（必須）:
+- public-worker を唯一の API 入口（単体完結）とします。admin-site は本番では API を直接処理せず、すべての `/api/*` 呼び出しを public-worker 経由で行います。
+- `INTERNAL_API_BASE` や内部プロキシを用いる構成は利用しません。コードやドキュメントに内部プロキシの分岐・チェック・例外を残してはなりません。
+
+このドキュメントは設計の唯一の正解です。例外・暫定措置・将来検討の表現は用いません。
+
 === 最重要ルール（必須、絶対守ること） ===
 1. DB に保存するのは「オリジナルのキー」のみとする。例: `images/2025/12/06/abcd1234.jpg`。
    - フル URL（`https://` で始まるもの）、変換付き URL（`/cdn-cgi/image` を含むもの）、Cloudflare の delivery URL を一切保存してはいけない。
@@ -25,12 +31,13 @@
 - 他の埋め込み画像: オリジナル（変換しない）
 
 変換パラメータの固定:
-- すべての変換は `format=auto` と `quality=75` をデフォルトとする（必要な場合のみ別途議論のうえ変更）。
+- すべての変換は `format=auto` と `quality=75` をデフォルトとして固定する。
 - 許可リストにない幅やパラメータは生成禁止。
 
 === 受け入れ基準（自動検査で確認） ===
 1. DB の images / product_images / users.profile_image 等の対象カラムに `http://` や `https://` を含む値が無いこと（すべて key のみ）。
 2. アップロード API が返すレスポンスは `key` のみ。例: `{ "key": "images/2025/12/06/abcd1234.jpg" }`。
+   - `POST /api/images/complete` は冪等性を持ち、同一 `key` の重複挿入を行わないこと（存在する場合は成功として既存レコードを返す/無視する）。
 3. フロント・管理 UI は `responsiveImageForUsage(key, usage)` や `getImageUrl(key, usage)` の共通ヘルパー経由で表示していること。
 4. CI に画像ルール違反チェックを追加し、違反があればビルドを失敗させること。
 5. Cloudflare 側のカスタムドメイン `https://images.shirasame.com` と Image Resizing 設定が有効であること（検証手順を用意）。
@@ -126,6 +133,48 @@ return <img src={src} srcSet={srcSet} alt="..." />
 - 確認 1: この方針で進めて良いですか？（はい / 修正点）
 - 確認 2: 配信に使うドメインは `https://images.shirasame.com` で確定して良いですか？
 - 確認 3: 既存 DB のバックアップを取得できる DB 管理者アカウント（接続先や手順を教えてください）。
+
+=== 原子的 upsert を有効にするための DB 側作業（必須） ===
+
+`images/complete` エンドポイントはワーカー側で atomic な upsert ロジックを実装しましたが、Postgres の `ON CONFLICT (key)` を有効にするためには、`images.key` に対する一意制約（または一意インデックス）が DB 側に必要です。これが無いと `on_conflict=key` 指定はエラーになります。
+
+手順（安全に実行するための推奨順）:
+1. 本番では必ずバックアップを取得してください（`pg_dump` など）。
+2. ステージングで以下 SQL を実行して重複とインデックスの適用手順を検証してください。
+
+重複確認（実行前）:
+```sql
+SELECT key, COUNT(*) AS cnt FROM public.images GROUP BY key HAVING COUNT(*) > 1 ORDER BY cnt DESC LIMIT 100;
+```
+
+重複を削除してユニーク化（例: created_at の最も古い行を残す）:
+```sql
+WITH ranked AS (
+   SELECT id, key, ROW_NUMBER() OVER (PARTITION BY key ORDER BY created_at ASC, id ASC) AS rn
+   FROM public.images
+)
+DELETE FROM public.images
+WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
+```
+
+上記で問題なければ一意インデックスを追加します（インデックス作成は瞬間的に失敗する可能性があるためステージングで必ず確認してください）:
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS images_key_unique ON public.images (key);
+```
+
+代替（テーブル制約）:
+```sql
+ALTER TABLE public.images ADD CONSTRAINT images_key_unique UNIQUE (key);
+```
+
+実行後、ワーカーの `images/complete` へ `POST`（`on_conflict=key` を使った upsert）がエラー無く動作するはずです。
+
+実行手段の例:
+- Supabase SQL Editor（Web コンソール）で実行
+- `psql` を使ってリモート DB に接続して実行
+- `supabase` CLI の `db remote` / `db query` 機能を使う
+
+もし実行を代行して欲しい場合は、実行可能な方法（安全な手順か一時的な管理者キーの提供、もしくは実行ログ付きでのコマンド文の提示）を教えてください。私は SQL 文の適用、検証手順、及び再テスト（upload → complete ×2）まで代行できます。
 
 ---
 このドキュメントに同意いただければ、次に B（アップロード API の patch 作成）をコミットして PR を作成します。移行用の SQL は、ステージングのサンプルデータを見て最終調整します。

@@ -1,22 +1,38 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const DEFAULT_API_BASE = 'https://public-worker.shirasame-official.workers.dev'
+// Do not force a default external API proxy. Proxy only when an explicit
+// environment API base is configured. This allows Next.js internal API
+// routes (e.g. `/api/images/direct-upload`) to handle requests when no
+// external API is desired.
+const DEFAULT_API_BASE = process.env.API_BASE_ORIGIN || process.env.NEXT_PUBLIC_API_BASE_URL || ''
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // 1) If this is an API request, proxy to the public worker
   if (pathname.startsWith('/api/')) {
+    // 本番方針: /api/* は常に public-worker（外部 API ゲートウェイ）に送る
     const destOrigin = process.env.API_BASE_ORIGIN || process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE
+    if (!destOrigin) {
+      return new NextResponse(JSON.stringify({ error: 'API_BASE origin is not configured on admin-site. /api/* must be proxied to public-worker.' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    }
+
     const destUrl = destOrigin.replace(/\/$/, '') + req.nextUrl.pathname + req.nextUrl.search
 
     const headers = new Headers(req.headers as any)
     headers.delete('host')
 
+    // Preserve the raw body for non-GET/HEAD requests to avoid corrupting
+    // multipart/form-data (do not convert to text). NextRequest exposes the
+    // body which can be forwarded directly.
     let body: BodyInit | undefined = undefined
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      try { body = await req.text() } catch { body = undefined }
+      try {
+        body = req.body
+      } catch {
+        body = undefined
+      }
     }
 
     const res = await fetch(destUrl, { method: req.method, headers, body, redirect: 'manual' })

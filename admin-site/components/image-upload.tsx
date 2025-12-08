@@ -156,8 +156,12 @@ export function ImageUpload({
             let result
             const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
             const forceProxy = typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_FORCE_PROXY_UPLOAD === 'true')
+            // opt-in flag to allow direct signed uploads from the browser.
+            // By default prefer the server proxy (`/api/images/upload`) so the admin UI
+            // does not accidentally send files to the presign endpoint.
+            const useDirect = typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_USE_DIRECT_UPLOAD === 'true')
 
-            if (isLocalhost || forceProxy) {
+            if (isLocalhost || forceProxy || !useDirect) {
               result = await fallbackProxyUpload(file)
             } else {
               try {
@@ -334,6 +338,7 @@ export function ImageUpload({
           let result
           const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
           const forceProxy = typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_FORCE_PROXY_UPLOAD === 'true')
+          const useDirect = typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_USE_DIRECT_UPLOAD === 'true')
 
           // Compress on the client before upload (skip GIFs).
           let fileToUpload = croppedFile
@@ -344,10 +349,11 @@ export function ImageUpload({
             fileToUpload = croppedFile
           }
 
-          if (isLocalhost || forceProxy) {
+          if (isLocalhost || forceProxy || !useDirect) {
             // In dev (localhost) some third-party signed upload endpoints block PUT via CORS.
-            // Use the server proxy upload to avoid CORS issues.
-            console.log('ImageUpload: using proxy upload due to localhost/force proxy setting')
+            // Use the server proxy upload to avoid CORS issues. Also prefer proxy by default
+            // unless `NEXT_PUBLIC_USE_DIRECT_UPLOAD=true` is explicitly set in the environment.
+            console.log('ImageUpload: using proxy upload due to localhost/force proxy/feature flag')
             result = await fallbackProxyUpload(fileToUpload)
           } else {
             try {

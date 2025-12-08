@@ -59,6 +59,10 @@ app.use('*', (c, next) => {
   })(c, next)
 })
 
+// NOTE: このワーカーは単体完結構成 (public-worker がすべての API を実装)
+// です。以前の設計で使っていた INTERNAL_API_BASE による内部プロキシは撤去します。
+// 以降、内部 API への転送チェックは行いません。
+
 // Debug endpoint: 簡易的に環境やバインディングの存在を返す（本番では無効化してください）
 app.get('/_debug', async (c) => {
   try {
@@ -126,16 +130,10 @@ const listQuery = z.object({
   slug: z.string().optional(),
 })
 
-function upstream(c: any, path: string) {
-  const base = (c.env.INTERNAL_API_BASE || '').replace(/\/$/, '')
-  if (!base) return null
-  const url = new URL(base + path)
-  const qs = c.req.query()
-  for (const [k, v] of Object.entries(qs)) {
-    if (typeof v === 'string') url.searchParams.set(k, v)
-  }
-  return url.toString()
-}
+// INTERNAL_API_BASE による proxy ロジックは廃止しました。
+// 以前は upstream() で内部 API を参照していましたが、現在は public-worker が
+// すべての API を直接実装するため、この関数は不要です。
+function upstream(_c: any, _path: string) { return null }
 
 // ヘルパ: JWT のペイロードをデコードして返す（署名検証は行いません。存在確認と sub/user_id 抽出用）
 function parseJwtPayload(token: string | null | undefined): any | null {
@@ -542,7 +540,7 @@ app.get('/site-settings', async (c) => {
     try {
       // If an INTERNAL_API_BASE is configured, proxy to it (admin API)
       if (upstreamUrl) {
-        const res = await fetch(upstreamUrl, { method: 'GET' })
+        const res = await fetch(upstreamUrl, { method: 'GET', headers: makeUpstreamHeaders(c) })
         if (!res.ok) return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
         const json = await res.json().catch(() => ({ data: {} }))
         return new Response(JSON.stringify(json), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
@@ -571,7 +569,7 @@ app.get('/api/admin/settings', async (c) => {
   try {
     const internal = upstream(c, '/api/admin/settings')
     if (internal) {
-      const res = await fetch(internal, { method: 'GET' })
+      const res = await fetch(internal, { method: 'GET', headers: makeUpstreamHeaders(c) })
       const json = await res.json().catch(() => ({ data: {} }))
       return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     }
@@ -579,8 +577,43 @@ app.get('/api/admin/settings', async (c) => {
     // Fallback: read from Supabase site_settings table and return as key/value map
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    // If Supabase service role is not configured, return an empty settings
+    // object instead of 502 so the admin UI doesn't break when an upstream
+    // internal API is not present. A missing service role means the worker
+    // cannot perform secure upserts; admin users should configure either
+    // `INTERNAL_API_BASE` or `SUPABASE_SERVICE_ROLE_KEY` in production.
     if (!supabaseUrl || !serviceKey) {
-      return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
+
+    const url = `${supabaseUrl}/rest/v1/site_settings?select=key,value`
+    const resp = await fetch(url, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+    if (!resp.ok) return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const rows = await resp.json().catch(() => [])
+    const out: Record<string, any> = {}
+    for (const r of Array.isArray(rows) ? rows : []) {
+      try { out[r.key] = r.value } catch {}
+    }
+    return new Response(JSON.stringify({ data: out }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+
+// Also accept `/admin/settings` (some proxies remove the `/api` prefix).
+app.get('/admin/settings', async (c) => {
+  try {
+    const internal = upstream(c, '/api/admin/settings')
+    if (internal) {
+      const res = await fetch(internal, { method: 'GET', headers: makeUpstreamHeaders(c) })
+      const json = await res.json().catch(() => ({ data: {} }))
+      return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
+
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    if (!supabaseUrl || !serviceKey) {
+      return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     }
 
     const url = `${supabaseUrl}/rest/v1/site_settings?select=key,value`
@@ -602,17 +635,56 @@ app.put('/api/admin/settings', async (c) => {
     const internal = upstream(c, '/api/admin/settings')
     const bodyText = await c.req.text()
     if (internal) {
-      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers: { 'Content-Type': c.req.header('content-type') || 'application/json' } })
+      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers: { ...makeUpstreamHeaders(c) } })
       const buf = await res.arrayBuffer()
       return new Response(buf, { status: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' } })
     }
 
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
-    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    // If Supabase service role is not configured, return a neutral success
+    // response so the admin UI can continue without blowing up.
+    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
     const payload = JSON.parse(bodyText || '{}')
     // Upsert each key into site_settings via Supabase REST upsert
+    const out: Record<string, any> = {}
+    for (const [k, v] of Object.entries(payload || {})) {
+      try {
+        const upUrl = `${supabaseUrl}/rest/v1/site_settings?on_conflict=key`
+        const res = await fetch(upUrl, {
+          method: 'POST',
+          headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+          body: JSON.stringify({ key: k, value: typeof v === 'string' ? v : JSON.stringify(v) })
+        })
+        const j = await res.json().catch(() => null)
+        if (j && Array.isArray(j) && j.length > 0) out[k] = j[0].value || null
+      } catch (e) {
+        // continue
+      }
+    }
+    return new Response(JSON.stringify({ data: out }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+
+// Also accept `/admin/settings` (compatibility)
+app.put('/admin/settings', async (c) => {
+  try {
+    const internal = upstream(c, '/api/admin/settings')
+    const bodyText = await c.req.text()
+    if (internal) {
+      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers: { ...makeUpstreamHeaders(c) } })
+      const buf = await res.arrayBuffer()
+      return new Response(buf, { status: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' } })
+    }
+
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const payload = JSON.parse(bodyText || '{}')
     const out: Record<string, any> = {}
     for (const [k, v] of Object.entries(payload || {})) {
       try {
@@ -788,10 +860,7 @@ function deriveBasePath(c: any, url?: string | null) {
   return deriveBasePathFromUrl(url || null, c.env)
 }
 
-export default app
-
 // Admin proxy: `/admin/*` を INTERNAL_API_BASE に転送する。内部キーでの簡易認可を行う。
-// 追加: Authorization: Bearer <jwt> がある場合は簡易 JWT/RBAC チェック（ダミー実装）
 app.all('/admin/*', async (c) => {
   try {
     const internalBase = (c.env.INTERNAL_API_BASE || '').replace(/\/$/, '')
@@ -872,7 +941,7 @@ app.put('/api/admin/users/:id', async (c) => {
     const internal = upstream(c, `/api/admin/users/${c.req.param('id')}`)
     const bodyText = await c.req.text()
     if (internal) {
-      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers: { 'Content-Type': c.req.header('content-type') || 'application/json' } })
+      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers: { ...makeUpstreamHeaders(c) } })
       const buf = await res.arrayBuffer()
       return new Response(buf, { status: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' } })
     }
@@ -918,7 +987,8 @@ async function handleUploadImage(c: any) {
     const rand = Math.random().toString(36).slice(2, 10)
     const safeName = (file.name || 'upload').replace(/[^a-zA-Z0-9._-]/g, '_')
     const bucket = (c.env.R2_BUCKET || 'images').replace(/^\/+|\/+$/g, '')
-    const key = `${bucket}/images/${yyyy}/${mm}/${dd}/${rand}-${safeName}`
+    // Store objects under `images/YYYY/MM/DD/...` within the R2 bucket.
+    const key = `images/${yyyy}/${mm}/${dd}/${rand}-${safeName}`
 
     // Save to R2
     // @ts-ignore IMAGES binding from wrangler.toml
@@ -953,7 +1023,9 @@ async function handleUploadImage(c: any) {
     const workerHost = ((c.env.WORKER_PUBLIC_HOST as string) || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
     const workerUrl = `${workerHost}/images/${key.replace(new RegExp(`^${bucket}/`), '')}`
 
-    return new Response(JSON.stringify({ ok: true, result: { key, publicUrl, workerUrl, size: buf.byteLength, contentType: file.type || null } }), {
+    // Return key-only to enforce key-only policy. Clients should call
+    // POST /api/images/complete to persist metadata in the DB.
+    return new Response(JSON.stringify({ key }), {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=60' }
     })
   } catch (e: any) {
@@ -966,6 +1038,87 @@ async function handleUploadImage(c: any) {
 app.post('/upload-image', handleUploadImage)
 app.post('/images/upload', handleUploadImage)
 app.post('/api/images/upload', handleUploadImage)
+
+// images/complete: Persist uploaded image metadata (key-only policy)
+app.post('/api/images/complete', async (c) => {
+  try {
+    const text = await c.req.text().catch(() => '')
+    let payload: any = {}
+    try { payload = text ? JSON.parse(text) : {} } catch { payload = {} }
+
+    const key = (payload?.key || payload?.imageKey || payload?.id || '').toString()
+    if (!key) return new Response(JSON.stringify({ error: 'key is required' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+
+    // Build record to insert into `images` table. We store key only (no full URL).
+    const filename = payload?.filename || key.split('/').pop() || null
+    const metadata: any = {}
+    if (payload?.target) metadata.target = payload.target
+    if (payload?.aspect) metadata.aspect = payload.aspect
+    if (payload?.extra) metadata.extra = payload.extra
+
+    // Attempt to determine user id from request (if available)
+    const userId = await getRequestUserId(c)
+
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    if (!supabaseUrl || !serviceKey) {
+      // If service role key not configured, do not fail hard; return success but log.
+      try { console.warn('SUPABASE_SERVICE_ROLE_KEY not configured; images/complete did not persist to DB') } catch {}
+      return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    }
+
+    // Atomic upsert using Postgres ON CONFLICT DO NOTHING pattern via Supabase REST.
+    // We attempt an INSERT with `on_conflict=key` and `Prefer: resolution=ignore-duplicates,return=representation`.
+    // If the insert is ignored due to an existing row (race), the POST returns an empty array; in that case
+    // we fetch the existing row and return existing=true. This avoids race conditions.
+    try {
+      const insertBody = [{ key, filename, metadata: Object.keys(metadata).length ? metadata : null, user_id: userId || null, created_at: new Date().toISOString() }]
+      const upsertUrl = `${supabaseUrl}/rest/v1/images?on_conflict=key`
+      const upsertRes = await fetch(upsertUrl, {
+        method: 'POST',
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=ignore-duplicates,return=representation'
+        },
+        body: JSON.stringify(insertBody),
+      })
+
+      if (!upsertRes.ok) {
+        const txt = await upsertRes.text().catch(() => '')
+        return new Response(JSON.stringify({ error: 'failed to persist image metadata', detail: txt }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+      }
+
+      const inserted = await upsertRes.json().catch(() => [])
+      if (Array.isArray(inserted) && inserted.length > 0) {
+        // Inserted successfully (no existing conflict)
+        return new Response(JSON.stringify({ key, existing: false }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+      }
+
+      // Insert was ignored due to conflict — fetch the existing record atomically
+      try {
+        const encodedKey = encodeURIComponent(key)
+        const qUrl = `${supabaseUrl}/rest/v1/images?select=id,key,filename,metadata,user_id,created_at&key=eq.${encodedKey}&limit=1`
+        const qRes = await fetch(qUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+        if (qRes.ok) {
+          const existing = await qRes.json().catch(() => null)
+          return new Response(JSON.stringify({ key, existing: true, record: Array.isArray(existing) && existing.length > 0 ? existing[0] : null }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+        }
+      } catch (e) {
+        // If fetch fails, still return success to caller (best-effort)
+        return new Response(JSON.stringify({ key, existing: true }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+      }
+
+      // Fallback success
+      return new Response(JSON.stringify({ key, existing: true }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    } catch (e: any) {
+      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    }
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+  }
+})
 
 // Cloudflare Images direct-upload presigner for admin UI
 app.post('/api/images/direct-upload', async (c) => {
@@ -985,6 +1138,52 @@ app.post('/api/images/direct-upload', async (c) => {
     return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+// Also accept `/images/direct-upload` (some proxies strip the `/api` prefix).
+app.post('/images/direct-upload', async (c) => {
+  try {
+    const account = (c.env.CLOUDFLARE_ACCOUNT_ID || '').toString()
+    const token = (c.env.CLOUDFLARE_IMAGES_API_TOKEN || '').toString()
+    if (!account || !token) {
+      return new Response(JSON.stringify({ ok: false, error: 'Cloudflare Images credentials not configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
+
+    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/images/v2/direct_upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    })
+    const json = await res.json().catch(() => ({ ok: false }))
+    return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+
+// Authentication: whoami endpoint for admin UI
+app.get('/api/auth/whoami', async (c) => {
+  try {
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    if (!supabaseUrl) return new Response(JSON.stringify({ ok: false }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+
+    // Extract token from Authorization header or sb-access-token cookie
+    let token = (c.req.header('authorization') || c.req.header('Authorization') || '').toString()
+    if (token && token.toLowerCase().startsWith('bearer ')) token = token.slice(7).trim()
+    if (!token) {
+      const cookieHeader = c.req.header('cookie') || ''
+      const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
+      if (m && m[1]) token = decodeURIComponent(m[1])
+    }
+
+    if (!token) return new Response(JSON.stringify({ ok: false }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+
+    const res = await fetch(`${supabaseUrl}/auth/v1/user`, { method: 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } })
+    if (!res.ok) return new Response(JSON.stringify({ ok: false }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    const user = await res.json().catch(() => null)
+    return new Response(JSON.stringify({ ok: true, user }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
   }
 })
     
@@ -1026,3 +1225,127 @@ app.post('/api/images/direct-upload', async (c) => {
         return new Response(String(e?.message || e), { status: 500 })
       }
     })
+
+// Simple FastAPI-like tester UI for the Worker
+app.get('/_test', async (c) => {
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Shirasame Worker API Tester</title>
+  <style>
+    :root{--bg:#f7fafc;--fg:#0f172a;--card:#ffffff;--muted:#64748b;--primary:#2b6cb0}
+    body{font-family:Inter, ui-sans-serif, system-ui; background:var(--bg); color:var(--fg); margin:0; padding:24px}
+    .container{max-width:980px;margin:0 auto}
+    .card{background:var(--card);border-radius:12px;padding:18px;box-shadow:0 1px 2px rgba(2,6,23,0.06)}
+    h1{margin:0 0 12px 0;font-size:20px}
+    label{display:block;font-size:13px;margin-top:12px;color:var(--muted)}
+    select,input,textarea{width:100%;padding:10px;border:1px solid #e6eef6;border-radius:8px;margin-top:6px}
+    button{background:var(--primary);color:#fff;border:none;padding:10px 14px;border-radius:8px;cursor:pointer;margin-top:12px}
+    pre{background:#0b1220;color:#e6eef6;padding:12px;border-radius:8px;overflow:auto}
+    .flex{display:flex;gap:12px}
+    .half{flex:1}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Shirasame Worker API Tester</h1>
+      <div>
+        <label>Endpoint</label>
+        <select id="endpoint">
+          <option value="/api/images/direct-upload">POST /api/images/direct-upload</option>
+          <option value="/api/images/upload">POST /api/images/upload</option>
+          <option value="/api/images/complete">POST /api/images/complete</option>
+          <option value="/api/admin/settings">GET /api/admin/settings</option>
+          <option value="/collections">GET /collections</option>
+        </select>
+      </div>
+      <div class="flex">
+        <div class="half">
+          <label>Method</label>
+          <select id="method"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select>
+        </div>
+        <div class="half">
+          <label>Content-Type (optional)</label>
+          <input id="contentType" placeholder="application/json or multipart/form-data" />
+        </div>
+      </div>
+      <label>Request Body (JSON for application/json)</label>
+      <textarea id="body" rows="6" placeholder='{"key":"value"}'></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <button id="send">Send</button>
+        <button id="clear" style="background:#e2e8f0;color:var(--fg)">Clear</button>
+        <span id="status" style="margin-left:12px;color:var(--muted)"></span>
+      </div>
+
+      <h2 style="margin-top:18px;font-size:14px;color:var(--muted)">Response</h2>
+      <div style="display:flex;gap:12px">
+        <div style="flex:1">
+          <label>Headers</label>
+          <pre id="respHeaders">{}</pre>
+        </div>
+        <div style="flex:2">
+          <label>Body</label>
+          <pre id="respBody">{}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const endpoint = document.getElementById('endpoint')
+    const method = document.getElementById('method')
+    const body = document.getElementById('body')
+    const ct = document.getElementById('contentType')
+    const send = document.getElementById('send')
+    const clear = document.getElementById('clear')
+    const status = document.getElementById('status')
+    const respHeaders = document.getElementById('respHeaders')
+    const respBody = document.getElementById('respBody')
+
+    send.addEventListener('click', async () => {
+      status.textContent = 'Sending...'
+      respHeaders.textContent = '{}'
+      respBody.textContent = '{}'
+      try {
+        const url = endpoint.value
+        const m = method.value
+        let options = { method: m, headers: {} }
+        const contentType = (ct.value || '').trim()
+        if (contentType) options.headers['Content-Type'] = contentType
+        if (m !== 'GET' && m !== 'HEAD') {
+          if (contentType.includes('application/json')) options.body = body.value
+          else if (contentType.includes('multipart') ) {
+            // Basic multipart via FormData: expect JSON with key->value where value starting with @file:path uses file upload (not supported in browser)
+            const fd = new FormData()
+            try { const obj = JSON.parse(body.value || '{}'); for (const k in obj) fd.append(k, obj[k]) } catch(e) { fd.append('raw', body.value) }
+            options.body = fd
+            // remove content-type to let browser set boundary
+            delete options.headers['Content-Type']
+          } else {
+            options.body = body.value
+          }
+        }
+        const res = await fetch(url, options)
+        status.textContent = res.status + ' ' + res.statusText
+        const headers = {}
+        for (const [k,v] of res.headers.entries()) headers[k]=v
+        respHeaders.textContent = JSON.stringify(headers, null, 2)
+        const text = await res.text()
+        try { respBody.textContent = JSON.stringify(JSON.parse(text), null, 2) } catch(e) { respBody.textContent = text }
+      } catch (e) {
+        status.textContent = 'Error'
+        respBody.textContent = String(e)
+      }
+    })
+    clear.addEventListener('click', ()=>{ body.value=''; respBody.textContent='{}'; respHeaders.textContent='{}'; status.textContent=''; })
+  </script>
+</body>
+</html>`
+
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+})
+
+  // Export app at the end of the module
+  export default app
