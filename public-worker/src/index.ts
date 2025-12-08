@@ -693,8 +693,15 @@ app.get('/api/admin/settings', async (c) => {
 app.get('/admin/settings', async (c) => {
   try {
     const internal = upstream(c, '/api/admin/settings')
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    // require authenticated user or internal key for admin settings
+    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
     if (internal) {
-      const res = await fetch(internal, { method: 'GET', headers: makeUpstreamHeaders(c) })
+      const headers = makeUpstreamHeaders(c)
+      if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
+      const res = await fetch(internal, { method: 'GET', headers })
       const json = await res.json().catch(() => ({ data: {} }))
       return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     }
