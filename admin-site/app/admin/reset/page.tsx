@@ -89,6 +89,26 @@ export default function ResetPage() {
           setIsLoading(false)
           return
         }
+        // Ensure server-side whoami recognizes the session before navigating
+        const j = await res.json().catch(() => null)
+        if (!j || !j.ok || !j.user) {
+          toast({ title: 'セッション確認失敗', description: 'サーバーでユーザー情報を確認できませんでした', variant: 'destructive' })
+          setIsLoading(false)
+          return
+        }
+        let ok = false
+        for (let i = 0; i < 5; i++) {
+          try {
+            const who = await apiFetch('/api/auth/whoami', { cache: 'no-store' })
+            if (who && who.ok) { ok = true; break }
+          } catch (e) {}
+          await new Promise((r) => setTimeout(r, 200))
+        }
+        if (!ok) {
+          toast({ title: 'ログイン失敗', description: 'セッションの確認に失敗しました。', variant: 'destructive' })
+          setIsLoading(false)
+          return
+        }
       } catch (e) {
         console.error('[reset] session persist error', e)
         toast({ title: 'ネットワークエラー', description: 'サーバーに接続できませんでした', variant: 'destructive' })

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import supabaseClient from '@/lib/supabase/client'
+import apiFetch from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -156,12 +157,30 @@ export default function LoginPage() {
               try { for (const h of r.headers.keys()) keys.push(h) } catch (e) {}
               try { console.log('[login] /api/auth/set_tokens response headers keys', keys) } catch (e) {}
 
-              // If server returns JSON ok, treat as success
+              // If server returns JSON ok with user, treat as success — but
+              // verify server-side whoami returns 200 before navigating so the
+              // browser has applied HttpOnly cookies.
               if (r.ok) {
                 const j = await r.json().catch(() => null)
-                if (j && j.ok) {
-                  window.history.replaceState({}, document.title, window.location.pathname + window.location.search)
-                  window.location.href = '/admin'
+                if (j && j.ok && j.user) {
+                  // small whoami retry loop to tolerate cookie propagation
+                  let ok = false
+                  for (let i = 0; i < 5; i++) {
+                    try {
+                      const who = await apiFetch('/api/auth/whoami', { cache: 'no-store' })
+                      if (who && who.ok) { ok = true; break }
+                    } catch (e) {
+                      // swallow and retry
+                    }
+                    await new Promise((r) => setTimeout(r, 200))
+                  }
+                  if (ok) {
+                    try { window.history.replaceState({}, document.title, window.location.pathname + window.location.search) } catch (e) {}
+                    window.location.href = '/admin'
+                    return
+                  }
+                  // If whoami still fails, surface error to user
+                  toast({ title: 'ログイン失敗', description: 'セッションの確認に失敗しました。', variant: 'destructive' })
                   return
                 }
               }
