@@ -19,7 +19,7 @@ export default function AdminLayout({
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const isRecipeEditPage = pathname?.includes('/admin/recipes/') && pathname?.includes('/edit')
-  const isLoginPage = pathname === '/admin/login'
+  const isLoginPage = pathname === '/admin/login' || (pathname && pathname.startsWith('/admin/reset'))
 
   useEffect(() => {
     // ログインページ以外でログイン状態をチェック
