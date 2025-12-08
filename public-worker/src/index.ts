@@ -55,6 +55,55 @@ export type Env = {
 
 const app = new Hono<{ Bindings: Env }>()
 
+// Admin authentication middleware: enforce JWT <-> X-User-Id matching
+app.use('/api/admin/*', async (c, next) => {
+  try {
+    const env = c.env as any
+    const debug = env.DEBUG_WORKER === 'true'
+    // Extract header user id
+    const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
+    // Extract token from Authorization or cookie
+    const token = await getTokenFromRequest(c)
+    if (debug) {
+      try { console.log('admin-auth middleware: headerUser=', headerUser, 'tokenPresent=', !!token) } catch {}
+    }
+    // If headerUser is present, require token and ensure match.
+    const verified = token ? await verifyTokenWithSupabase(token, c) : null
+    if (headerUser) {
+      if (!token) {
+        const headers = { 'Content-Type': 'application/json; charset=utf-8' }
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers })
+      }
+      if (!verified) {
+        if (debug) try { console.log('admin-auth middleware: token verification failed') } catch {}
+        const headers = { 'Content-Type': 'application/json; charset=utf-8' }
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers })
+      }
+      if (verified !== headerUser) {
+        if (debug) try { console.log('admin-auth middleware: token user mismatch header=', headerUser, 'tokenUser=', verified) } catch {}
+        const headers = { 'Content-Type': 'application/json; charset=utf-8' }
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers })
+      }
+      // matched
+      try { c.set && c.set('userId', verified) } catch {}
+      return await next()
+    }
+
+    // No headerUser: allow cookie/token-only flows if token verifies
+    if (verified) {
+      try { c.set && c.set('userId', verified) } catch {}
+      return await next()
+    }
+
+    // No headerUser and no valid token -> unauthorized
+    const headers = { 'Content-Type': 'application/json; charset=utf-8' }
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers })
+  } catch (e) {
+    const headers = { 'Content-Type': 'application/json; charset=utf-8' }
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers })
+  }
+})
+
 // Debug and global error middleware: キャッチされなかった例外を詳細に返す（DEBUG_WORKER=true の場合は stack を含める）
 app.use('*', async (c, next) => {
   // Error wrapper + dynamic CORS headers helper
@@ -231,23 +280,30 @@ async function verifyTokenWithSupabase(token: string, c: any): Promise<string | 
     const now = Date.now()
     const cached = tokenUserCache.get(token)
     if (cached && (now - cached.ts) < 60_000) {
-      try { console.log('verifyTokenWithSupabase: cache hit userId=', cached.id) } catch {}
+      try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('verifyTokenWithSupabase: cache hit userId=', cached.id) } catch {}
       return cached.id
     }
 
-    // TEMP LOG: observe verification attempts (don't print token)
-    try { console.log('verifyTokenWithSupabase: verifying token length=', token ? token.length : 0) } catch {}
-    // Delegate to shared fetchUserFromToken so whoami and token verification share logic
-    const user = await fetchUserFromToken(token, c)
-    if (!user) {
-      try { console.log('verifyTokenWithSupabase: fetchUserFromToken returned null') } catch {}
+    // Use supabase-js client to validate token and get user
+    try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('verifyTokenWithSupabase: verifying token length=', token ? token.length : 0) } catch {}
+    try {
+      const supabase = getSupabase(c.env)
+      // supabase.auth.getUser accepts the token and returns user data
+      const r = await supabase.auth.getUser(token)
+      if (!r || !r.data || !r.data.user) {
+        try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('verifyTokenWithSupabase: supabase returned no user, status info=', r?.error?.message) } catch {}
+        tokenUserCache.set(token, { id: null, ts: now })
+        return null
+      }
+      const id = r.data.user.id
+      try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('verifyTokenWithSupabase: resolved userId=', id) } catch {}
+      tokenUserCache.set(token, { id: id || null, ts: now })
+      return id || null
+    } catch (e) {
+      try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('verifyTokenWithSupabase: exception', String(e)) } catch {}
       tokenUserCache.set(token, { id: null, ts: now })
       return null
     }
-    const id = user?.id || user?.user?.id || user?.sub || user?.user_id || null
-    try { console.log('verifyTokenWithSupabase: resolved userId=', id) } catch {}
-    tokenUserCache.set(token, { id: id || null, ts: now })
-    return id || null
   } catch (e) {
     return null
   }
@@ -328,7 +384,7 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
     // TEMP LOG: inspect incoming headers to debug why some requests are unauthenticated
     try {
       const a = c.req.header('authorization') || c.req.header('Authorization') || ''
-      console.log('resolveRequestUserContext: authorization present=', !!a)
+      if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: authorization present=', !!a)
     } catch (e) {}
     try { console.log('resolveRequestUserContext: cookie=', c.req.header('cookie')) } catch (e) {}
     try { console.log('resolveRequestUserContext: x-internal-key=', !!(c.req.header('x-internal-key') || c.req.header('X-Internal-Key'))) } catch (e) {}
@@ -341,27 +397,27 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
       // Path を取り出す（c.req.path があれば利用、なければ URL を解析）
       const reqPath = (typeof c.req.path === 'string' && c.req.path) ? c.req.path : (new URL(c.req.url || '', 'http://localhost')).pathname
       if (headerUser && !reqPath.startsWith('/api/auth')) {
-        // If an admin UI provided X-User-Id, require a valid token and ensure they match.
-        try {
-          const token = await getTokenFromRequest(c)
-          if (!token) {
-            try { console.log('resolveRequestUserContext: X-User-Id present but no token found -> unauthenticated') } catch {}
+          // If an admin UI provided X-User-Id, require a valid token and ensure they match.
+          try {
+            const token = await getTokenFromRequest(c)
+            if (!token) {
+              try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: X-User-Id present but no token found -> unauthenticated') } catch {}
+              return { userId: null, authType: 'none', trusted: false }
+            }
+            const viaSupabase = await verifyTokenWithSupabase(token, c)
+            if (!viaSupabase) {
+              try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: token verification failed for headerUser=', headerUser) } catch {}
+              return { userId: null, authType: 'none', trusted: false }
+            }
+            if (viaSupabase !== headerUser) {
+              try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: token user mismatch header=', headerUser, 'tokenUser=', viaSupabase) } catch {}
+              return { userId: null, authType: 'none', trusted: false }
+            }
+            try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: header and token match, user=', headerUser) } catch {}
+            return { userId: headerUser, authType: 'user-token', trusted: true }
+          } catch (e) {
             return { userId: null, authType: 'none', trusted: false }
           }
-          const viaSupabase = await verifyTokenWithSupabase(token, c)
-          if (!viaSupabase) {
-            try { console.log('resolveRequestUserContext: token verification failed for headerUser=', headerUser) } catch {}
-            return { userId: null, authType: 'none', trusted: false }
-          }
-          if (viaSupabase !== headerUser) {
-            try { console.log('resolveRequestUserContext: token user mismatch header=', headerUser, 'tokenUser=', viaSupabase) } catch {}
-            return { userId: null, authType: 'none', trusted: false }
-          }
-          try { console.log('resolveRequestUserContext: header and token match, user=', headerUser) } catch {}
-          return { userId: headerUser, authType: 'user-token', trusted: true }
-        } catch (e) {
-          return { userId: null, authType: 'none', trusted: false }
-        }
       }
     } catch (e) {}
     // 1) Check bearer token or sb-access-token cookie first
@@ -825,6 +881,70 @@ app.get('/api/admin/settings', async (c) => {
     for (const r of Array.isArray(rows) ? rows : []) {
       try { out[r.key] = r.value } catch {}
     }
+
+    // If we have an authenticated user id, also fetch that user's row from `users` table
+    try {
+      const ctxUser = ctx.userId
+      if (ctxUser) {
+        const userUrl = `${supabaseUrl}/rest/v1/users?id=eq.${encodeURIComponent(ctxUser)}&select=*`
+        const ures = await fetch(userUrl, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+        if (ures.ok) {
+          const urows = await ures.json().catch(() => [])
+          if (Array.isArray(urows) && urows.length > 0) {
+            const u = urows[0]
+            // normalize user row to camelCase fields expected by admin UI
+            try {
+              const mapHeaderKeys = (v: any) => {
+                if (!v) return []
+                if (Array.isArray(v)) return v
+                if (typeof v === 'string') {
+                  try { return JSON.parse(v) } catch { return [String(v)] }
+                }
+                return []
+              }
+
+              const social = (u.social_links || u.socialLinks)
+              let socialLinksParsed: any = []
+              if (social) {
+                if (Array.isArray(social)) socialLinksParsed = social
+                else if (typeof social === 'string') {
+                  try { socialLinksParsed = JSON.parse(social) } catch { socialLinksParsed = [] }
+                }
+              }
+
+              const normalized: Record<string, any> = {
+                id: u.id || u.user_id || null,
+                displayName: u.display_name || u.displayName || u.name || null,
+                bio: u.bio || null,
+                email: u.email || null,
+                profileImage: u.profile_image || null,
+                profileImageKey: u.profile_image_key || u.profileImageKey || u.profile_image_key || null,
+                headerImageKeys: mapHeaderKeys(u.header_image_keys || u.headerImageKeys || u.header_images || u.header_images_keys),
+                headerImage: u.header_image || null,
+                backgroundType: u.background_type || u.backgroundType || null,
+                backgroundValue: u.background_value || u.backgroundValue || null,
+                backgroundImageKey: u.background_image_key || u.backgroundImageKey || null,
+                amazonAccessKey: u.amazon_access_key || u.amazonAccessKey || null,
+                amazonSecretKey: u.amazon_secret_key || u.amazonSecretKey || null,
+                amazonAssociateId: u.amazon_associate_id || u.amazonAssociateId || null,
+                socialLinks: socialLinksParsed,
+                profile_image_key: u.profile_image_key || null,
+                header_image_keys: u.header_image_keys || null,
+              }
+
+              for (const [k, v] of Object.entries(normalized)) {
+                try { out[k] = v } catch {}
+              }
+            } catch (e) {
+              // ignore normalization errors
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // ignore user fetch errors and continue returning site settings
+    }
+
     return new Response(JSON.stringify({ data: out }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   } catch (e: any) {
     return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
@@ -890,10 +1010,94 @@ app.put('/api/admin/settings', async (c) => {
     if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
     const payload = JSON.parse(bodyText || '{}')
-    // Upsert each key into site_settings via Supabase REST upsert
+    // If payload contains user fields or an id, upsert users table using service role key
     const out: Record<string, any> = {}
+    try {
+      const maybeId = payload.id || payload.userId || null
+      // Build user update object from common keys (support camelCase and snake_case)
+      const userFields: Record<string, any> = {}
+      const map: Record<string, string> = {
+        displayName: 'display_name',
+        display_name: 'display_name',
+        bio: 'bio',
+        email: 'email',
+        profileImageKey: 'profile_image_key',
+        profile_image_key: 'profile_image_key',
+        profileImage: 'profile_image',
+        profile_image: 'profile_image',
+        headerImageKeys: 'header_image_keys',
+        header_image_keys: 'header_image_keys',
+        backgroundImageKey: 'background_image_key',
+        background_image_key: 'background_image_key',
+        backgroundValue: 'background_value',
+        background_value: 'background_value',
+      }
+      for (const [k, v] of Object.entries(payload || {})) {
+        if (k === 'id' || k === 'userId') continue
+        const mapped = map[k as string]
+        if (mapped) {
+          userFields[mapped] = v
+        }
+      }
+
+      if (maybeId && Object.keys(userFields).length > 0) {
+        // upsert into users table
+        const upUrl = `${supabaseUrl}/rest/v1/users?on_conflict=id`
+        const bodyObj: any = { id: maybeId, ...userFields }
+        const res = await fetch(upUrl, {
+          method: 'POST',
+          headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+          body: JSON.stringify(bodyObj),
+        })
+        if (res.ok) {
+          const j = await res.json().catch(() => null)
+          if (Array.isArray(j) && j.length > 0) {
+            const u = j[0]
+            // normalize returned user row into camelCase keys for response
+            const mapHeaderKeys = (v: any) => {
+              if (!v) return []
+              if (Array.isArray(v)) return v
+              if (typeof v === 'string') {
+                try { return JSON.parse(v) } catch { return [String(v)] }
+              }
+              return []
+            }
+            const social = (u.social_links || u.socialLinks)
+            let socialLinksParsed: any = []
+            if (social) {
+              if (Array.isArray(social)) socialLinksParsed = social
+              else if (typeof social === 'string') {
+                try { socialLinksParsed = JSON.parse(social) } catch { socialLinksParsed = [] }
+              }
+            }
+            out.user = {
+              id: u.id || u.user_id || null,
+              displayName: u.display_name || u.displayName || u.name || null,
+              bio: u.bio || null,
+              email: u.email || null,
+              profileImage: u.profile_image || null,
+              profileImageKey: u.profile_image_key || null,
+              headerImageKeys: mapHeaderKeys(u.header_image_keys || u.headerImageKeys || u.header_images),
+              backgroundType: u.background_type || null,
+              backgroundValue: u.background_value || null,
+              backgroundImageKey: u.background_image_key || null,
+              amazonAccessKey: u.amazon_access_key || null,
+              amazonSecretKey: u.amazon_secret_key || null,
+              amazonAssociateId: u.amazon_associate_id || null,
+              socialLinks: socialLinksParsed,
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // continue to site_settings upsert
+    }
+
+    // Upsert each remaining key into site_settings via Supabase REST upsert
     for (const [k, v] of Object.entries(payload || {})) {
       try {
+        // skip keys handled as user fields
+        if (['id', 'userId', 'displayName', 'display_name', 'bio', 'email', 'profileImageKey', 'profile_image_key', 'profileImage', 'profile_image', 'headerImageKeys', 'header_image_keys', 'backgroundImageKey', 'background_image_key', 'backgroundValue', 'background_value'].includes(k)) continue
         const upUrl = `${supabaseUrl}/rest/v1/site_settings?on_conflict=key`
         const res = await fetch(upUrl, {
           method: 'POST',
@@ -906,6 +1110,15 @@ app.put('/api/admin/settings', async (c) => {
         // continue
       }
     }
+
+    // If we updated a user row, include it in response data under top-level keys
+    if (out.user && typeof out.user === 'object') {
+      for (const kk of Object.keys(out.user)) {
+        try { out[kk] = out.user[kk] } catch {}
+      }
+      delete out.user
+    }
+
     return new Response(JSON.stringify({ data: out }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   } catch (e: any) {
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
