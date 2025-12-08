@@ -151,23 +151,39 @@ export default function LoginPage() {
 
     async function checkSignedInOnce() {
       try {
-        // Do NOT call supabaseClient.auth.getSession() on admin pages.
-        // Use local mirror + silent refresh attempt as a helper only.
-        const local = auth.getCurrentUser()
-        if (local && mounted) {
-          try {
-            const r = await fetch('/api/auth/refresh', { method: 'POST' })
-            if (r.ok) {
-              window.location.href = '/admin'
-              return
-            }
-          } catch (e) {
-            // ignore network errors — do not logout or redirect based on refresh
-            console.warn('[auth] silent refresh failed', e)
+        // Per design, login page is the only place that calls supabase.auth.getSession().
+        const s = await (supabaseClient as any).auth.getSession()
+        const session = s?.data?.session
+
+        if (!session) {
+          toast({ title: 'ログイン情報が見つかりません', description: 'サインイン情報が見つかりません。再度ログインしてください。', variant: 'destructive' })
+          return
+        }
+
+        // Try to sync session to server-side cookies. Only navigate to /admin
+        // if the sync succeeds.
+        try {
+          const res = await fetch('/api/auth/session', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
+          })
+
+          if (!res.ok) {
+            toast({ title: 'セッション同期に失敗しました', description: 'セッションをサーバーへ同期できませんでした。', variant: 'destructive' })
+            return
           }
+
+          // Successful sync — go to admin.
+          location.replace('/admin')
+          return
+        } catch (e) {
+          console.error('[auth] session sync error', e)
+          toast({ title: 'セッション同期に失敗しました', description: 'ネットワークエラーにより同期できませんでした。', variant: 'destructive' })
+          return
         }
       } catch (e) {
-        // ignore
         console.warn('[auth] checkSignedInOnce exception', e)
       }
     }

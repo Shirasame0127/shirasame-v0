@@ -57,9 +57,14 @@ export async function middleware(req: NextRequest) {
       // from preemptively redirecting the browser and ensures session
       // synchronization happens once on page load.
       const cookieHeader = req.headers.get('cookie') || ''
-      const acceptHeader = req.headers.get('accept') || ''
-      if (!cookieHeader && req.method === 'GET' && acceptHeader.includes('text/html')) {
-        return NextResponse.next()
+      // If there is no cookie, immediately redirect to the login page.
+      // The login page is responsible for obtaining a Supabase session and
+      // POSTing it to `/api/auth/session` to synchronize cookies. Middleware
+      // should not attempt to manage sessions or call Supabase directly.
+      if (!cookieHeader) {
+        const login = new URL('/admin/login', req.nextUrl.origin)
+        login.searchParams.set('r', pathname)
+        return NextResponse.redirect(login)
       }
 
       const origin = req.nextUrl.origin
