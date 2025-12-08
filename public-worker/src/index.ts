@@ -5,10 +5,10 @@ import { zValidator } from '@hono/zod-validator'
 import { makeWeakEtag } from './utils/etag'
 import { getSupabase } from './supabase'
 
-function getPublicImageUrl(raw?: string | null, opts: { width?: number } = {}): string | null {
+function getPublicImageUrl(raw?: string | null, opts: { width?: number } = {}, env?: any): string | null {
   if (!raw) return null
   if (typeof raw === 'string' && raw.startsWith('data:')) return raw
-  const domain = (process.env.IMAGES_DOMAIN || process.env.NEXT_PUBLIC_IMAGES_DOMAIN || '').replace(/\/$/, '')
+  const domain = ((env?.IMAGES_DOMAIN as string) || (env?.NEXT_PUBLIC_IMAGES_DOMAIN as string) || '').replace(/\/$/, '')
   if (!domain) return raw
   let key: any = raw
   try {
@@ -28,9 +28,29 @@ function getPublicImageUrl(raw?: string | null, opts: { width?: number } = {}): 
 }
 
 export type Env = {
-  PUBLIC_ALLOWED_ORIGINS: string
-  INTERNAL_API_BASE: string
+  PUBLIC_ALLOWED_ORIGINS?: string
+  // INTERNAL_API_BASE removed: public-worker is now the single API gateway
   INTERNAL_API_KEY?: string
+  // Supabase
+  SUPABASE_URL?: string
+  SUPABASE_ANON_KEY?: string
+  SUPABASE_SERVICE_ROLE_KEY?: string
+  // R2 / Images
+  R2_BUCKET?: string
+  R2_PUBLIC_URL?: string
+  IMAGES_DOMAIN?: string
+  // R2 binding
+  IMAGES?: any
+  // Cloudflare Images
+  CLOUDFLARE_ACCOUNT_ID?: string
+  CLOUDFLARE_IMAGES_API_TOKEN?: string
+  // Public profile / single-owner fallbacks
+  PUBLIC_OWNER_USER_ID?: string
+  PUBLIC_PROFILE_EMAIL?: string
+  // Worker host override
+  WORKER_PUBLIC_HOST?: string
+  // Debug
+  DEBUG_WORKER?: string
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -82,7 +102,7 @@ app.get('/_debug', async (c) => {
 
 // Cache/ETag ヘルパ（GET専用）
 async function cacheJson(c: any, key: string, getPayload: () => Promise<Response>) {
-  const cache = caches.default
+  const cache = (caches as any).default
   const req = new Request(new URL(key, 'http://dummy').toString())
   const ifNoneMatch = c.req.header('If-None-Match')
 
@@ -108,8 +128,7 @@ async function cacheJson(c: any, key: string, getPayload: () => Promise<Response
         'ETag': etag,
       }
     })
-    await cache.
-    put(req, withHeaders.clone())
+    await cache.put(req, withHeaders.clone())
     if (ifNoneMatch && etag === ifNoneMatch) {
       return new Response(null, { status: 304, headers: { 'ETag': etag } })
     }
@@ -134,6 +153,24 @@ const listQuery = z.object({
 // 以前は upstream() で内部 API を参照していましたが、現在は public-worker が
 // すべての API を直接実装するため、この関数は不要です。
 function upstream(_c: any, _path: string) { return null }
+
+// Minimal header forwarder used when fallback-to-upstream behavior is exercised.
+function makeUpstreamHeaders(c: any): Record<string, string> {
+  const out: Record<string, string> = {}
+  try {
+    const auth = c.req.header('authorization') || c.req.header('Authorization')
+    if (auth) out['authorization'] = auth
+  } catch {}
+  try {
+    const cookie = c.req.header('cookie')
+    if (cookie) out['cookie'] = cookie
+  } catch {}
+  try {
+    const ct = c.req.header('content-type')
+    if (ct) out['content-type'] = ct
+  } catch {}
+  return out
+}
 
 // ヘルパ: JWT のペイロードをデコードして返す（署名検証は行いません。存在確認と sub/user_id 抽出用）
 function parseJwtPayload(token: string | null | undefined): any | null {
@@ -284,19 +321,20 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
       const reqUserId = ctx.userId
       if (limit && limit > 0) {
         if (wantCount) {
-          let query = supabase.from('collections').select('*', { count: 'exact' }).order('created_at', { ascending: false })
+          let query: any = supabase.from('collections').order('created_at', { ascending: false })
           if (reqUserId) query = query.eq('user_id', reqUserId)
           else {
             const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
             if (ownerId) query = query.eq('user_id', ownerId)
             else query = query.eq('visibility', 'public')
           }
+          query = query.select('*', { count: 'exact' })
           const res = await query.range(offset, offset + Math.max(0, limit - 1))
           collections = res.data || []
           // @ts-ignore
           total = typeof res.count === 'number' ? res.count : null
         } else {
-          let query = supabase.from('collections').select('*').order('created_at', { ascending: false })
+          let query: any = supabase.from('collections').order('created_at', { ascending: false })
           if (reqUserId) query = query.eq('user_id', reqUserId)
           else {
             const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
@@ -307,7 +345,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
           collections = res.data || []
         }
       } else {
-        let query = supabase.from('collections').select('*').order('created_at', { ascending: false })
+        let query: any = supabase.from('collections').order('created_at', { ascending: false })
         if (reqUserId) query = query.eq('user_id', reqUserId)
         else {
           const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
@@ -341,7 +379,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
           if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
         }
         const { data: prods = [] } = await prodQuery
-        products = prods
+        products = prods || []
       }
 
       const productMap = new Map<string, any>()
@@ -373,7 +411,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
             showPrice: p.show_price,
             notes: p.notes,
             relatedLinks: p.related_links,
-            images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, url: getPublicImageUrl(img.key) || img.url || null, key: img.key ?? null, width: img.width, height: img.height, aspect: img.aspect, role: img.role })) : [],
+            images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, url: getPublicImageUrl(img.key, undefined, c.env) || img.url || null, key: img.key ?? null, width: img.width, height: img.height, aspect: img.aspect, role: img.role })) : [],
             affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : [],
           })),
         }
@@ -477,7 +515,7 @@ app.get('/recipes', zValidator('query', listQuery.partial()), async (c) => {
 
       const transformed = (recipes || []).map((r: any) => {
         const imgsRaw = Array.isArray(r.images) ? r.images : []
-        const mappedImages = imgsRaw.map((img: any) => ({ id: img.id, recipeId: r.id, key: img.key ?? null, url: (img.key ? getPublicImageUrl(img.key) : (img.url || null)), width: img.width, height: img.height }))
+        const mappedImages = imgsRaw.map((img: any) => ({ id: img.id, recipeId: r.id, key: img.key ?? null, url: (img.key ? getPublicImageUrl(img.key, undefined, c.env) : (img.url || null)), width: img.width, height: img.height }))
         if (r.base_image_id && mappedImages.length > 1) {
           const idx = mappedImages.findIndex((mi: any) => mi.id === r.base_image_id)
           if (idx > 0) {
@@ -834,7 +872,7 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
 
       if (limit && limit > 0) {
         if (wantCount) {
-          const res = await query.range(offset, offset + Math.max(0, limit - 1)).select(shallow ? shallowSelect : baseSelect, { count: 'exact' })
+          const res = await (query.range(offset, offset + Math.max(0, limit - 1)) as any).select(shallow ? shallowSelect : baseSelect, { count: 'exact' })
           data = res.data || null
           error = res.error || null
           // @ts-ignore
@@ -855,7 +893,7 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
       const transformed = (data || []).map((p: any) => {
         if (shallow) {
           const firstImg = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : null
-          const imgUrl = firstImg && (firstImg.key || firstImg.url) ? (getPublicImageUrl(firstImg.key) || firstImg.url) : null
+          const imgUrl = firstImg && (firstImg.key || firstImg.url) ? (getPublicImageUrl(firstImg.key, undefined, c.env) || firstImg.url) : null
           const basePath = deriveBasePath(c, firstImg?.key || firstImg?.url || null)
           return {
             id: p.id,
@@ -891,7 +929,7 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
                   id: img.id,
                   productId: img.product_id,
                   key: img.key ?? null,
-                  url: getPublicImageUrl(img.key) || img.url || null,
+                  url: getPublicImageUrl(img.key, undefined, c.env) || img.url || null,
                   width: img.width,
                   height: img.height,
                   aspect: img.aspect,
@@ -923,84 +961,10 @@ function deriveBasePath(c: any, url?: string | null) {
   return deriveBasePathFromUrl(url || null, c.env)
 }
 
-// Admin proxy: `/admin/*` を INTERNAL_API_BASE に転送する。内部キーでの簡易認可を行う。
-app.all('/admin/*', async (c) => {
-  try {
-    const internalBase = (c.env.INTERNAL_API_BASE || '').replace(/\/$/, '')
-    if (!internalBase) return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502 })
-    // シンプルなキー認証
-    const provided = c.req.header('x-internal-key') || c.req.header('X-Internal-Key') || ''
-    const expected = (c.env.INTERNAL_API_KEY || '').toString()
-    // Resolve request user context (centralized). This enforces a single source of truth
-    // for user identity: token -> internal-key -> none.
-    const ctx = await resolveRequestUserContext(c)
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
-
-    const rest = c.req.path.replace(/^\/admin/, '') || '/'
-    // クエリは upstream() で追加されるので path 部分のみを組み立て
-    const upstreamUrl = internalBase + rest + (Object.keys(c.req.query() || {}).length > 0 ? ('?' + new URLSearchParams(c.req.query() as any as Record<string,string>).toString()) : '')
-
-    const method = c.req.method
-    const headers: Record<string,string> = {}
-    const contentType = c.req.header('content-type')
-    if (contentType) headers['content-type'] = contentType
-    // Pass-through of internal key for upstream if desired
-    headers['x-internal-key'] = provided
-    // Forward authorization and cookie headers so upstream can perform user-scoped checks
-    const authHeader = c.req.header('authorization') || c.req.header('Authorization')
-    if (authHeader) headers['authorization'] = authHeader
-    const cookieHeader = c.req.header('cookie')
-    if (cookieHeader) headers['cookie'] = cookieHeader
-    // Forward resolved user id to upstream so internal API can apply owner filtering
-    if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
-
-    const body = (method === 'GET' || method === 'HEAD') ? undefined : await c.req.text()
-    const resp = await fetch(upstreamUrl, { method, headers, body })
-    const respBuf = await resp.arrayBuffer()
-    const out = new Response(respBuf, { status: resp.status, headers: { 'Content-Type': resp.headers.get('content-type') || 'application/octet-stream' } })
-    return out
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500 })
-  }
-})
-
-// Also proxy `/api/admin/*` for clients that call /api/admin/... (App routes)
-app.all('/api/admin/*', async (c) => {
-  try {
-    const internalBase = (c.env.INTERNAL_API_BASE || '').replace(/\/$/, '')
-    if (!internalBase) return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502 })
-    const provided = c.req.header('x-internal-key') || c.req.header('X-Internal-Key') || ''
-    const expected = (c.env.INTERNAL_API_KEY || '').toString()
-    const ctx = await resolveRequestUserContext(c)
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    // Require authentication (user token) or internal key for all admin proxying
-    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
-
-    const rest = c.req.path.replace(/^\/api\/admin/, '') || '/'
-    const upstreamUrl = internalBase + rest + (Object.keys(c.req.query() || {}).length > 0 ? ('?' + new URLSearchParams(c.req.query() as any as Record<string,string>).toString()) : '')
-
-    const method = c.req.method
-    const headers: Record<string,string> = {}
-    const contentType = c.req.header('content-type')
-    if (contentType) headers['content-type'] = contentType
-    headers['x-internal-key'] = provided
-    const authHeader = c.req.header('authorization') || c.req.header('Authorization')
-    if (authHeader) headers['authorization'] = authHeader
-    const cookieHeader = c.req.header('cookie')
-    if (cookieHeader) headers['cookie'] = cookieHeader
-    // Forward resolved user id to upstream so internal API can apply owner filtering
-    if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
-
-    const body = (method === 'GET' || method === 'HEAD') ? undefined : await c.req.text()
-    const resp = await fetch(upstreamUrl, { method, headers, body })
-    const respBuf = await resp.arrayBuffer()
-    const out = new Response(respBuf, { status: resp.status, headers: { 'Content-Type': resp.headers.get('content-type') || 'application/octet-stream' } })
-    return out
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500 })
-  }
-})
+// INTERNAL_API_BASE / proxy behavior removed: public-worker serves all admin
+// and internal API routes directly. The previous proxy handlers have been
+// eliminated to reduce operational complexity and to ensure owner checks are
+// always enforced within this Worker.
 
 // Fallback: update user profile via Supabase REST when INTERNAL_API_BASE not configured
 app.put('/api/admin/users/:id', async (c) => {
@@ -1049,6 +1013,12 @@ app.put('/api/admin/users/:id', async (c) => {
 // 返却: { ok: true, result: { key, publicUrl, size, contentType } }
 async function handleUploadImage(c: any) {
   try {
+    // Require authenticated/admin user or internal-key to upload images
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    if (!ctx.trusted && !hasValidInternalKey) {
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    }
     const ct = c.req.header('content-type') || ''
     if (!ct.includes('multipart/form-data')) {
       return new Response(JSON.stringify({ error: 'multipart/form-data required' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
@@ -1273,6 +1243,10 @@ app.post('/api/images/complete', async (c) => {
 // Cloudflare Images direct-upload presigner for admin UI
 app.post('/api/images/direct-upload', async (c) => {
   try {
+    // Require authenticated/admin user or internal-key to get direct-upload token
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     const account = (c.env.CLOUDFLARE_ACCOUNT_ID || '').toString()
     const token = (c.env.CLOUDFLARE_IMAGES_API_TOKEN || '').toString()
     if (!account || !token) {
@@ -1293,6 +1267,10 @@ app.post('/api/images/direct-upload', async (c) => {
 // Also accept `/images/direct-upload` (some proxies strip the `/api` prefix).
 app.post('/images/direct-upload', async (c) => {
   try {
+    // Require authenticated/admin user or internal-key to get direct-upload token
+    const ctx = await resolveRequestUserContext(c)
+    const hasValidInternalKey = ctx.authType === 'internal-key'
+    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     const account = (c.env.CLOUDFLARE_ACCOUNT_ID || '').toString()
     const token = (c.env.CLOUDFLARE_IMAGES_API_TOKEN || '').toString()
     if (!account || !token) {
