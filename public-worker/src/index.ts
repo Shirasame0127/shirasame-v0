@@ -636,11 +636,22 @@ app.get('/tag-groups', zValidator('query', listQuery.partial()), async (c) => {
         try { console.log('url:', c.req.url) } catch {}
         console.log('========================================')
       } catch(e) {}
-      // If request is authenticated, return that user's tag groups. Otherwise fall back to configured PUBLIC_OWNER_USER_ID or global list.
+        // If request is authenticated, return that user's tag groups.
+        // If unauthenticated, fall back to PUBLIC_OWNER_USER_ID when configured.
         const ctx = await resolveRequestUserContext(c)
-        // 管理用途のタグ群は認証必須
-        if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-        const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ctx.userId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
+        let queryUserId: string | null = null
+        if (ctx.trusted && ctx.userId) {
+          queryUserId = ctx.userId
+        } else {
+          const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+          if (ownerId) queryUserId = ownerId
+          else {
+            // No authenticated user and no public owner configured: return empty list
+            return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+          }
+        }
+
+        const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', queryUserId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
         if (res.error) return new Response(JSON.stringify({ data: [] }))
         return new Response(JSON.stringify({ data: res.data || [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     } catch (e: any) {
