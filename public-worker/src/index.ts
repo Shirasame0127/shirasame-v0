@@ -1362,7 +1362,9 @@ app.post('/api/auth/session', async (c) => {
     if (!access) return new Response(JSON.stringify({ ok: false, error: 'missing_access_token' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
     const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
-    const cookieOpts = 'Path=/; HttpOnly; Secure; SameSite=None'
+    // Ensure cookies are scoped to the admin domain so the browser will send
+    // them when calling admin-side APIs (whoami). Do NOT log token values.
+    const cookieOpts = 'Path=/; HttpOnly; Secure; SameSite=None; Domain=.shirasame.com'
     headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(access)}; ${cookieOpts}`)
     if (refresh) headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(refresh)}; ${cookieOpts}`)
 
@@ -1402,7 +1404,7 @@ app.post('/api/auth/refresh', async (c) => {
     const expiresIn = parseInt(String(tokenJson.expires_in || '0'), 10) || null
 
     const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
-    const cookieBase = 'Path=/; HttpOnly; Secure; SameSite=None'
+    const cookieBase = 'Path=/; HttpOnly; Secure; SameSite=None; Domain=.shirasame.com'
     if (accessToken) {
       const maxAge = expiresIn && expiresIn > 0 ? Math.min(expiresIn, 60 * 60 * 24 * 7) : 60 * 60 * 24 * 7
       headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(accessToken)}; ${cookieBase}; Max-Age=${maxAge}`)
@@ -1421,8 +1423,8 @@ app.post('/api/auth/refresh', async (c) => {
 app.post('/api/auth/logout', async (c) => {
   try {
     const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
-    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure`)
-    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure`)
+    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
