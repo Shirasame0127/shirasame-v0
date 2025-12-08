@@ -5,13 +5,19 @@
 ---
 
 ## 共通ルール
-- クライアントは `camelCase` の JSON を送信する。サーバー実装では `mapClientToRow()` を使って `snake_case` に変換して DB に渡すこと。
-- 管理 API (`/api/admin/*`) はオーナーチェックを行うこと（`getOwnerUserId()` の利用を推奨）。
+ ## 共通ルール
+ クライアントは `camelCase` の JSON を送信する。サーバー実装では `mapClientToRow()` を使って `snake_case` に変換して DB に渡すこと。
+ 管理 API (`/api/admin/*`) の新しい認証ポリシー:
+  - 管理ページ（admin-site）からの呼び出しでは `X-User-Id` ヘッダを唯一の認証情報として扱います。admin-site のプロキシがログイン中ユーザーの `user_id` を `X-User-Id` ヘッダに入れて送信することを前提とします。
+  - サーバ側は `X-User-Id` が存在する場合、それを `userId` として信頼し `trusted: true` と扱います（例外: 認証フローを担う `/api/auth/*` は既存のトークンベース実装を継続します）。
+  - したがって、管理 API 実装は `payload.userId` や `ctx.userId` を基準にオーナーチェックを行ってください。トークン検証を毎回行う必要はありません（運用上 admin-site のプロキシを信頼する設計）。
 - 画像は `/api/images/upload` を経由して永続化する。DB に直接 data URL を保存しないこと。
-- レスポンスは可能な限り後方互換を保つこと（旧フィールドはしばらく残す）。
+ - ## Admin: POST /api/admin/recipes
+ - 説明: レシピを作成する。要求：認証・owner 権限。
 
----
-
+ 実装注意:
+ - 管理 API の認証は `X-User-Id` ベースです。`ctx = await resolveRequestUserContext(c)` を呼び、`ctx.userId` をオーナーチェックに利用してください。
+ - `ctx.trusted` は `X-User-Id` が存在する場合に true になります。`/api/auth/*` のような認証エンドポイントは既存の処理のままです。
 ## POST /api/images/upload
 説明: 画像アップロード。multipart/form-data または body に data URL を受け取る。
 

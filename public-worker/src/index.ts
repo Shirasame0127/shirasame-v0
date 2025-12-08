@@ -333,6 +333,18 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
     try { console.log('resolveRequestUserContext: cookie=', c.req.header('cookie')) } catch (e) {}
     try { console.log('resolveRequestUserContext: x-internal-key=', !!(c.req.header('x-internal-key') || c.req.header('X-Internal-Key'))) } catch (e) {}
     try { console.log('resolveRequestUserContext: x-user-id=', c.req.header('x-user-id') || c.req.header('X-User-Id')) } catch (e) {}
+    // NEW BEHAVIOR: 管理ページから渡される `X-User-Id` ヘッダが存在する場合は
+    // その user_id を権威あるユーザー識別子として扱います（/api/auth/* エンドポイントは除く）。
+    // これは管理ページプロキシが信頼できる前提での運用向けの挙動です。
+    try {
+      const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
+      // Path を取り出す（c.req.path があれば利用、なければ URL を解析）
+      const reqPath = (typeof c.req.path === 'string' && c.req.path) ? c.req.path : (new URL(c.req.url || '', 'http://localhost')).pathname
+      if (headerUser && !reqPath.startsWith('/api/auth')) {
+        try { console.log('resolveRequestUserContext: trusting X-User-Id header as authoritative user=', headerUser) } catch {}
+        return { userId: headerUser, authType: 'user-token', trusted: true }
+      }
+    } catch (e) {}
     // 1) Check bearer token or sb-access-token cookie first
     const auth = c.req.header('authorization') || c.req.header('Authorization') || ''
     if (auth.toLowerCase().startsWith('bearer ')) {

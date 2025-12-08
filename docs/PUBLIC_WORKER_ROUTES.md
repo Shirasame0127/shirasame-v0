@@ -8,10 +8,11 @@
 ---
 
 共通ヘッダ／認証ルール（概略）
-- 認証情報ソース（優先順）: `Authorization: Bearer <token>` ヘッダ、次に `sb-access-token` Cookie
-- クライアントから送られた `X-User-Id` ヘッダは便宜的に付与されるが、サーバ側で必ずトークン検証（Supabase /auth/v1/user 等）と照合される。
+- 管理画面からの呼び出し（管理系 API）では、**`X-User-Id` ヘッダを唯一の認証情報として扱います**。
+  管理ページ側のプロキシが `X-User-Id` を付与して渡す想定で、ワーカーはこのヘッダをそのまま信頼して `userId` として扱います。
+  例外: 認証フローを担う `/api/auth/*` エンドポイント (`whoami`, `session`, `refresh`, `logout`) は既存のトークンベース処理のままとなります。
 - 内部系呼び出しは `X-Internal-Key`（`x-internal-key`）で信頼できる呼び出しとして扱える場合がある。
-- 管理系エンドポイントは `resolveRequestUserContext` を通して `trusted: true` を得る必要がある。
+- 管理系エンドポイントは `resolveRequestUserContext` を通して `trusted: true` を得る必要がある（`X-User-Id` が存在する場合に true になる）。
 
 ---
 
