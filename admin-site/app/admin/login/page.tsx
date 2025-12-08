@@ -115,6 +115,7 @@ export default function LoginPage() {
           // Send tokens to the proxy so it can set HttpOnly cookies for admin domain
           fetch('/api/auth/set_tokens', {
             method: 'POST',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ access_token, refresh_token, expires_in })
           }).then(async (r) => {
