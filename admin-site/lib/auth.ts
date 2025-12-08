@@ -75,17 +75,23 @@ export const auth = {
       }
 
       const authUser = { id: user.id, email: user.email || null }
-      // send tokens to server to set httpOnly cookies
+      // send tokens to server to set httpOnly cookies and require success
       const session = data?.session
       if (session?.access_token) {
         try {
-          await apiFetch('/api/auth/session', {
+          const res = await apiFetch('/api/auth/session', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
             })
+          if (!res.ok) {
+            const j = await res.json().catch(() => null)
+            const msg = j?.error || 'サーバーにセッションを保存できませんでした'
+            return { success: false, error: msg }
+          }
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
+          return { success: false, error: 'サーバーに接続できませんでした' }
         }
       }
       writeLocalUser(authUser) // keep minimal local mirror for compatibility (not used for security)
@@ -151,13 +157,19 @@ export const auth = {
       const session = data?.session
       if (session?.access_token) {
         try {
-          await apiFetch('/api/auth/session', {
+          const res = await apiFetch('/api/auth/session', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
             })
+          if (!res.ok) {
+            const j = await res.json().catch(() => null)
+            const msg = j?.error || 'サーバーにセッションを保存できませんでした'
+            return { success: false, error: msg }
+          }
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
+          return { success: false, error: 'サーバーに接続できませんでした' }
         }
       }
       writeLocalUser(authUser)
