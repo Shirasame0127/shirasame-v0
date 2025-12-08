@@ -15,18 +15,33 @@ export async function forwardToPublicWorker(req: Request) {
     // preserve the exact /api/... path and query
     const dest = apiBase.replace(/\/$/, '') + url.pathname + url.search
 
-    const headers = await cloneHeaders(req.headers)
-    // Ensure Cookie is forwarded exactly as received from the browser.
-    // Some runtimes may omit or normalize cookie header; set it explicitly
-    // from the incoming request to guarantee worker->worker forwarding.
+    // Build proxy headers from scratch to avoid Cloudflare Workers
+    // dropping the Cookie when reusing a frozen/filtered headers object.
+    const proxyHeaders = new Headers()
+    // Copy all incoming headers except host/cookie (we'll set them explicitly)
+    try {
+      for (const [k, v] of req.headers.entries()) {
+        const lk = k.toLowerCase()
+        if (lk === 'host' || lk === 'cookie') continue
+        proxyHeaders.set(k, v)
+      }
+    } catch {}
+
+    // Explicitly forward cookie exactly as received from the browser
     try {
       const cookie = req.headers.get('cookie') || req.headers.get('Cookie') || ''
-      if (cookie) headers.set('cookie', cookie)
+      proxyHeaders.set('Cookie', cookie)
+    } catch {}
+
+    // Ensure Host matches the public-worker origin when necessary
+    try {
+      const originHost = (new URL(apiBase)).host
+      proxyHeaders.set('Host', originHost)
     } catch {}
 
     const init: RequestInit = {
       method: req.method,
-      headers,
+      headers: proxyHeaders,
       // body can be forwarded directly; for GET/HEAD there is no body
       body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body,
       // keep credentials via cookie header if present

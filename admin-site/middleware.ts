@@ -20,14 +20,22 @@ export async function middleware(req: NextRequest) {
 
     const destUrl = destOrigin.replace(/\/$/, '') + req.nextUrl.pathname + req.nextUrl.search
 
-    const headers = new Headers(req.headers as any)
-    headers.delete('host')
-    // Ensure cookie is forwarded to public-worker. Some hosting environments
-    // may normalize or drop cookie when creating a fresh Headers object,
-    // so set it explicitly from the incoming request headers.
+    // Build proxy headers from scratch to avoid Next/Cloudflare dropping Cookie
+    const proxyHeaders = new Headers()
+    try {
+      for (const [k, v] of req.headers.entries()) {
+        const lk = k.toLowerCase()
+        if (lk === 'host' || lk === 'cookie') continue
+        proxyHeaders.set(k, v)
+      }
+    } catch {}
     try {
       const cookie = req.headers.get('cookie') || req.headers.get('Cookie') || ''
-      if (cookie) headers.set('cookie', cookie)
+      proxyHeaders.set('Cookie', cookie)
+    } catch {}
+    try {
+      const originHost = (new URL(destOrigin)).host
+      proxyHeaders.set('Host', originHost)
     } catch {}
 
     // Preserve the raw body for non-GET/HEAD requests to avoid corrupting
@@ -42,7 +50,7 @@ export async function middleware(req: NextRequest) {
       }
     }
 
-    const res = await fetch(destUrl, { method: req.method, headers, body, redirect: 'manual' })
+    const res = await fetch(destUrl, { method: req.method, headers: proxyHeaders, body, redirect: 'manual' })
     const responseHeaders = new Headers(res.headers)
     responseHeaders.delete('transfer-encoding')
     const buf = await res.arrayBuffer()
