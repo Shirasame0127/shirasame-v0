@@ -107,19 +107,26 @@ export default function LoginPage() {
         const refresh_token = params.get('refresh_token')
         const expires_in = params.get('expires_in')
         if (access_token) {
+          try { console.log('[login] フラグメントでトークンを検出しました（トークンの値は出しません）', 'hasAccess=true', 'hasRefresh=' + (!!refresh_token), 'expires_in=' + (expires_in || '')) } catch (e) {}
           // Send tokens to the proxy so it can set HttpOnly cookies for admin domain
           fetch('/api/auth/set_tokens', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ access_token, refresh_token, expires_in })
-          }).then(r => r.json()).then(j => {
+          }).then(async (r) => {
+            try { console.log('[login] /api/auth/set_tokens response', 'status=' + r.status, 'ok=' + r.ok) } catch (e) {}
+            const keys = []
+            try { for (const h of r.headers.keys()) keys.push(h) } catch (e) {}
+            try { console.log('[login] /api/auth/set_tokens response headers keys', keys) } catch (e) {}
+            const j = await r.json().catch(() => null)
             if (j && j.ok) {
               window.history.replaceState({}, document.title, window.location.pathname + window.location.search)
               window.location.href = '/admin'
             } else {
               toast({ title: 'ログイン失敗', description: 'トークンを保存できませんでした。', variant: 'destructive' })
             }
-          }).catch(() => {
+          }).catch((err) => {
+            try { console.error('[login] /api/auth/set_tokens ネットワークエラー', err) } catch (e) {}
             toast({ title: 'ログイン失敗', description: 'ネットワークエラーが発生しました。', variant: 'destructive' })
           })
           return
@@ -154,6 +161,7 @@ export default function LoginPage() {
         // Per design, login page is the only place that calls supabase.auth.getSession().
         const s = await (supabaseClient as any).auth.getSession()
         const session = s?.data?.session
+        try { console.log('[login] supabase.getSession result: hasSession=' + (!!session), 'userId=' + (session?.user?.id || 'null')) } catch (e) {}
 
         if (!session) {
           toast({ title: 'ログイン情報が見つかりません', description: 'サインイン情報が見つかりません。再度ログインしてください。', variant: 'destructive' })
@@ -169,6 +177,10 @@ export default function LoginPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
           })
+          try { console.log('[login] POST /api/auth/session response status=' + res.status + ' ok=' + res.ok) } catch (e) {}
+          const hdrs = []
+          try { for (const h of res.headers.keys()) hdrs.push(h) } catch (e) {}
+          try { console.log('[login] POST /api/auth/session response headers keys', hdrs) } catch (e) {}
 
           if (!res.ok) {
             toast({ title: 'セッション同期に失敗しました', description: 'セッションをサーバーへ同期できませんでした。', variant: 'destructive' })
@@ -179,7 +191,7 @@ export default function LoginPage() {
           location.replace('/admin')
           return
         } catch (e) {
-          console.error('[auth] session sync error', e)
+          try { console.error('[auth] session sync error', e) } catch (e) {}
           toast({ title: 'セッション同期に失敗しました', description: 'ネットワークエラーにより同期できませんでした。', variant: 'destructive' })
           return
         }
