@@ -22,6 +22,13 @@ export async function middleware(req: NextRequest) {
 
     const headers = new Headers(req.headers as any)
     headers.delete('host')
+    // Ensure cookie is forwarded to public-worker. Some hosting environments
+    // may normalize or drop cookie when creating a fresh Headers object,
+    // so set it explicitly from the incoming request headers.
+    try {
+      const cookie = req.headers.get('cookie') || req.headers.get('Cookie') || ''
+      if (cookie) headers.set('cookie', cookie)
+    } catch {}
 
     // Preserve the raw body for non-GET/HEAD requests to avoid corrupting
     // multipart/form-data (do not convert to text). NextRequest exposes the

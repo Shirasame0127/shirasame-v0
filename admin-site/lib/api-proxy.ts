@@ -16,6 +16,13 @@ export async function forwardToPublicWorker(req: Request) {
     const dest = apiBase.replace(/\/$/, '') + url.pathname + url.search
 
     const headers = await cloneHeaders(req.headers)
+    // Ensure Cookie is forwarded exactly as received from the browser.
+    // Some runtimes may omit or normalize cookie header; set it explicitly
+    // from the incoming request to guarantee worker->worker forwarding.
+    try {
+      const cookie = req.headers.get('cookie') || req.headers.get('Cookie') || ''
+      if (cookie) headers.set('cookie', cookie)
+    } catch {}
 
     const init: RequestInit = {
       method: req.method,
