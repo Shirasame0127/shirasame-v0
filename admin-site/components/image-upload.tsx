@@ -93,10 +93,14 @@ export function ImageUpload({
               const maxAttempts = 3
               let attempt = 0
               let lastErr: any = null
+              // Cloudflare in this account requires multipart/form-data uploads.
+              // Use FormData POST to the provided uploadURL.
               while (attempt < maxAttempts) {
                 try {
-                  const putRes = await fetch(uploadURL, { method: 'PUT', body: fileToUpload })
-                  if (!putRes.ok) throw new Error(`PUT failed: ${putRes.status}`)
+                  const fd = new FormData()
+                  fd.append('file', fileToUpload)
+                  const postRes = await fetch(uploadURL, { method: 'POST', body: fd })
+                  if (!postRes.ok) throw new Error(`POST form upload failed: ${postRes.status}`)
                   const account = (window as any).__env__?.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.CLOUDFLARE_ACCOUNT_ID || ''
                   const publicUrl = account ? `https://imagedelivery.net/${account}/${cfId}/public` : undefined
                   return { id: cfId, url: publicUrl }
@@ -167,7 +171,32 @@ export function ImageUpload({
             const uploadedUrl = result?.url
             const uploadedKey = (result as any)?.key || (result as any)?.id || undefined
             try { console.log('[ImageUpload] gif upload result', { uploadedUrl, uploadedKey, hasId: !!(result as any)?.id }) } catch (e) {}
-            if ((result as any)?.id) {
+            // Prefer canonical `key` payload from upload endpoints. If a key exists,
+            // call images/complete with only the key to enforce the key-only policy.
+            if (uploadedKey) {
+              try {
+                const completeTarget = aspectRatioType === 'profile'
+                  ? 'profile'
+                  : aspectRatioType === 'header'
+                  ? 'header'
+                  : aspectRatioType === 'background'
+                  ? 'background'
+                  : aspectRatioType === 'recipe'
+                  ? 'recipe'
+                  : aspectRatioType === 'product'
+                  ? 'product'
+                  : 'other'
+                await apiFetch('/api/images/complete', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ key: uploadedKey, filename: file.name, target: completeTarget, aspect: '1:1' }),
+                })
+              } catch (err) {
+                console.warn('images/complete failed', err)
+              }
+            } else if ((result as any)?.id) {
+              // Backward compatibility: if the upload flow returned only a Cloudflare Images id
+              // (no R2 key), fall back to the previous behaviour to avoid breaking uploads.
               try {
                 const completeTarget = aspectRatioType === 'profile'
                   ? 'profile'
@@ -188,10 +217,9 @@ export function ImageUpload({
               } catch (err) {
                 console.warn('images/complete failed', err)
               }
+            }
 
-              }
-
-              if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
+            if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
           } catch (e) {
             console.error('upload failed', e)
           }
@@ -228,11 +256,13 @@ export function ImageUpload({
           const maxAttempts = 3
           let attempt = 0
           let lastErr: any = null
+          // Use multipart/form-data POST to upload to Cloudflare Images uploadURL.
           while (attempt < maxAttempts) {
               try {
-                const putRes = await fetch(uploadURL, { method: 'PUT', body: file })
-                if (!putRes.ok) throw new Error(`PUT failed: ${putRes.status}`)
-                // Construct public URL (Cloudflare Image Delivery)
+                const fd = new FormData()
+                fd.append('file', file)
+                const postRes = await fetch(uploadURL, { method: 'POST', body: fd })
+                if (!postRes.ok) throw new Error(`POST form upload failed: ${postRes.status}`)
                 const account = (window as any).__env__?.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.NEXT_PUBLIC_CLOUDFLARE_ACCOUNT || process.env.CLOUDFLARE_ACCOUNT_ID || ''
                 const publicUrl = account ? `https://imagedelivery.net/${account}/${cfId}/public` : undefined
                 return { id: cfId, url: publicUrl }
@@ -330,9 +360,12 @@ export function ImageUpload({
 
           try { console.log('[ImageUpload] upload result', { result }) } catch (e) {}
           const uploadedUrl = result?.url
-          const uploadedKey = (result as any)?.key || (result as any)?.id || undefined
-          if ((result as any)?.id) {
-            // Notify server to persist metadata to Supabase
+          const uploadedKey = (result as any)?.key || undefined
+          const cfId = (result as any)?.id || undefined
+
+          // Prefer canonical `key` payload from upload endpoints. If a key exists,
+          // call images/complete with only the key to enforce the key-only policy.
+          if (uploadedKey) {
             try {
               const completeTarget = aspectRatioType === 'profile'
                 ? 'profile'
@@ -348,20 +381,37 @@ export function ImageUpload({
               await apiFetch('/api/images/complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  cf_id: (result as any).id,
-                  url: uploadedUrl,
-                  filename: croppedFile.name,
-                  target: completeTarget,
-                  aspect: aspectString || selectedAspect,
-                }),
+                body: JSON.stringify({ key: uploadedKey, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
+              })
+            } catch (err) {
+              console.warn('images/complete failed', err)
+            }
+          } else if (cfId) {
+            // Backward compatibility: if the upload flow returned only a Cloudflare Images id
+            // (no R2 key), fall back to the previous behaviour to avoid breaking uploads.
+            try {
+              const completeTarget = aspectRatioType === 'profile'
+                ? 'profile'
+                : aspectRatioType === 'header'
+                ? 'header'
+                : aspectRatioType === 'background'
+                ? 'background'
+                : aspectRatioType === 'recipe'
+                ? 'recipe'
+                : aspectRatioType === 'product'
+                ? 'product'
+                : 'other'
+              await apiFetch('/api/images/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cf_id: cfId, url: uploadedUrl, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
               })
             } catch (err) {
               console.warn('images/complete failed', err)
             }
           }
 
-          if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
+          if (onUploadComplete) onUploadComplete(uploadedKey || cfId || uploadedUrl)
         } catch (e) {
           console.error('upload failed', e)
           // Keep local preview visible as a fallback so the editor doesn't go blank
