@@ -289,7 +289,7 @@ export const db = {
       } else {
         caches.recipeImages = [...(caches.recipeImages || []), image]
       }
-      apiFetch("POST", "/api/admin/recipe-images/upsert", { ...(image || {}), userId: resolveUserId((image||{}).userId) })
+      apiFetch("POST", "/api/admin/recipe-images/upsert", { ...(image || {}), userId: resolveUserId((image as any)?.userId) })
     },
   },
 
@@ -298,7 +298,7 @@ export const db = {
     getByRecipeId: (recipeId: string) => (caches.recipeItems || []).filter((it: any) => it.recipeId === recipeId),
     create: (item: any) => {
       caches.recipeItems = [...(caches.recipeItems || []), item]
-      apiFetch("POST", "/api/admin/recipe-items", { ...(item || {}), userId: resolveUserId((item||{}).userId) })
+      apiFetch("POST", "/api/admin/recipe-items", { ...(item || {}), userId: resolveUserId((item as any)?.userId) })
       return item
     },
     update: (id: string, updates: any) => {
@@ -311,7 +311,7 @@ export const db = {
     },
     bulkUpdate: (items: any[]) => {
       caches.recipeItems = items
-      apiFetch("POST", "/api/admin/recipe-items/bulk", { items: items.map((it: any) => ({ ...(it||{}), userId: resolveUserId((it||{}).userId) })) })
+      apiFetch("POST", "/api/admin/recipe-items/bulk", { items: items.map((it: any) => ({ ...(it||{}), userId: resolveUserId((it as any)?.userId) })) })
     },
   },
 
@@ -342,7 +342,7 @@ export const db = {
     create: (collection: any) => {
       const full = { id: collection.id || `col-${Date.now()}`, createdAt: nowISO(), updatedAt: nowISO(), ...collection }
       caches.collections = [...(caches.collections || []), full]
-      apiFetch("POST", "/api/admin/collections", { ...full, userId: resolveUserId((full||{}).userId) })
+      apiFetch("POST", "/api/admin/collections", { ...full, userId: resolveUserId((full as any)?.userId) })
       return full
     },
     update: (id: string, updates: any) => {
@@ -363,7 +363,7 @@ export const db = {
       const maxOrder = Math.max(0, ...items.filter((i: any) => i.collectionId === collectionId).map((i: any) => i.order || 0))
       const newItem = { id: `col-item-${Date.now()}`, collectionId, productId, order: maxOrder + 1, addedAt: nowISO() }
       caches.collectionItems = [...items, newItem]
-      apiFetch("POST", "/api/admin/collection-items", { ...newItem, userId: resolveUserId((newItem||{}).userId) })
+      apiFetch("POST", "/api/admin/collection-items", { ...newItem, userId: resolveUserId((newItem as any)?.userId) })
     },
     removeProduct: (collectionId: string, productId: string) => {
       caches.collectionItems = (caches.collectionItems || []).filter((it: any) => !(it.collectionId === collectionId && it.productId === productId))
@@ -380,7 +380,7 @@ export const db = {
     },
     create: (user: User) => {
       caches.users = [...(caches.users || []), user]
-      apiFetch("POST", "/api/admin/users", { ...user, userId: resolveUserId((user||{}).id) })
+      apiFetch("POST", "/api/admin/users", { ...user, userId: resolveUserId((user as any)?.id) })
     },
     update: (userId: string, updates: Partial<User>) => {
       caches.users = (caches.users || []).map((u: any) => (u.id === userId ? { ...u, ...updates } : u))
@@ -508,14 +508,14 @@ export const db = {
     },
     create: (pin: any) => {
       caches.recipePins = [...(caches.recipePins || []), pin]
-      apiFetch("POST", "/api/admin/recipe-pins", { ...(pin||{}), userId: resolveUserId((pin||{}).userId) })
+      apiFetch("POST", "/api/admin/recipe-pins", { ...(pin||{}), userId: resolveUserId((pin as any)?.userId) })
       return pin
     },
     updateAll: (recipeId: string, pins: any[]) => {
       caches.recipePins = [...(caches.recipePins || []).filter((p: any) => p.recipeId !== recipeId), ...pins]
       // Persist and then refresh cache for that recipe to pick up any DB-side transforms/ids
       // Return the promise so callers can await persistence if needed (e.g. on save flow)
-      return apiFetch("POST", "/api/admin/recipe-pins/bulk", { recipeId, pins: (pins || []).map((p: any) => ({ ...(p||{}), userId: resolveUserId((p||{}).userId) })) })
+      return apiFetch("POST", "/api/admin/recipe-pins/bulk", { recipeId, pins: (pins || []).map((p: any) => ({ ...(p||{}), userId: resolveUserId((p as any)?.userId) })) })
         .then(() => {
           return db.recipePins.refresh(recipeId).catch(() => null)
         })
@@ -558,7 +558,7 @@ export const db = {
     create: (schedule: any) => {
       const newSchedule = { id: `sale-${Date.now()}`, ...schedule, createdAt: nowISO(), updatedAt: nowISO() }
       caches.amazonSaleSchedules = [...(caches.amazonSaleSchedules || []), newSchedule]
-      apiFetch("POST", "/api/admin/amazon-sale-schedules", { ...(newSchedule||{}), userId: resolveUserId((newSchedule||{}).userId) })
+      apiFetch("POST", "/api/admin/amazon-sale-schedules", { ...(newSchedule||{}), userId: resolveUserId((newSchedule as any)?.userId) })
       return newSchedule
     },
     update: (id: string, updates: any) => {
@@ -602,7 +602,7 @@ export const db = {
     create: (font: any) => {
       const newFont = { id: `custom-font-${Date.now()}`, ...font, createdAt: nowISO() }
       caches.customFonts = [...(caches.customFonts || []), newFont]
-      apiFetch("POST", "/api/admin/custom-fonts", { ...(newFont||{}), userId: resolveUserId((newFont||{}).userId) })
+      apiFetch("POST", "/api/admin/custom-fonts", { ...(newFont||{}), userId: resolveUserId((newFont as any)?.userId) })
       return newFont
     },
     delete: (id: string) => {
