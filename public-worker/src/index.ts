@@ -566,6 +566,74 @@ app.get('/site-settings', async (c) => {
   })
 })
 
+// Admin settings endpoint (fallback when INTERNAL_API_BASE is not configured)
+app.get('/api/admin/settings', async (c) => {
+  try {
+    const internal = upstream(c, '/api/admin/settings')
+    if (internal) {
+      const res = await fetch(internal, { method: 'GET' })
+      const json = await res.json().catch(() => ({ data: {} }))
+      return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
+
+    // Fallback: read from Supabase site_settings table and return as key/value map
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    if (!supabaseUrl || !serviceKey) {
+      return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
+
+    const url = `${supabaseUrl}/rest/v1/site_settings?select=key,value`
+    const resp = await fetch(url, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+    if (!resp.ok) return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const rows = await resp.json().catch(() => [])
+    const out: Record<string, any> = {}
+    for (const r of Array.isArray(rows) ? rows : []) {
+      try { out[r.key] = r.value } catch {}
+    }
+    return new Response(JSON.stringify({ data: out }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+
+app.put('/api/admin/settings', async (c) => {
+  try {
+    const internal = upstream(c, '/api/admin/settings')
+    const bodyText = await c.req.text()
+    if (internal) {
+      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers: { 'Content-Type': c.req.header('content-type') || 'application/json' } })
+      const buf = await res.arrayBuffer()
+      return new Response(buf, { status: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' } })
+    }
+
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const payload = JSON.parse(bodyText || '{}')
+    // Upsert each key into site_settings via Supabase REST upsert
+    const out: Record<string, any> = {}
+    for (const [k, v] of Object.entries(payload || {})) {
+      try {
+        const upUrl = `${supabaseUrl}/rest/v1/site_settings?on_conflict=key`
+        const res = await fetch(upUrl, {
+          method: 'POST',
+          headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+          body: JSON.stringify({ key: k, value: typeof v === 'string' ? v : JSON.stringify(v) })
+        })
+        const j = await res.json().catch(() => null)
+        if (j && Array.isArray(j) && j.length > 0) out[k] = j[0].value || null
+      } catch (e) {
+        // continue
+      }
+    }
+    return new Response(JSON.stringify({ data: out }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+
 // basePath導出（R2前提のURLやキーからディレクトリ部分を抽出）
 function deriveBasePathFromUrl(urlOrKey?: string | null, env?: Env): string | null {
   if (!urlOrKey) return null
@@ -731,17 +799,12 @@ app.all('/admin/*', async (c) => {
     // シンプルなキー認証
     const provided = c.req.header('x-internal-key') || c.req.header('X-Internal-Key') || ''
     const expected = (c.env.INTERNAL_API_KEY || '').toString()
-    // JWT (Authorization) を受け取り、簡易に admin ロールをチェックする（本番は JWK/JWT 検証を実装）
-    const auth = c.req.header('authorization') || c.req.header('Authorization') || ''
-    const hasJwt = auth.toLowerCase().startsWith('bearer ')
-    let jwtOk = false
-    let roleOk = false
-    if (hasJwt) {
-      // NOTE: ここではダミー検証（ヘッダ存在のみ）。実運用では JWK を使った署名検証と claim の role=admin を確認する。
-      jwtOk = true
-      roleOk = true
-    }
-    if (!jwtOk && (!expected || provided !== expected)) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+    // Validate user identity: prefer JWT/session verification, fallback to internal key.
+    // Use getRequestUserId to verify token via Supabase auth endpoint or cookie. This ensures
+    // a real authenticated user is present rather than only checking header existence.
+    const reqUserId = await getRequestUserId(c)
+    const hasValidInternalKey = !!(expected && provided && provided === expected)
+    if (!reqUserId && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
 
     const rest = c.req.path.replace(/^\/admin/, '') || '/'
     // クエリは upstream() で追加されるので path 部分のみを組み立て
@@ -766,6 +829,71 @@ app.all('/admin/*', async (c) => {
     return out
   } catch (e: any) {
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500 })
+  }
+})
+
+// Also proxy `/api/admin/*` for clients that call /api/admin/... (App routes)
+app.all('/api/admin/*', async (c) => {
+  try {
+    const internalBase = (c.env.INTERNAL_API_BASE || '').replace(/\/$/, '')
+    if (!internalBase) return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502 })
+    const provided = c.req.header('x-internal-key') || c.req.header('X-Internal-Key') || ''
+    const expected = (c.env.INTERNAL_API_KEY || '').toString()
+    const reqUserId = await getRequestUserId(c)
+    const hasValidInternalKey = !!(expected && provided && provided === expected)
+    if (!reqUserId && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+
+    const rest = c.req.path.replace(/^\/api\/admin/, '') || '/'
+    const upstreamUrl = internalBase + rest + (Object.keys(c.req.query() || {}).length > 0 ? ('?' + new URLSearchParams(c.req.query() as any as Record<string,string>).toString()) : '')
+
+    const method = c.req.method
+    const headers: Record<string,string> = {}
+    const contentType = c.req.header('content-type')
+    if (contentType) headers['content-type'] = contentType
+    headers['x-internal-key'] = provided
+    const authHeader = c.req.header('authorization') || c.req.header('Authorization')
+    if (authHeader) headers['authorization'] = authHeader
+    const cookieHeader = c.req.header('cookie')
+    if (cookieHeader) headers['cookie'] = cookieHeader
+
+    const body = (method === 'GET' || method === 'HEAD') ? undefined : await c.req.text()
+    const resp = await fetch(upstreamUrl, { method, headers, body })
+    const respBuf = await resp.arrayBuffer()
+    const out = new Response(respBuf, { status: resp.status, headers: { 'Content-Type': resp.headers.get('content-type') || 'application/octet-stream' } })
+    return out
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500 })
+  }
+})
+
+// Fallback: update user profile via Supabase REST when INTERNAL_API_BASE not configured
+app.put('/api/admin/users/:id', async (c) => {
+  try {
+    const internal = upstream(c, `/api/admin/users/${c.req.param('id')}`)
+    const bodyText = await c.req.text()
+    if (internal) {
+      const res = await fetch(internal, { method: 'PUT', body: bodyText, headers: { 'Content-Type': c.req.header('content-type') || 'application/json' } })
+      const buf = await res.arrayBuffer()
+      return new Response(buf, { status: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' } })
+    }
+
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const id = c.req.param('id')
+    const payload = JSON.parse(bodyText || '{}')
+    // Update profiles table by id (assuming profiles table exists with id column)
+    const url = `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(id)}`
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify(payload)
+    })
+    const j = await res.json().catch(() => null)
+    return new Response(JSON.stringify({ data: j }), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   }
 })
 
@@ -838,6 +966,27 @@ async function handleUploadImage(c: any) {
 app.post('/upload-image', handleUploadImage)
 app.post('/images/upload', handleUploadImage)
 app.post('/api/images/upload', handleUploadImage)
+
+// Cloudflare Images direct-upload presigner for admin UI
+app.post('/api/images/direct-upload', async (c) => {
+  try {
+    const account = (c.env.CLOUDFLARE_ACCOUNT_ID || '').toString()
+    const token = (c.env.CLOUDFLARE_IMAGES_API_TOKEN || '').toString()
+    if (!account || !token) {
+      return new Response(JSON.stringify({ ok: false, error: 'Cloudflare Images credentials not configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
+
+    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/images/v2/direct_upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    })
+    const json = await res.json().catch(() => ({ ok: false }))
+    return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
     
     // Serve images directly from R2 through this Worker as a fallback
     // This avoids depending on a custom proxied domain being configured for R2.
