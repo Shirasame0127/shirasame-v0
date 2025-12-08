@@ -1352,6 +1352,82 @@ app.get('/api/auth/whoami', async (c) => {
     return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
   }
 })
+
+// Set server-side session cookies (called by admin-site after sign-in)
+app.post('/api/auth/session', async (c) => {
+  try {
+    const payload = await c.req.json().catch(() => ({}))
+    const access = payload?.access_token || ''
+    const refresh = payload?.refresh_token || ''
+    if (!access) return new Response(JSON.stringify({ ok: false, error: 'missing_access_token' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
+    const cookieOpts = 'Path=/; HttpOnly; Secure; SameSite=None'
+    headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(access)}; ${cookieOpts}`)
+    if (refresh) headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(refresh)}; ${cookieOpts}`)
+
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+
+// Refresh access token using sb-refresh-token cookie
+app.post('/api/auth/refresh', async (c) => {
+  try {
+    const cookieHeader = c.req.header('cookie') || ''
+    const match = cookieHeader.split(';').map((s: string) => s.trim()).find((s: string) => s.startsWith('sb-refresh-token='))
+    const refreshToken = match ? decodeURIComponent(match.split('=')[1]) : null
+    if (!refreshToken) return new Response(JSON.stringify({ ok: false, error: 'no_refresh_token' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const supabaseBase = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    const anonKey = (c.env.SUPABASE_ANON_KEY || '')
+    const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '') || null
+    if (!supabaseBase) return new Response(JSON.stringify({ ok: false, error: 'SUPABASE_URL not configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const tokenUrl = `${supabaseBase}/auth/v1/token`
+    const body = `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`
+    const reqHeaders: Record<string, string> = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'apikey': anonKey as string,
+    }
+    if (serviceKey) reqHeaders['Authorization'] = 'Bearer ' + serviceKey
+
+    const tokenRes = await fetch(tokenUrl, { method: 'POST', headers: reqHeaders, body })
+    const tokenJson = await tokenRes.json().catch(() => null)
+    if (!tokenRes.ok || !tokenJson) return new Response(JSON.stringify({ ok: false, error: tokenJson || 'token_refresh_failed' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const accessToken = tokenJson.access_token || null
+    const newRefreshToken = tokenJson.refresh_token || null
+    const expiresIn = parseInt(String(tokenJson.expires_in || '0'), 10) || null
+
+    const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
+    const cookieBase = 'Path=/; HttpOnly; Secure; SameSite=None'
+    if (accessToken) {
+      const maxAge = expiresIn && expiresIn > 0 ? Math.min(expiresIn, 60 * 60 * 24 * 7) : 60 * 60 * 24 * 7
+      headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(accessToken)}; ${cookieBase}; Max-Age=${maxAge}`)
+    }
+    if (newRefreshToken) {
+      headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(newRefreshToken)}; ${cookieBase}; Max-Age=${60 * 60 * 24 * 30}`)
+    }
+
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+
+// Logout: clear session cookies
+app.post('/api/auth/logout', async (c) => {
+  try {
+    const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
+    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure`)
+    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure`)
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
     
     // Serve images directly from R2 through this Worker as a fallback
     // This avoids depending on a custom proxied domain being configured for R2.

@@ -28,9 +28,13 @@ export async function forwardToPublicWorker(req: Request) {
 
     const resp = await fetch(dest, init)
 
-    // Copy response headers
+    // Copy response headers. Append multiple Set-Cookie values instead of
+    // overwriting so we don't lose sb-access-token or sb-refresh-token.
     const respHeaders = new Headers()
-    resp.headers.forEach((v, k) => respHeaders.set(k, v))
+    resp.headers.forEach((v, k) => {
+      if (k.toLowerCase() === 'set-cookie') respHeaders.append(k, v)
+      else respHeaders.set(k, v)
+    })
 
     const body = await resp.arrayBuffer()
     return new Response(body, { status: resp.status, headers: respHeaders })
