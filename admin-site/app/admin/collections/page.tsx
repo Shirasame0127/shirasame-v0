@@ -12,6 +12,7 @@ import { DndContext, PointerSensor, TouchSensor, MouseSensor, useSensor, useSens
 import { arrayMove, SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { db } from "@/lib/db/storage"
+import { getCurrentUser } from "@/lib/auth"
 import { ProductCard } from "@/components/product-card"
 import { Plus, Edit, Trash2, Save, X, GripVertical } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -90,7 +91,9 @@ export default function AdminCollectionsPage() {
       } catch (e) {
         console.warn('failed to load collections', e)
         // fallback to in-memory cache if available
-        setCollections(db.collections.getAll())
+        const currentUser = getCurrentUser && getCurrentUser()
+        const uid = currentUser?.id || undefined
+        setCollections(db.collections.getAll(uid))
       }
     })()
   }, [])
@@ -131,10 +134,12 @@ export default function AdminCollectionsPage() {
 
         setProductsList(prods)
         setManagingCollectionProductIds(items.map((it: any) => it.productId))
-      } catch (e) {
+        } catch (e) {
         console.error('failed to load products or collection items', e)
-        // fallback to in-memory
-        setProductsList(db.products.getAll())
+        // fallback to in-memory (scoped to current user)
+        const currentUser = getCurrentUser && getCurrentUser()
+        const uid = currentUser?.id || undefined
+        setProductsList(db.products.getAll(uid))
         setManagingCollectionProductIds(db.collectionItems.getByCollectionId(collectionId).map((i: any) => i.productId))
       }
     })()
@@ -312,9 +317,11 @@ export default function AdminCollectionsPage() {
     if (managingCollectionId === collectionId && productsList.length > 0) {
       return productsList.filter((p) => managingCollectionProductIds.includes(p.id))
     }
-    // fallback to in-memory
+    // fallback to in-memory (scoped to current user)
     const items = db.collectionItems.getByCollectionId(collectionId) as any[]
-    const products = db.products.getAll() as any[]
+    const currentUser = getCurrentUser && getCurrentUser()
+    const uid = currentUser?.id || undefined
+    const products = db.products.getAll(uid) as any[]
     return items
       .map((item: any) => products.find((p: any) => p.id === item.productId))
       .filter(Boolean)
@@ -326,7 +333,9 @@ export default function AdminCollectionsPage() {
     }
     const collectionProductIds = (db.collectionItems.getByCollectionId(collectionId) as any[])
       .map((item: any) => item.productId)
-    return db.products.getAll().filter((p) => !collectionProductIds.includes(p.id))
+    const currentUser = getCurrentUser && getCurrentUser()
+    const uid = currentUser?.id || undefined
+    return db.products.getAll(uid).filter((p) => !collectionProductIds.includes(p.id))
   }
 
   const handleToggleVisibility = async (collectionId: string, toVisibility: "public" | "draft") => {

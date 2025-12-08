@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { WEB_FONTS, getFontsByCategory } from "@/lib/fonts/web-fonts"
 import { db } from "@/lib/db/storage"
+import { getCurrentUser } from '@/lib/auth'
 import { CustomFontUploader } from "./custom-font-uploader"
 
 type FontValue = { family: string; weight?: string }
@@ -26,7 +27,9 @@ export function FontManager({
 
   async function loadCustom() {
     try {
-      const cf = await db.customFonts.getAll()
+      const me = getCurrentUser && getCurrentUser()
+      const uid = me?.id || undefined
+      const cf = await db.customFonts.getAll(uid)
       setCustomFonts(cf || [])
     } catch (e) {
       console.warn(e)

@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { AdminNav } from "@/components/admin-nav"
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Toaster } from "@/components/ui/toaster"
 import { useEffect, useState } from 'react'
 import { auth } from '@/lib/auth'
@@ -15,6 +15,7 @@ export default function AdminLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
+  const router = useRouter()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const isRecipeEditPage = pathname?.includes('/admin/recipes/') && pathname?.includes('/edit')
@@ -57,7 +58,7 @@ export default function AdminLayout({
               try {
                 if (typeof window !== 'undefined') localStorage.removeItem('auth_user')
               } catch (e) {}
-              setIsAuthenticated(false)
+                setIsAuthenticated(false)
             }
           } catch (e) {
             // On network error or unauthenticated, fall back to local check to avoid blocking UI.
@@ -71,6 +72,17 @@ export default function AdminLayout({
     }
     setIsLoading(false)
   }, [pathname, isLoginPage])
+
+  // Redirect to login when unauthenticated to prevent viewing admin UI
+  useEffect(() => {
+    try {
+      if (!isLoading && !isAuthenticated && !isLoginPage) {
+        router.replace('/admin/login')
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [isLoading, isAuthenticated, isLoginPage, router])
 
   if (isLoading) {
     // 管理画面読み込み中は固定で現在のローディングアニメーションを表示する

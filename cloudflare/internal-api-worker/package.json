@@ -1,0 +1,9 @@
+{
+  "name": "internal-api-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "jose": "^4.19.1"
+  }
+}

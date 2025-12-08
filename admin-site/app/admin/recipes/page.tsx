@@ -49,11 +49,11 @@ export default function RecipesManagementPage() {
     setLoading(true)
     const me = getCurrentUser()
     const userId = me?.id
-    const data = db.recipes.getAll()
+    const data = db.recipes.getAll(userId)
     if (!data || data.length === 0) {
       // If cache is empty, attempt a refresh from server
-      db.recipes
-        .refresh()
+          db.recipes
+        .refresh(userId)
         .then((fresh: any) => {
           console.log("[v0] Refreshed recipes from server:", (fresh || []).length)
           const payloadBase = { event: 'recipes.refresh', userId: userId || null, total: (fresh || []).length }
@@ -61,11 +61,10 @@ export default function RecipesManagementPage() {
             apiFetch('/api/debug/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payloadBase, sample: (fresh || []).slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }) }).catch(() => {})
           } catch (e) {}
           if (userId) {
-            // Filter to current user's recipes only
+            // When refresh provided userId, server filtering should already apply.
             const visible = (fresh || []).filter((r: any) => r?.userId === userId)
             setRecipes(visible)
           } else {
-            // No signed-in user info available — show whatever server returned
             setRecipes(fresh || [])
           }
         })

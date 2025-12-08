@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths, subMonths, isSameMonth, isSameDay, parseISO } from 'date-fns'
 import { db } from '@/lib/db/storage'
+import { getCurrentUser } from '@/lib/auth'
 
 export default function AdminSaleCalendar() {
   const [currentMonth, setCurrentMonth] = useState(new Date())
@@ -12,15 +13,21 @@ export default function AdminSaleCalendar() {
     // load schedules from cache (refresh best-effort)
     (async () => {
       try {
-        await db.amazonSaleSchedules.refresh()
+        const me = getCurrentUser && getCurrentUser()
+        const uid = me?.id || undefined
+        await db.amazonSaleSchedules.refresh(uid)
       } catch {}
-      setSchedules(db.amazonSaleSchedules.getAll())
+      const me2 = getCurrentUser && getCurrentUser()
+      const uid2 = me2?.id || undefined
+      setSchedules(db.amazonSaleSchedules.getAll(uid2))
     })()
   }, [])
 
   useEffect(() => {
     // update when underlying cache changes periodically — simple interval
-    const id = setInterval(() => setSchedules(db.amazonSaleSchedules.getAll()), 2000)
+    const me = getCurrentUser && getCurrentUser()
+    const uid = me?.id || undefined
+    const id = setInterval(() => setSchedules(db.amazonSaleSchedules.getAll(uid)), 2000)
     return () => clearInterval(id)
   }, [])
 
@@ -67,8 +74,10 @@ export default function AdminSaleCalendar() {
     if (!endStr) return
     try {
       const schedule = { id: `sale-${Date.now()}`, title, startDate: startStr, endDate: endStr }
-      const created = db.amazonSaleSchedules.create(schedule)
-      setSchedules(db.amazonSaleSchedules.getAll())
+      const me3 = getCurrentUser && getCurrentUser()
+      const uid3 = me3?.id || undefined
+      const created = db.amazonSaleSchedules.create({ ...schedule, userId: uid3 })
+      setSchedules(db.amazonSaleSchedules.getAll(uid3))
       console.log('[v0] Created sale schedule', created)
     } catch (e) {
       console.error('[v0] Failed to create schedule', e)

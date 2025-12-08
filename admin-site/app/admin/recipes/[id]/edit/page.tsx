@@ -385,14 +385,16 @@ export default function RecipeEditPage() {
       }
     }
 
-    // すべての商品を取得
-    const productsData = db.products.getAll()
+    // すべての商品を取得（現在のユーザーにスコープ）
+    const currentUser = getCurrentUser && getCurrentUser()
+    const uid = currentUser?.id || currentUserId || undefined
+    const productsData = db.products.getAll(uid)
     setProducts(productsData)
     // If cached products are empty (warmCache may still be in-flight), try a direct refresh
     if (!productsData || productsData.length === 0) {
       ;(async () => {
         try {
-          const fresh = await db.products.refresh()
+          const fresh = await db.products.refresh(uid)
           if (fresh && fresh.length > 0) setProducts(fresh)
         } catch (e) {
           console.warn("[v0] products refresh failed in loadData", e)

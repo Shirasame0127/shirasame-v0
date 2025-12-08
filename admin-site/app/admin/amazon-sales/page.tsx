@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { db } from "@/lib/db/storage"
+import { getCurrentUser } from "@/lib/auth"
 import { Plus, Trash2, Calendar } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
 import type { AmazonSaleSchedule } from "@/lib/db/schema"
@@ -45,7 +46,9 @@ export default function AdminAmazonSalesPage() {
         setSchedules(list)
       } catch (e) {
         // fallback to local cache if API fails
-        const allSchedules = db.amazonSaleSchedules?.getAll() || []
+        const currentUser = getCurrentUser && getCurrentUser()
+        const uid = currentUser?.id || undefined
+        const allSchedules = db.amazonSaleSchedules?.getAll(uid) || []
         setSchedules(allSchedules)
       }
     })()
@@ -123,7 +126,9 @@ export default function AdminAmazonSalesPage() {
 
     // if (!isActiveSale) { ... } のチェックを削除または緩和
 
-    const allProducts = db.products.getAll()
+    const currentUser = getCurrentUser && getCurrentUser()
+    const uid = currentUser?.id || undefined
+    const allProducts = db.products.getAll(uid)
     const collection = db.collections.getById(collectionId)
 
     if (!collection) return

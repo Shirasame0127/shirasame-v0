@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import apiFetch from '@/lib/api-client'
+import { getCurrentUser } from "@/lib/auth"
 
 export default function AdminTagsPage() {
   const SPECIAL_LINK_GROUP_NAME = "リンク先"
@@ -97,9 +98,11 @@ export default function AdminTagsPage() {
 
   const usedTags = useMemo(() => {
     const tagCounts = new Map<string, number>()
-    const products = db.products.getAll()
+    const currentUser = getCurrentUser && getCurrentUser()
+    const uid = currentUser?.id || undefined
+    const products = db.products.getAll(uid)
     products.forEach((product) => {
-      product.tags.forEach((tag) => {
+      (product.tags || []).forEach((tag) => {
         tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)
       })
     })

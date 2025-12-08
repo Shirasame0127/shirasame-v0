@@ -137,6 +137,88 @@ function upstream(c: any, path: string) {
   return url.toString()
 }
 
+// ヘルパ: JWT のペイロードをデコードして返す（署名検証は行いません。存在確認と sub/user_id 抽出用）
+function parseJwtPayload(token: string | null | undefined): any | null {
+  if (!token) return null
+  try {
+    const parts = token.split('.')
+    if (parts.length < 2) return null
+    // base64url -> base64
+    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    // pad
+    const pad = payload.length % 4
+    const padded = payload + (pad === 2 ? '==' : pad === 3 ? '=' : pad === 0 ? '' : '')
+    const decoded = atob(padded)
+    return JSON.parse(decoded)
+  } catch (e) {
+    return null
+  }
+}
+
+// トークン検証キャッシュ
+const tokenUserCache = new Map<string, { id: string | null, ts: number }>()
+
+// Supabase の auth エンドポイントを使ってトークンを検証しユーザーIDを取得する（キャッシュ付き）
+async function verifyTokenWithSupabase(token: string, c: any): Promise<string | null> {
+  try {
+    if (!token) return null
+    const now = Date.now()
+    const cached = tokenUserCache.get(token)
+    if (cached && (now - cached.ts) < 60_000) return cached.id
+
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    if (!supabaseUrl) {
+      tokenUserCache.set(token, { id: null, ts: now })
+      return null
+    }
+
+    const url = `${supabaseUrl}/auth/v1/user`
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } })
+    if (!res.ok) {
+      tokenUserCache.set(token, { id: null, ts: now })
+      return null
+    }
+    const json = await res.json()
+    // レスポンスは { id, email, ... } 形式のはず
+    const id = json?.id || json?.user?.id || json?.sub || json?.user_id || null
+    tokenUserCache.set(token, { id: id || null, ts: now })
+    return id || null
+  } catch (e) {
+    return null
+  }
+}
+
+// リクエストから userId を推定する（署名検証を優先）。非同期化したため呼び出し側で await が必要。
+async function getRequestUserId(c: any): Promise<string | null> {
+  try {
+    const auth = c.req.header('authorization') || c.req.header('Authorization') || ''
+    if (auth && auth.toLowerCase().startsWith('bearer ')) {
+      const token = auth.slice(7).trim()
+      // まず Supabase のユーザー情報エンドポイントを使って検証を試みる
+      const viaSupabase = await verifyTokenWithSupabase(token, c)
+      if (viaSupabase) return viaSupabase
+      // 検証できない場合はペイロードをデコードしてフォールバック
+      const payload = parseJwtPayload(token)
+      if (payload) return payload.sub || payload.user_id || payload.userId || null
+    }
+
+    // Supabase の cookie 名である sb-access-token をチェック
+    const cookieHeader = c.req.header('cookie') || ''
+    const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
+    if (m && m[1]) {
+      const token = decodeURIComponent(m[1])
+      const viaSupabase = await verifyTokenWithSupabase(token, c)
+      if (viaSupabase) return viaSupabase
+      const payload = parseJwtPayload(token)
+      if (payload) return payload.sub || payload.user_id || payload.userId || null
+    }
+
+    return null
+  } catch (e) {
+    return null
+  }
+}
+
 // Direct implementations for collections/profile/recipes/tag-groups/tags
 // All of these use Supabase anon client (RLS assumed) and share cache/ETag behavior.
 
@@ -151,20 +233,45 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
   return cacheJson(c, key, async () => {
     try {
       // 1) collections
+      // If authenticated, return that user's collections (all visibility). Otherwise fall back to PUBLIC_OWNER_USER_ID or only public collections.
       let collections: any[] = []
       let total: number | null = null
+      const reqUserId = await getRequestUserId(c)
+      // 管理ページ用途: 認証がない場合はアクセス拒否
+      if (!reqUserId) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
       if (limit && limit > 0) {
         if (wantCount) {
-          const res = await supabase.from('collections').select('*', { count: 'exact' }).eq('visibility', 'public').order('created_at', { ascending: false }).range(offset, offset + Math.max(0, limit - 1))
+          let query = supabase.from('collections').select('*', { count: 'exact' }).order('created_at', { ascending: false })
+          if (reqUserId) query = query.eq('user_id', reqUserId)
+          else {
+            const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+            if (ownerId) query = query.eq('user_id', ownerId)
+            else query = query.eq('visibility', 'public')
+          }
+          const res = await query.range(offset, offset + Math.max(0, limit - 1))
           collections = res.data || []
           // @ts-ignore
           total = typeof res.count === 'number' ? res.count : null
         } else {
-          const res = await supabase.from('collections').select('*').eq('visibility', 'public').order('created_at', { ascending: false }).range(offset, offset + Math.max(0, limit - 1))
+          let query = supabase.from('collections').select('*').order('created_at', { ascending: false })
+          if (reqUserId) query = query.eq('user_id', reqUserId)
+          else {
+            const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+            if (ownerId) query = query.eq('user_id', ownerId)
+            else query = query.eq('visibility', 'public')
+          }
+          const res = await query.range(offset, offset + Math.max(0, limit - 1))
           collections = res.data || []
         }
       } else {
-        const res = await supabase.from('collections').select('*').eq('visibility', 'public').order('created_at', { ascending: false })
+        let query = supabase.from('collections').select('*').order('created_at', { ascending: false })
+        if (reqUserId) query = query.eq('user_id', reqUserId)
+        else {
+          const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+          if (ownerId) query = query.eq('user_id', ownerId)
+          else query = query.eq('visibility', 'public')
+        }
+        const res = await query
         collections = res.data || []
       }
 
@@ -179,11 +286,17 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
       // 3) products
       let products: any[] = []
       if (productIds.length > 0) {
-        const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
         const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
         const baseSelect = '*, images:product_images(*), affiliateLinks:affiliate_links(*)'
+        // 認証情報から userId を取得して優先的に絞り込む
+        const reqUserId = await getRequestUserId(c)
         let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('published', true)
-        if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
+        if (reqUserId) {
+          prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('user_id', reqUserId)
+        } else {
+          const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+          if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
+        }
         const { data: prods = [] } = await prodQuery
         products = prods
       }
@@ -271,10 +384,10 @@ app.get('/recipes', zValidator('query', listQuery.partial()), async (c) => {
   const key = `recipes${c.req.url.includes('?') ? c.req.url.substring(c.req.url.indexOf('?')) : ''}`
   return cacheJson(c, key, async () => {
     try {
-      const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
-      let recipesQuery = supabase.from('recipes').select('*').order('created_at', { ascending: false })
-      if (ownerId) recipesQuery = recipesQuery.eq('user_id', ownerId)
-      else recipesQuery = recipesQuery.eq('published', true)
+      // 管理用途: 認証必須（ログイン画面からの呼び出しを除く）
+      const reqUserId = await getRequestUserId(c)
+      if (!reqUserId) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      let recipesQuery = supabase.from('recipes').select('*').order('created_at', { ascending: false }).eq('user_id', reqUserId)
       const { data: recipes = [], error: recipesErr } = await recipesQuery
       if (recipesErr) return new Response(JSON.stringify({ error: recipesErr.message }), { status: 500 })
       const recipeIds = recipes.map((r: any) => r.id)
@@ -356,20 +469,13 @@ app.get('/tag-groups', zValidator('query', listQuery.partial()), async (c) => {
   const key = `tag-groups`
   return cacheJson(c, key, async () => {
     try {
-      const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
-      if (ownerId) {
-        const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ownerId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
-        if (res.error) {
-          // fallback to global
-          const fallback = await supabase.from('tag_groups').select('name, label, sort_order, created_at').order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
-          if (fallback.error) return new Response(JSON.stringify({ data: [] }))
-          return new Response(JSON.stringify({ data: fallback.data || [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-        }
+      // If request is authenticated, return that user's tag groups. Otherwise fall back to configured PUBLIC_OWNER_USER_ID or global list.
+        const reqUserId = await getRequestUserId(c)
+        // 管理用途のタグ群は認証必須
+        if (!reqUserId) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+        const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', reqUserId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
+        if (res.error) return new Response(JSON.stringify({ data: [] }))
         return new Response(JSON.stringify({ data: res.data || [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      }
-      const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
-      if (res.error) return new Response(JSON.stringify({ data: [] }))
-      return new Response(JSON.stringify({ data: res.data || [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     } catch (e: any) {
       return new Response(JSON.stringify({ data: [] }))
     }
@@ -382,7 +488,13 @@ app.get('/tags', zValidator('query', listQuery.partial()), async (c) => {
   const key = `tags`
   return cacheJson(c, key, async () => {
     try {
-      const res = await supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
+      // If authenticated, return only that user's tags. Otherwise return global tags or PUBLIC_OWNER_USER_ID-scoped tags.
+      const reqUserId = await getRequestUserId(c)
+      // 管理用途のタグは認証必須
+      if (!reqUserId) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      let query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
+      query = query.eq('user_id', reqUserId)
+      const res = await query
       if (res.error) return new Response(JSON.stringify({ data: [] }))
       const mapped = (res.data || []).map((row: any) => ({ id: row.id, name: row.name, group: row.group ?? undefined, linkUrl: row.link_url ?? undefined, linkLabel: row.link_label ?? undefined, userId: row.user_id ?? undefined, sortOrder: row.sort_order ?? 0, createdAt: row.created_at }))
       return new Response(JSON.stringify({ data: mapped }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
@@ -398,9 +510,11 @@ app.get('/amazon-sale-schedules', async (c) => {
   const key = `amazon-sale-schedules`
   return cacheJson(c, key, async () => {
     try {
-      const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
-      let query = supabase.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true })
-      if (ownerId) query = query.eq('user_id', ownerId)
+      // Scope schedules to authenticated user if present, otherwise PUBLIC_OWNER_USER_ID if configured
+      const reqUserId = await getRequestUserId(c)
+      // 管理用途のスケジュールは認証必須
+      if (!reqUserId) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      let query = supabase.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true }).eq('user_id', reqUserId)
       const { data = [], error } = await query
       if (error) return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
       const mapped = (data || []).map((row: any) => ({
@@ -500,9 +614,15 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
       else if (published) query = supabase.from('products').select(shallow ? shallowSelect : baseSelect).eq('published', true)
 
       // 単一オーナーの公開サイト前提の場合の追加絞り込み
-      const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
-      if (!id && !slug && ownerId) {
-        query = query.eq('user_id', ownerId)
+      // Prefer authenticated user scope when available; otherwise fall back to PUBLIC_OWNER_USER_ID for single-owner sites
+      const reqUserId = await getRequestUserId(c)
+      if (!id && !slug) {
+        if (reqUserId) {
+          query = query.eq('user_id', reqUserId)
+        } else {
+          const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+          if (ownerId) query = query.eq('user_id', ownerId)
+        }
       }
 
       let data: any = null
@@ -633,6 +753,11 @@ app.all('/admin/*', async (c) => {
     if (contentType) headers['content-type'] = contentType
     // Pass-through of internal key for upstream if desired
     headers['x-internal-key'] = provided
+    // Forward authorization and cookie headers so upstream can perform user-scoped checks
+    const authHeader = c.req.header('authorization') || c.req.header('Authorization')
+    if (authHeader) headers['authorization'] = authHeader
+    const cookieHeader = c.req.header('cookie')
+    if (cookieHeader) headers['cookie'] = cookieHeader
 
     const body = (method === 'GET' || method === 'HEAD') ? undefined : await c.req.text()
     const resp = await fetch(upstreamUrl, { method, headers, body })

@@ -98,6 +98,14 @@ export function AdminNav() {
         if (active) {
           setProfileData(data)
           setProfileImageUrl(image || null)
+          try {
+            if (typeof window !== 'undefined' && data) {
+              const mirror = { id: data.id, email: data.email || null, username: data.username || data.displayName || null }
+              window.localStorage.setItem('auth_user', JSON.stringify(mirror))
+            }
+          } catch (e) {
+            // ignore localStorage errors
+          }
         }
       } catch (error) {
         console.warn("[admin-nav] failed to load profile image", error)
@@ -216,7 +224,7 @@ export function AdminNav() {
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-4">{renderNavItems(isExpanded)}</div>
       <div className={cn("border-t px-3 py-4", !isExpanded && "px-2")}>
-        {currentUser ? (
+        {(profileData || currentUser) ? (
           <div
             className={cn("flex items-center gap-3", !isExpanded && "justify-center")}
           >
@@ -236,7 +244,9 @@ export function AdminNav() {
             {isExpanded && (
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{userLabel}</p>
-                {currentUser.email && <p className="truncate text-xs text-muted-foreground">{currentUser.email}</p>}
+                {(profileData?.email || currentUser.email) && (
+                  <p className="truncate text-xs text-muted-foreground">{profileData?.email || currentUser.email}</p>
+                )}
               </div>
             )}
           </div>
