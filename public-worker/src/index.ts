@@ -325,6 +325,14 @@ async function getRequestUserId(c: any): Promise<string | null> {
 //  - 'none'         : no trusted identity
 async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userId: string | null; authType: 'user-token' | 'internal-key' | 'none'; trusted: boolean }> {
   try {
+    // TEMP LOG: inspect incoming headers to debug why some requests are unauthenticated
+    try {
+      const a = c.req.header('authorization') || c.req.header('Authorization') || ''
+      console.log('resolveRequestUserContext: authorization present=', !!a)
+    } catch (e) {}
+    try { console.log('resolveRequestUserContext: cookie=', c.req.header('cookie')) } catch (e) {}
+    try { console.log('resolveRequestUserContext: x-internal-key=', !!(c.req.header('x-internal-key') || c.req.header('X-Internal-Key'))) } catch (e) {}
+    try { console.log('resolveRequestUserContext: x-user-id=', c.req.header('x-user-id') || c.req.header('X-User-Id')) } catch (e) {}
     // 1) Check bearer token or sb-access-token cookie first
     const auth = c.req.header('authorization') || c.req.header('Authorization') || ''
     if (auth.toLowerCase().startsWith('bearer ')) {
