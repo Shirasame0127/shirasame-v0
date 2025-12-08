@@ -55,6 +55,14 @@ export const auth = {
       const user = data?.user
       if (!user) return { success: false, error: '認証に失敗しました' }
 
+      try {
+        const sessDbg = data?.session
+        // Debug: log session object to verify server-side session sync
+        console.log('[auth] login: session value', sessDbg)
+      } catch (e) {
+        console.warn('[auth] login: session debug failed', e)
+      }
+
       // Ensure there is a users row linked to this auth user
       try {
         await apiFetch('/api/auth/link', {
@@ -119,6 +127,14 @@ export const auth = {
       }
       const user = data?.user
       if (!user) return { success: false, error: 'サインアップに失敗しました' }
+
+      try {
+        const sessDbg = data?.session
+        // Debug: log session object after signup
+        console.log('[auth] signup: session value', sessDbg)
+      } catch (e) {
+        console.warn('[auth] signup: session debug failed', e)
+      }
 
       // Create or link a users row on the server side
       try {
@@ -297,6 +313,12 @@ if (typeof window !== 'undefined' && supabaseClient?.auth && (supabaseClient as 
     try {
       // When signed in, write minimal user info to localStorage for sync with existing code
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        try {
+          // Debug: log auth state change event and session payload
+          console.log('[auth] onAuthStateChange', event, session)
+        } catch (e) {
+          console.warn('[auth] onAuthStateChange debug failed', e)
+        }
         const user = session?.user || session?.access_token ? session?.user : null
         if (user) {
           const authUser: AuthUser = { id: user.id, email: user.email || null }
