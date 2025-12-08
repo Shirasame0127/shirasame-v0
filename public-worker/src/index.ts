@@ -878,13 +878,39 @@ app.get('/api/admin/settings', async (c) => {
     if (!resp.ok) return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     const rows = await resp.json().catch(() => [])
     const out: Record<string, any> = {}
+    // Keys that belong to user profile should not be populated from site_settings
+    // to avoid site-level keys (e.g. 'email') overwriting per-user values.
+    const reservedUserKeys = new Set([
+      'id', 'user_id',
+      'displayName', 'display_name', 'name', 'email',
+      'profileImage', 'profile_image', 'profile_image_key', 'profileImageKey',
+      'headerImage', 'header_image', 'header_image_key', 'headerImageKey', 'header_image_keys', 'headerImageKeys',
+      'bio', 'socialLinks', 'social_links',
+      'backgroundType', 'background_type', 'backgroundValue', 'background_value', 'backgroundImageKey', 'background_image_key',
+    ])
     for (const r of Array.isArray(rows) ? rows : []) {
-      try { out[r.key] = r.value } catch {}
+      try {
+        if (!r || typeof r.key !== 'string') continue
+        if (reservedUserKeys.has(r.key)) continue
+        out[r.key] = r.value
+      } catch {}
     }
 
     // If we have an authenticated user id, also fetch that user's row from `users` table
     try {
-      const ctxUser = ctx.userId
+      let ctxUser = ctx.userId
+      // Fallback: if resolveRequestUserContext did not resolve a userId but
+      // a cookie-based token exists, try to verify it explicitly and use that id.
+      if (!ctxUser) {
+        try {
+          const maybeToken = await getTokenFromRequest(c)
+          if (maybeToken) {
+            const via = await verifyTokenWithSupabase(maybeToken, c)
+            if (via) ctxUser = via
+          }
+        } catch (e) {}
+      }
+
       if (ctxUser) {
         const userUrl = `${supabaseUrl}/rest/v1/users?id=eq.${encodeURIComponent(ctxUser)}&select=*`
         const ures = await fetch(userUrl, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
