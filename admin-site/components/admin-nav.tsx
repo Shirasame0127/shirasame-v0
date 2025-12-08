@@ -90,7 +90,7 @@ export function AdminNav() {
     let active = true
     const loadProfileImage = async () => {
       try {
-        const res = await fetch("/api/profile", { cache: "no-store" })
+        const res = await fetch("/api/profile", { cache: "no-store", credentials: 'include' })
         if (!res.ok) return
         const json = await res.json().catch(() => null)
         const data = json?.data || null
