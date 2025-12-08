@@ -338,7 +338,17 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
     if (auth.toLowerCase().startsWith('bearer ')) {
       const token = auth.slice(7).trim()
       const viaSupabase = await verifyTokenWithSupabase(token, c)
-      if (viaSupabase) return { userId: viaSupabase, authType: 'user-token', trusted: true }
+      if (viaSupabase) {
+        // If client provided X-User-Id header, ensure it matches the token's user id
+        try {
+          const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
+          if (headerUser && headerUser !== viaSupabase) {
+            try { console.log('resolveRequestUserContext: token user mismatch header=', headerUser, 'tokenUser=', viaSupabase) } catch {}
+            return { userId: null, authType: 'none', trusted: false }
+          }
+        } catch (e) {}
+        return { userId: viaSupabase, authType: 'user-token', trusted: true }
+      }
     }
 
     const cookieHeader = c.req.header('cookie') || ''
@@ -346,7 +356,16 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
     if (m?.[1]) {
       const token = decodeURIComponent(m[1])
       const viaSupabase = await verifyTokenWithSupabase(token, c)
-      if (viaSupabase) return { userId: viaSupabase, authType: 'user-token', trusted: true }
+      if (viaSupabase) {
+        try {
+          const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
+          if (headerUser && headerUser !== viaSupabase) {
+            try { console.log('resolveRequestUserContext: cookie token user mismatch header=', headerUser, 'tokenUser=', viaSupabase) } catch {}
+            return { userId: null, authType: 'none', trusted: false }
+          }
+        } catch (e) {}
+        return { userId: viaSupabase, authType: 'user-token', trusted: true }
+      }
     }
 
     // 2) If internal key present, trust payload.userId or x-user-id header

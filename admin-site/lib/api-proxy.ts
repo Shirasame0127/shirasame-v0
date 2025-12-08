@@ -35,6 +35,16 @@ export async function forwardToPublicWorker(req: Request) {
       proxyHeaders.set('Cookie', cookie)
     } catch {}
 
+    // Always forward explicit identity headers if present (or empty string)
+    try {
+      const xuid = req.headers.get('x-user-id') || req.headers.get('X-User-Id') || ''
+      proxyHeaders.set('X-User-Id', xuid)
+    } catch {}
+    try {
+      const auth = req.headers.get('authorization') || req.headers.get('Authorization') || ''
+      if (auth) proxyHeaders.set('Authorization', auth)
+    } catch {}
+
     // Ensure Host matches the public-worker origin when necessary
     try {
       const originHost = (new URL(apiBase)).host
