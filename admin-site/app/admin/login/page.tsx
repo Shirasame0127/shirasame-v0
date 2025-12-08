@@ -168,8 +168,30 @@ export default function LoginPage() {
         try { console.log('[login] supabase.getSession result: hasSession=' + (!!session), 'userId=' + (session?.user?.id || 'null')) } catch (e) {}
 
         if (!session) {
-          toast({ title: 'ログイン情報が見つかりません', description: 'サインイン情報が見つかりません。再度ログインしてください。', variant: 'destructive' })
-          return
+          try { console.log('[login] supabase.getSession returned no session — trying server whoami') } catch (e) {}
+          // If Supabase client has no in-memory session (common after
+          // server-side code flow where the Worker set HttpOnly cookies),
+          // check the authoritative server whoami endpoint which reads
+          // HttpOnly cookies. If whoami reports a user, proceed.
+          try {
+            const who = await fetch('/api/auth/whoami', { method: 'GET', credentials: 'include', cache: 'no-store' })
+            try { console.log('[login] GET /api/auth/whoami status=' + who.status) } catch (e) {}
+            if (who.ok) {
+              const j = await who.json().catch(() => null)
+              try { console.log('[login] whoami response ok=', !!j, 'user=', j?.user?.id || null) } catch (e) {}
+              // Navigate to admin — server cookies are present so subsequent
+              // admin requests will be authenticated.
+              location.replace('/admin')
+              return
+            } else {
+              toast({ title: 'ログイン情報が見つかりません', description: 'サインイン情報が見つかりません。再度ログインしてください。', variant: 'destructive' })
+              return
+            }
+          } catch (e) {
+            try { console.error('[login] whoami check failed', e) } catch (e) {}
+            toast({ title: 'ログイン情報が見つかりません', description: 'サインイン情報が見つかりません。再度ログインしてください。', variant: 'destructive' })
+            return
+          }
         }
 
         // Try to sync session to server-side cookies. Only navigate to /admin
