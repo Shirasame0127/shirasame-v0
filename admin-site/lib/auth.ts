@@ -226,35 +226,16 @@ export const auth = {
     try {
       const res = await apiFetch('/api/auth/refresh', { method: 'POST' })
       if (!res.ok) {
+        // Treat refresh as an internal helper only. Do not perform logout
+        // or redirect here — UI login state must be determined via
+        // GET /api/auth/whoami only.
         const j = await res.json().catch(() => null)
-        // On refresh failure: clear local mirror. Only redirect/logout when
-        // the user is on the admin UI to avoid navigating away from public pages.
-        try {
-          writeLocalUser(null)
-        } catch {}
-        try {
-          if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
-            await auth.logout()
-            // auth.logout will perform redirect to /admin/login
-          }
-        } catch (e) {
-          console.warn('[auth] logout after refresh failure failed', e)
-        }
-        // Do not redirect when on public pages
         return { success: false, error: j?.error || 'refresh failed' }
       }
       return { success: true }
     } catch (e: any) {
       console.warn('[auth] refresh exception', e)
-      try {
-        writeLocalUser(null)
-      } catch {}
-      try {
-        if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
-          await auth.logout()
-        }
-      } catch {}
-      // Avoid redirecting from public pages
+      // Do not mutate UI state or perform redirects here.
       return { success: false, error: String(e) }
     }
   },
@@ -286,8 +267,10 @@ if (typeof window !== 'undefined' && supabaseClient?.auth && (supabaseClient as 
         try {
           const r = await auth.refresh()
           if (!r.success) {
+            // Periodic refresh failed — treat as an internal helper failure.
+            // Do NOT perform logout/redirect here; UI decision is based on
+            // GET /api/auth/whoami only.
             console.warn('[auth] periodic refresh failed', r.error)
-            // refresh() already handles logout+redirect on failure
           }
         } catch (e) {
           console.warn('[auth] periodic refresh exception', e)

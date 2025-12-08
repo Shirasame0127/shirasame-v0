@@ -151,17 +151,8 @@ export default function LoginPage() {
 
     async function checkSignedInOnce() {
       try {
-        const s = await (supabaseClient as any).auth.getSession()
-        const sess = s?.data?.session
-        if (sess && mounted) {
-          const access = sess.access_token
-          const refresh = sess.refresh_token
-          if (access && refresh) {
-            await fetch('/api/auth/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ access_token: access, refresh_token: refresh }) }).catch(() => {})
-          }
-          window.location.href = '/admin'
-          return
-        }
+        // Do NOT call supabaseClient.auth.getSession() on admin pages.
+        // Use local mirror + silent refresh attempt as a helper only.
         const local = auth.getCurrentUser()
         if (local && mounted) {
           try {
@@ -170,10 +161,15 @@ export default function LoginPage() {
               window.location.href = '/admin'
               return
             }
-          } catch {}
-          try { localStorage.removeItem('auth_user') } catch {}
+          } catch (e) {
+            // ignore network errors — do not logout or redirect based on refresh
+            console.warn('[auth] silent refresh failed', e)
+          }
         }
-      } catch {}
+      } catch (e) {
+        // ignore
+        console.warn('[auth] checkSignedInOnce exception', e)
+      }
     }
     checkSignedInOnce()
     return () => { mounted = false }
