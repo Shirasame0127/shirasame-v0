@@ -50,8 +50,20 @@ export async function middleware(req: NextRequest) {
     }
 
     try {
+      // If there are no cookies and this is a top-level HTML GET navigation,
+      // allow the request to proceed so client-side initialization (which
+      // POSTS the Supabase session to `/api/auth/session`) can run before
+      // the server-side whoami/refresh check. This prevents the auth guard
+      // from preemptively redirecting the browser and ensures session
+      // synchronization happens once on page load.
+      const cookieHeader = req.headers.get('cookie') || ''
+      const acceptHeader = req.headers.get('accept') || ''
+      if (!cookieHeader && req.method === 'GET' && acceptHeader.includes('text/html')) {
+        return NextResponse.next()
+      }
+
       const origin = req.nextUrl.origin
-      const whoami = await fetch(`${origin}/api/auth/whoami`, { method: 'GET', headers: { cookie: req.headers.get('cookie') || '' }, redirect: 'manual' })
+      const whoami = await fetch(`${origin}/api/auth/whoami`, { method: 'GET', headers: { cookie: cookieHeader }, redirect: 'manual' })
       if (!whoami.ok) {
         const login = new URL('/admin/login', origin); login.searchParams.set('r', pathname); return NextResponse.redirect(login)
       }
