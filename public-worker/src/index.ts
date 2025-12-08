@@ -231,27 +231,53 @@ async function verifyTokenWithSupabase(token: string, c: any): Promise<string | 
     const now = Date.now()
     const cached = tokenUserCache.get(token)
     if (cached && (now - cached.ts) < 60_000) return cached.id
-
-    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
-    if (!supabaseUrl) {
+    // Delegate to shared fetchUserFromToken so whoami and token verification share logic
+    const user = await fetchUserFromToken(token, c)
+    if (!user) {
       tokenUserCache.set(token, { id: null, ts: now })
       return null
     }
-
-    const url = `${supabaseUrl}/auth/v1/user`
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } })
-    if (!res.ok) {
-      tokenUserCache.set(token, { id: null, ts: now })
-      return null
-    }
-    const json = await res.json()
-    // レスポンスは { id, email, ... } 形式のはず
-    const id = json?.id || json?.user?.id || json?.sub || json?.user_id || null
+    const id = user?.id || user?.user?.id || user?.sub || user?.user_id || null
     tokenUserCache.set(token, { id: id || null, ts: now })
     return id || null
   } catch (e) {
     return null
   }
+}
+
+// Extract token from request: prefer Authorization Bearer, then sb-access-token cookie
+async function getTokenFromRequest(c: any): Promise<string | null> {
+  try {
+    const auth = (c.req.header('authorization') || c.req.header('Authorization') || '').toString()
+    if (auth && auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim()
+    const cookieHeader = c.req.header('cookie') || ''
+    const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
+    if (m && m[1]) return decodeURIComponent(m[1])
+    return null
+  } catch {
+    return null
+  }
+}
+
+// Fetch full user object from Supabase auth endpoint using a token
+async function fetchUserFromToken(token: string | null, c: any): Promise<any | null> {
+  try {
+    if (!token) return null
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    if (!supabaseUrl) return null
+    const res = await fetch(`${supabaseUrl}/auth/v1/user`, { method: 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } })
+    if (!res.ok) return null
+    const user = await res.json().catch(() => null)
+    return user || null
+  } catch {
+    return null
+  }
+}
+
+// Convenience: get user object from incoming request (Authorization or cookie)
+async function getUserFromRequest(c: any): Promise<any | null> {
+  const token = await getTokenFromRequest(c)
+  return await fetchUserFromToken(token, c)
 }
 
 // リクエストから userId を推定する（署名検証を優先）。非同期化したため呼び出し側で await が必要。
@@ -1332,21 +1358,9 @@ app.get('/api/auth/whoami', async (c) => {
   try {
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     if (!supabaseUrl) return new Response(JSON.stringify({ ok: false }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-
-    // Extract token from Authorization header or sb-access-token cookie
-    let token = (c.req.header('authorization') || c.req.header('Authorization') || '').toString()
-    if (token && token.toLowerCase().startsWith('bearer ')) token = token.slice(7).trim()
-    if (!token) {
-      const cookieHeader = c.req.header('cookie') || ''
-      const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
-      if (m && m[1]) token = decodeURIComponent(m[1])
-    }
-
-    if (!token) return new Response(JSON.stringify({ ok: false }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-
-    const res = await fetch(`${supabaseUrl}/auth/v1/user`, { method: 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } })
-    if (!res.ok) return new Response(JSON.stringify({ ok: false }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-    const user = await res.json().catch(() => null)
+    // Use shared helper: extract token (Authorization or cookie) and fetch user
+    const user = await getUserFromRequest(c)
+    if (!user) return new Response(JSON.stringify({ ok: false }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
     return new Response(JSON.stringify({ ok: true, user }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
