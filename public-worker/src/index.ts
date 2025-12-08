@@ -607,6 +607,15 @@ app.get('/tag-groups', zValidator('query', listQuery.partial()), async (c) => {
   const key = `tag-groups`
   return cacheJson(c, key, async () => {
     try {
+      // TEMP LOG: show incoming cookie / headers for debugging auth forwarding
+      try {
+        console.log('=== public-worker: /tag-groups request ===')
+        try { console.log('cookie:', c.req.header('cookie')) } catch {}
+        try { console.log('x-user-id:', c.req.header('x-user-id') || c.req.header('X-User-Id')) } catch {}
+        try { console.log('method:', c.req.method) } catch {}
+        try { console.log('url:', c.req.url) } catch {}
+        console.log('========================================')
+      } catch(e) {}
       // If request is authenticated, return that user's tag groups. Otherwise fall back to configured PUBLIC_OWNER_USER_ID or global list.
         const ctx = await resolveRequestUserContext(c)
         // 管理用途のタグ群は認証必須
