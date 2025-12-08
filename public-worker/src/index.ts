@@ -636,22 +636,11 @@ app.get('/tag-groups', zValidator('query', listQuery.partial()), async (c) => {
         try { console.log('url:', c.req.url) } catch {}
         console.log('========================================')
       } catch(e) {}
-        // If request is authenticated, return that user's tag groups.
-        // If unauthenticated, fall back to PUBLIC_OWNER_USER_ID when configured.
+      // If request is authenticated, return that user's tag groups. Otherwise fall back to configured PUBLIC_OWNER_USER_ID or global list.
         const ctx = await resolveRequestUserContext(c)
-        let queryUserId: string | null = null
-        if (ctx.trusted && ctx.userId) {
-          queryUserId = ctx.userId
-        } else {
-          const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
-          if (ownerId) queryUserId = ownerId
-          else {
-            // No authenticated user and no public owner configured: return empty list
-            return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-          }
-        }
-
-        const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', queryUserId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
+        // 管理用途のタグ群は認証必須
+        if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+        const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ctx.userId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
         if (res.error) return new Response(JSON.stringify({ data: [] }))
         return new Response(JSON.stringify({ data: res.data || [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     } catch (e: any) {
@@ -749,6 +738,12 @@ app.get('/api/admin/settings', async (c) => {
   try {
     const internal = upstream(c, '/api/admin/settings')
     const ctx = await resolveRequestUserContext(c)
+    // TEMP LOG: inspect resolved context for admin settings access
+    try {
+      console.log('admin/settings: ctx.trusted=', !!ctx.trusted, 'ctx.userId=', ctx.userId)
+      console.log('admin/settings: cookie=', c.req.header('cookie'))
+      console.log('admin/settings: authorization present=', !!(c.req.header('authorization') || c.req.header('Authorization')))
+    } catch (e) {}
     const hasValidInternalKey = ctx.authType === 'internal-key'
     // require authenticated user or internal key for admin settings
     if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
