@@ -241,16 +241,13 @@ async function handle(req) {
             // ensure the browser accepts HttpOnly Set-Cookie headers.
             (async function(){
               try {
-                const params = new URLSearchParams()
-                params.set('access_token', access_token || '')
-                params.set('refresh_token', refresh_token || '')
-                params.set('expires_in', expires_in || '')
+                const body = { access_token: access_token || '', refresh_token: refresh_token || '', expires_in: expires_in || '' }
 
-                const resp = await fetch('/api/auth/set_tokens', {
+                const resp = await fetch('/api/auth/session', {
                   method: 'POST',
                   credentials: 'include',
-                  headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
-                  body: params.toString(),
+                  headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                  body: JSON.stringify(body),
                   redirect: 'manual'
                 })
 

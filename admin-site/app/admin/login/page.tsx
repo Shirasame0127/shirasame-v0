@@ -59,7 +59,7 @@ export default function LoginPage() {
     
     if (result.success) {
       toast({ title: 'ログイン成功', description: 'ようこそ！' })
-      window.location.href = '/admin'
+      try { router.replace('/admin') } catch { window.location.href = '/admin' }
     } else {
       toast({ title: 'ログイン失敗', description: result.error, variant: 'destructive' })
     }
@@ -126,7 +126,7 @@ export default function LoginPage() {
   }
 
   useEffect(() => {
-    // Fragment token capture: if URL hash contains access_token, post to /api/auth/set_tokens
+    // Fragment token capture: if URL hash contains access_token, post to /api/auth/session
     try {
       const hash = typeof window !== 'undefined' ? window.location.hash : ''
       if (hash) {
@@ -139,61 +139,27 @@ export default function LoginPage() {
           // Send tokens to the proxy so it can set HttpOnly cookies for admin domain
           (async () => {
             try {
-              const params = new URLSearchParams()
-              params.set('access_token', access_token || '')
-              params.set('refresh_token', refresh_token || '')
-              params.set('expires_in', expires_in || '')
-
-              const r = await fetch('/api/auth/set_tokens', {
+              const body = { access_token: access_token || '', refresh_token: refresh_token || '', expires_in: expires_in || '' }
+              const r = await fetch('/api/auth/session', {
                 method: 'POST',
                 credentials: 'include',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: params.toString(),
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(body),
                 redirect: 'manual'
               })
 
-              try { console.log('[login] /api/auth/set_tokens response', 'status=' + r.status, 'ok=' + r.ok) } catch (e) {}
-              const keys: string[] = []
-              try { for (const h of r.headers.keys()) keys.push(h) } catch (e) {}
-              try { console.log('[login] /api/auth/set_tokens response headers keys', keys) } catch (e) {}
+              try { console.log('[login] /api/auth/session response', 'status=' + r.status, 'ok=' + r.ok) } catch (e) {}
 
-              // If server returns JSON ok with user, treat as success — but
-              // verify server-side whoami returns 200 before navigating so the
-              // browser has applied HttpOnly cookies.
-              if (r.ok) {
-                const j = await r.json().catch(() => null)
-                if (j && j.ok && j.user) {
-                  // small whoami retry loop to tolerate cookie propagation
-                  let ok = false
-                  for (let i = 0; i < 5; i++) {
-                    try {
-                      const who = await apiFetch('/api/auth/whoami', { cache: 'no-store' })
-                      if (who && who.ok) { ok = true; break }
-                    } catch (e) {
-                      // swallow and retry
-                    }
-                    await new Promise((r) => setTimeout(r, 200))
-                  }
-                  if (ok) {
-                    try { window.history.replaceState({}, document.title, window.location.pathname + window.location.search) } catch (e) {}
-                    window.location.href = '/admin'
-                    return
-                  }
-                  // If whoami still fails, surface error to user
-                  toast({ title: 'ログイン失敗', description: 'セッションの確認に失敗しました。', variant: 'destructive' })
-                  return
-                }
-              }
-
-              // If server indicated redirect (302), treat as success as well
-              if (r.status === 302) {
-                window.location.href = '/admin'
+              // Success only when /api/auth/session returned 200
+              if (r.status === 200) {
+                try { window.history.replaceState({}, document.title, window.location.pathname + window.location.search) } catch (e) {}
+                try { router.replace('/admin') } catch { window.location.href = '/admin' }
                 return
               }
 
               toast({ title: 'ログイン失敗', description: 'トークンを保存できませんでした。', variant: 'destructive' })
             } catch (err) {
-              try { console.error('[login] /api/auth/set_tokens ネットワークエラー', err) } catch (e) {}
+              try { console.error('[login] /api/auth/session ネットワークエラー', err) } catch (e) {}
               toast({ title: 'ログイン失敗', description: 'ネットワークエラーが発生しました。', variant: 'destructive' })
             }
           })()

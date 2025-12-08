@@ -63,39 +63,24 @@ export const auth = {
         console.warn('[auth] login: session debug failed', e)
       }
 
-      // Ensure there is a users row linked to this auth user
-      try {
-        await apiFetch('/api/auth/link', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: user.id, email: user.email }),
-        })
-      } catch (e) {
-        console.warn('[auth] failed to link user row', e)
-      }
+      // Do not rely on /api/auth/link (may not exist). Skip linking here.
 
       const authUser = { id: user.id, email: user.email || null }
       // send tokens to server to set httpOnly cookies and require success
       const session = data?.session
       if (session?.access_token) {
         try {
-          const res = await apiFetch('/api/auth/session', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-            })
-          if (!res.ok) {
-            const j = await res.json().catch(() => null)
-            const msg = j?.error || 'サーバーにセッションを保存できませんでした'
+          const res = await fetch('/api/auth/session', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
+          })
+          if (res.status !== 200) {
+            let msg = 'サーバーにセッションを保存できませんでした'
+            try { const j = await res.json().catch(() => null); if (j?.error) msg = j.error } catch(e) {}
             return { success: false, error: msg }
           }
-          const j = await res.json().catch(() => null)
-          if (!j || !j.ok || !j.user) {
-            const msg = j?.error || 'サーバーでユーザー情報を確認できませんでした'
-            return { success: false, error: msg }
-          }
-          // update local mirror from returned user
-          try { writeLocalUser({ id: j.user.id, email: j.user.email || null, username: j.user.username || null }) } catch (e) {}
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
           return { success: false, error: 'サーバーに接続できませんでした' }
@@ -149,37 +134,23 @@ export const auth = {
         console.warn('[auth] signup: session debug failed', e)
       }
 
-      // Create or link a users row on the server side
-      try {
-        await apiFetch('/api/auth/link', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: user.id, email: user.email, username }),
-        })
-      } catch (e) {
-        console.warn('[auth] failed to link user row after signup', e)
-      }
+      // Do not call /api/auth/link here — it's not required for login success.
 
       const authUser = { id: user.id, email: user.email || null }
       const session = data?.session
       if (session?.access_token) {
         try {
-          const res = await apiFetch('/api/auth/session', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-            })
-          if (!res.ok) {
-            const j = await res.json().catch(() => null)
-            const msg = j?.error || 'サーバーにセッションを保存できませんでした'
+          const res = await fetch('/api/auth/session', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
+          })
+          if (res.status !== 200) {
+            let msg = 'サーバーにセッションを保存できませんでした'
+            try { const j = await res.json().catch(() => null); if (j?.error) msg = j.error } catch(e) {}
             return { success: false, error: msg }
           }
-          const j = await res.json().catch(() => null)
-          if (!j || !j.ok || !j.user) {
-            const msg = j?.error || 'サーバーでユーザー情報を確認できませんでした'
-            return { success: false, error: msg }
-          }
-          try { writeLocalUser({ id: j.user.id, email: j.user.email || null, username: j.user.username || null }) } catch (e) {}
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
           return { success: false, error: 'サーバーに接続できませんでした' }
@@ -330,27 +301,14 @@ if (typeof window !== 'undefined' && supabaseClient?.auth && (supabaseClient as 
         const user = session?.user || session?.access_token ? session?.user : null
         if (user) {
           const authUser: AuthUser = { id: user.id, email: user.email || null }
-          // When auth state changes (e.g., OAuth / magic link), send session tokens to server
-          try {
-            const sess = session?.access_token ? { access_token: session.access_token, refresh_token: session.refresh_token } : null
-              if (sess) {
-                apiFetch('/api/auth/session', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(sess),
-                }).catch((e) => console.warn('[auth] link after auth state change failed', e))
-              }
-          } catch (e) {
-            console.warn('[auth] session sync failed', e)
-          }
+          // Do not automatically POST session here; login/signup flows
+          // explicitly persist session to server and treat that as the
+          // success signal. Avoid using onAuthStateChange for login decision.
 
           writeLocalUser(authUser)
-          // Ensure server-side app users row exists
-          apiFetch('/api/auth/link', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.id, email: user.email }),
-          }).catch((e) => console.warn('[auth] link after auth state change failed', e))
+          // We do not create/link server-side user rows here to avoid
+          // relying on an endpoint that may not exist. UI auth decision
+          // is based on /api/auth/session 200 response from login flow.
           // start periodic refresh only when in admin UI
           try {
             if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
