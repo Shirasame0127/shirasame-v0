@@ -1005,9 +1005,88 @@ app.get('/admin/settings', async (c) => {
     if (!resp.ok) return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     const rows = await resp.json().catch(() => [])
     const out: Record<string, any> = {}
+    // Keys that belong to user profile should not be populated from site_settings
+    const reservedUserKeys = new Set([
+      'id', 'user_id',
+      'displayName', 'display_name', 'name', 'email',
+      'profileImage', 'profile_image', 'profile_image_key', 'profileImageKey',
+      'headerImage', 'header_image', 'header_image_key', 'headerImageKey', 'header_image_keys', 'headerImageKeys',
+      'bio', 'socialLinks', 'social_links',
+      'backgroundType', 'background_type', 'backgroundValue', 'background_value', 'backgroundImageKey', 'background_image_key',
+    ])
     for (const r of Array.isArray(rows) ? rows : []) {
-      try { out[r.key] = r.value } catch {}
+      try {
+        if (!r || typeof r.key !== 'string') continue
+        if (reservedUserKeys.has(r.key)) continue
+        out[r.key] = r.value
+      } catch {}
     }
+
+    // If we have an authenticated user id, also fetch that user's row from `users` table
+    try {
+      let ctxUser = ctx.userId
+      if (!ctxUser) {
+        try {
+          const maybeToken = await getTokenFromRequest(c)
+          if (maybeToken) {
+            const via = await verifyTokenWithSupabase(maybeToken, c)
+            if (via) ctxUser = via
+          }
+        } catch (e) {}
+      }
+
+      if (ctxUser) {
+        const userUrl = `${supabaseUrl}/rest/v1/users?id=eq.${encodeURIComponent(ctxUser)}&select=*`
+        const ures = await fetch(userUrl, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+        if (ures.ok) {
+          const urows = await ures.json().catch(() => [])
+          if (Array.isArray(urows) && urows.length > 0) {
+            const u = urows[0]
+            const mapHeaderKeys = (v: any) => {
+              if (!v) return []
+              if (Array.isArray(v)) return v
+              if (typeof v === 'string') {
+                try { return JSON.parse(v) } catch { return [String(v)] }
+              }
+              return []
+            }
+            const social = (u.social_links || u.socialLinks)
+            let socialLinksParsed: any = []
+            if (social) {
+              if (Array.isArray(social)) socialLinksParsed = social
+              else if (typeof social === 'string') {
+                try { socialLinksParsed = JSON.parse(social) } catch { socialLinksParsed = [] }
+              }
+            }
+            const normalized: Record<string, any> = {
+              id: u.id || u.user_id || null,
+              displayName: u.display_name || u.displayName || u.name || null,
+              bio: u.bio || null,
+              email: u.email || null,
+              profileImage: u.profile_image || null,
+              profileImageKey: u.profile_image_key || u.profileImageKey || u.profile_image_key || null,
+              headerImageKeys: mapHeaderKeys(u.header_image_keys || u.headerImageKeys || u.header_images || u.header_images_keys),
+              headerImage: u.header_image || null,
+              backgroundType: u.background_type || u.backgroundType || null,
+              backgroundValue: u.background_value || u.backgroundValue || null,
+              backgroundImageKey: u.background_image_key || u.backgroundImageKey || null,
+              amazonAccessKey: u.amazon_access_key || u.amazonAccessKey || null,
+              amazonSecretKey: u.amazon_secret_key || u.amazonSecretKey || null,
+              amazonAssociateId: u.amazon_associate_id || u.amazonAssociateId || null,
+              socialLinks: socialLinksParsed,
+              profile_image_key: u.profile_image_key || null,
+              header_image_keys: u.header_image_keys || null,
+            }
+            for (const [k, v] of Object.entries(normalized)) {
+              try { out[k] = v } catch {}
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // ignore user fetch errors and continue returning site settings
+    }
+
     return new Response(JSON.stringify({ data: out }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   } catch (e: any) {
     return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
