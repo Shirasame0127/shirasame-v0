@@ -115,72 +115,19 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
   merged.headers = hdrs
 
-  // On admin pages, ensure we bootstrap auth (whoami -> refresh -> whoami)
-  // before attaching tokens / making protected requests. This prevents the
-  // client from firing many parallel protected API calls while auth is
-  // still being resolved, which caused repeated 401/logout loops.
-  try {
-    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
-      try { await (auth as any).bootstrap() } catch (e) { /* ignore bootstrap errors */ }
-    }
-  } catch (e) {}
-
   try { console.log('[apiFetch] リクエスト開始:', url, 'options:', { method: merged.method || 'GET', credentials: (merged as any).credentials }) } catch (e) {}
   const res = await fetch(url, merged)
 
-  // If server reports unauthenticated for admin requests, try token refresh once,
-  // then fall back to logout. Avoid attempting refresh for auth endpoints themselves.
+  // If server reports unauthenticated for admin requests, handle centrally:
   if (res.status === 401) {
     try {
-      const isAuthPath = path.startsWith('/api/auth') || path.includes('/api/auth/')
-      // Determine whether the client appears to have an existing session
-      let clientHasSession = false
-      try {
-        if (typeof window !== 'undefined') {
-          const local = window.localStorage.getItem('auth_user')
-          const maybe = window.localStorage.getItem('sb-access-token')
-          clientHasSession = !!local || !!maybe
-        }
-      } catch {}
-      if (isAuthPath) {
-        // For auth paths, always surface unauthenticated so UI can react
-        try { globalToast({ title: 'ログイン情報が見つけられなかったよ' }) } catch {}
-        try { console.warn('[apiFetch] 401 on auth path — performing logout'); auth.logout().catch(() => {}) } catch {}
-        throw new Error('unauthenticated')
-      }
-
-      // Attempt a silent refresh using HttpOnly cookies. If refresh succeeds,
-      // retry the original request once (dropping any client-side Authorization header
-      // so cookies are used).
-      try {
-        const refreshUrl = apiPath('/api/auth/refresh')
-        const refreshRes = await fetch(refreshUrl, { method: 'POST', credentials: 'include', redirect: 'manual' })
-        if (refreshRes && refreshRes.ok) {
-          // Retry original request but remove Authorization header so the
-          // browser-sent cookies are relied upon.
-          try { console.log('[apiFetch] refreshSucceeded, retrying original request') } catch {}
-          const retryMerged: RequestInit = Object.assign({}, merged)
-          const retryHdrs = new Headers((merged && merged.headers) || {})
-          try { retryHdrs.delete('Authorization') } catch {}
-          retryMerged.headers = retryHdrs
-          const retryRes = await fetch(url, retryMerged)
-          if (retryRes.status !== 401) return retryRes
-          // If retry still 401, fall through to logout
-        } else {
-          try { console.warn('[apiFetch] refresh failed (status=' + (refreshRes && refreshRes.status) + ')') } catch {}
-        }
-      } catch (e) {
-        try { console.warn('[apiFetch] refresh attempt threw', e) } catch {}
-      }
-
-      // If the client did not previously have a session, don't force a logout
-      // flow — simply surface unauthenticated so pages that expect anonymous
-      // access can handle it without redirecting to login.
-      if (clientHasSession) {
-        try { globalToast({ title: 'ログイン情報が見つけられなかったよ' }) } catch {}
-        try { console.warn('[apiFetch] 401 を検出しました — auth.logout を実行します'); auth.logout().catch(() => {}) } catch {}
-      } else {
-        try { console.log('[apiFetch] 401 received for anonymous client — not forcing logout') } catch {}
+      if (typeof window !== 'undefined') {
+        try {
+          // Show user-facing toast
+          try { globalToast({ title: 'ログイン情報が見つけられなかったよ' }) } catch {}
+          // Clear local session and perform logout flow which redirects to /admin/login
+          try { console.warn('[apiFetch] 401 を検出しました — auth.logout を実行します'); auth.logout().catch(() => {}) } catch {}
+        } catch (e) {}
       }
     } catch (e) {}
     throw new Error('unauthenticated')
