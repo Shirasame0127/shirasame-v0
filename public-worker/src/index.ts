@@ -1836,10 +1836,9 @@ async function handleUploadImage(c: any) {
       try { console.warn('images: assign handling failed', String(e?.message || e)) } catch(e){}
     }
 
-    // Per key-only policy: return only the canonical key to clients.
-    // Keep previous fields server-side only (we persisted metadata above).
-    const responseBody = { key }
-    return new Response(JSON.stringify(responseBody), {
+    // Per CASE A (key-only) policy: return only the canonical `key`.
+    // Do not return provider hostnames, variants or additional metadata here.
+    return new Response(JSON.stringify({ key }), {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=60' }
     })
   } catch (e: any) {
@@ -1909,7 +1908,7 @@ app.post('/api/images/complete', async (c) => {
       if (upsertRes.ok) {
         const inserted = await upsertRes.json().catch(() => [])
         if (Array.isArray(inserted) && inserted.length > 0) {
-          return new Response(JSON.stringify({ key, existing: false }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+          return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
         }
 
         // Insert was ignored due to conflict — fetch the existing record
@@ -1918,13 +1917,13 @@ app.post('/api/images/complete', async (c) => {
           const qUrl = `${supabaseUrl}/rest/v1/images?select=id,key,filename,metadata,user_id,created_at&key=eq.${encodedKey}&limit=1`
           const qRes = await fetch(qUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
           if (qRes.ok) {
-            const existing = await qRes.json().catch(() => null)
-            return new Response(JSON.stringify({ key, existing: true, record: Array.isArray(existing) && existing.length > 0 ? existing[0] : null }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+            // Return key-only on success per key-only policy
+            return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
           }
         } catch (e) {
-          return new Response(JSON.stringify({ key, existing: true }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+          return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
         }
-        return new Response(JSON.stringify({ key, existing: true }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+        return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
       }
 
       // If upsert failed, inspect the response for Postgres-on-conflict support error (42P10)
@@ -1941,8 +1940,8 @@ app.post('/api/images/complete', async (c) => {
             body: JSON.stringify({ p_key: key, p_filename: filename, p_metadata: metadata && Object.keys(metadata).length ? metadata : null, p_user_id: effectiveUserId || null }),
           })
           if (rpcRes.ok) {
-            const rec = await rpcRes.json().catch(() => null)
-            return new Response(JSON.stringify({ key, existing: !!rec, record: rec }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+            // RPC succeeded; still return key-only to keep API strict.
+            return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
           }
         } catch (e) {
           // ignore and fallback to SELECT/INSERT loop below
@@ -1962,7 +1961,7 @@ app.post('/api/images/complete', async (c) => {
           if (qRes.ok) {
             const existing = await qRes.json().catch(() => null)
             if (Array.isArray(existing) && existing.length > 0) {
-              return new Response(JSON.stringify({ key, existing: true, record: existing[0] }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+              return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
             }
           }
 
@@ -1970,12 +1969,12 @@ app.post('/api/images/complete', async (c) => {
           const insBody = [{ key, filename, metadata: Object.keys(metadata).length ? metadata : null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
           const insUrl = `${supabaseUrl}/rest/v1/images`
           const insRes = await fetch(insUrl, { method: 'POST', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: JSON.stringify(insBody) })
-          if (insRes.ok) {
-            const rec = await insRes.json().catch(() => [])
-            if (Array.isArray(rec) && rec.length > 0) {
-              return new Response(JSON.stringify({ key, existing: false, record: rec[0] }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-            }
-          } else {
+            if (insRes.ok) {
+              const rec = await insRes.json().catch(() => [])
+              if (Array.isArray(rec) && rec.length > 0) {
+                return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+              }
+            } else {
             const txt = await insRes.text().catch(() => '')
             // If this indicates a duplicate was created concurrently, treat as existing and return
             if (String(txt).toLowerCase().includes('duplicate') || String(txt).includes('unique')) {
@@ -1984,7 +1983,7 @@ app.post('/api/images/complete', async (c) => {
               if (reQ.ok) {
                 const existing = await reQ.json().catch(() => null)
                 if (Array.isArray(existing) && existing.length > 0) {
-                  return new Response(JSON.stringify({ key, existing: true, record: existing[0] }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+                  return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
                 }
               }
             }

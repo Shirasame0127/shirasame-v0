@@ -33,6 +33,39 @@ async function maybeCompressClientFile(file: File) {
   }
 }
 
+// Normalize filename: if missing extension or looks like a blob/local placeholder,
+// attempt to infer an extension from MIME and return a new File with safe name.
+async function maybeNormalizeFileName(file: File) {
+  try {
+    const name = file.name || 'upload'
+    const hasExt = /\.[a-zA-Z0-9]+$/.test(name)
+    const looksLikeBlob = /blob|^avatar-|^background-|^file:|^data:/i.test(name)
+    if (hasExt && !looksLikeBlob) return file
+
+    const mime = (file.type || '').toLowerCase()
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+      'image/svg+xml': 'svg'
+    }
+    const ext = mimeToExt[mime] || (mime && mime.split('/')[1]) || 'png'
+    const base = name.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/\.+$/,'')
+    const newName = `${base}.${String(ext).replace(/[^a-z0-9]/gi,'')}`
+    try {
+      // Create a new File preserving the blob content and type
+      return new File([file], newName, { type: file.type || `image/${ext}` })
+    } catch (e) {
+      // File constructor may not be available in some environments; fallback to original
+      return file
+    }
+  } catch (e) {
+    return file
+  }
+}
+
 interface ImageUploadProps {
   value?: string
   onChange: (file: File) => void
@@ -68,9 +101,11 @@ export function ImageUpload({
     }
   }, [value])
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    let file = e.target.files?.[0]
     if (file) {
+      // Normalize filename before using it (guard against blob/local placeholder names)
+      try { file = await maybeNormalizeFileName(file) } catch (e) { /* ignore */ }
       const url = URL.createObjectURL(file)
       // If the selected file is a GIF, skip the cropper (cropping converts to JPEG and loses animation)
       const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')
@@ -148,7 +183,7 @@ export function ImageUpload({
             } catch (e) {
               uploadedUrl = (Array.isArray(variants) && variants[0]) || originalUrl
             }
-            const uploadedKey: string | undefined = json?.result?.key
+              const uploadedKey: string | undefined = json?.result?.key
             return { url: uploadedUrl, key: uploadedKey }
           }
 
@@ -223,7 +258,8 @@ export function ImageUpload({
               }
             }
 
-            if (onUploadComplete) onUploadComplete(uploadedKey || uploadedUrl)
+              // Only report canonical R2 key to callers (key-only policy).
+              if (onUploadComplete) onUploadComplete(uploadedKey || undefined)
           } catch (e) {
             console.error('upload failed', e)
           }
@@ -240,10 +276,13 @@ export function ImageUpload({
   }
 
   const handleCropComplete = async (croppedFile: File, aspectString?: string) => {
-    const url = URL.createObjectURL(croppedFile)
+    // Normalize filename and then create preview
+    let fileForUpload = croppedFile
+    try { fileForUpload = await maybeNormalizeFileName(croppedFile) } catch (e) { /* ignore */ }
+    const url = URL.createObjectURL(fileForUpload)
     setPreviewUrl(url)
     // keep onChange for backward compatibility
-    onChange(croppedFile)
+    onChange(fileForUpload)
 
     // Try direct signed upload to Cloudflare Images; fallback to server proxy if needed
     ;(async () => {
@@ -341,12 +380,12 @@ export function ImageUpload({
           const useDirect = typeof process !== 'undefined' && (process.env.NEXT_PUBLIC_USE_DIRECT_UPLOAD === 'true')
 
           // Compress on the client before upload (skip GIFs).
-          let fileToUpload = croppedFile
+          let fileToUpload = fileForUpload
           try {
-            fileToUpload = await maybeCompressClientFile(croppedFile)
+            fileToUpload = await maybeCompressClientFile(fileForUpload)
           } catch (e) {
             console.warn('Client compression failed, using original file', e)
-            fileToUpload = croppedFile
+            fileToUpload = fileForUpload
           }
 
           if (isLocalhost || forceProxy || !useDirect) {
@@ -417,7 +456,8 @@ export function ImageUpload({
             }
           }
 
-          if (onUploadComplete) onUploadComplete(uploadedKey || cfId || uploadedUrl)
+          // Only report canonical R2 key to callers (key-only policy).
+          if (onUploadComplete) onUploadComplete(uploadedKey || undefined)
         } catch (e) {
           console.error('upload failed', e)
           // Keep local preview visible as a fallback so the editor doesn't go blank
