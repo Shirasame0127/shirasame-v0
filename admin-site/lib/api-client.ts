@@ -115,6 +115,16 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
   merged.headers = hdrs
 
+  // On admin pages, ensure we bootstrap auth (whoami -> refresh -> whoami)
+  // before attaching tokens / making protected requests. This prevents the
+  // client from firing many parallel protected API calls while auth is
+  // still being resolved, which caused repeated 401/logout loops.
+  try {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+      try { await (auth as any).bootstrap() } catch (e) { /* ignore bootstrap errors */ }
+    }
+  } catch (e) {}
+
   try { console.log('[apiFetch] リクエスト開始:', url, 'options:', { method: merged.method || 'GET', credentials: (merged as any).credentials }) } catch (e) {}
   const res = await fetch(url, merged)
 
