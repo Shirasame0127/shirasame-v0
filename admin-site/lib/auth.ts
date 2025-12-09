@@ -1,5 +1,5 @@
 import supabaseClient from '@/lib/supabase/client'
-import apiFetch from '@/lib/api-client'
+import apiFetch, { apiPath } from '@/lib/api-client'
 
 export type AuthUser = {
   id: string
@@ -66,20 +66,41 @@ export const auth = {
       // Do not rely on /api/auth/link (may not exist). Skip linking here.
 
       const authUser = { id: user.id, email: user.email || null }
-      // send tokens to server to set httpOnly cookies and require success
+      // send tokens to server to set httpOnly cookies when possible.
+      // For static admin (external API_BASE) we cannot rely on Set-Cookie for admin domain,
+      // so persist tokens locally (localStorage) and let apiFetch attach Authorization.
       const session = data?.session
       if (session?.access_token) {
         try {
-          const res = await fetch('/api/auth/session', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-          })
-          if (res.status !== 200) {
-            let msg = 'サーバーにセッションを保存できませんでした'
-            try { const j = await res.json().catch(() => null); if (j?.error) msg = j.error } catch(e) {}
-            return { success: false, error: msg }
+          const target = apiPath('/api/auth/session')
+          let isExternal = false
+          try {
+            const u = new URL(target, window.location.origin)
+            isExternal = u.origin !== window.location.origin
+          } catch (e) {}
+
+          if (isExternal) {
+            try {
+              if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('sb-access-token', session.access_token)
+                if (session.refresh_token) localStorage.setItem('sb-refresh-token', session.refresh_token)
+              }
+              // mirror in-memory session for immediate use
+              try { ;(window as any).__SUPABASE_SESSION = { access_token: session.access_token, refresh_token: session.refresh_token } } catch {}
+            } catch (e) {
+              console.warn('[auth] failed to persist tokens locally', e)
+            }
+          } else {
+            const res = await apiFetch('/api/auth/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
+            })
+            if (res.status !== 200) {
+              let msg = 'サーバーにセッションを保存できませんでした'
+              try { const j = await res.json().catch(() => null); if (j?.error) msg = j.error } catch(e) {}
+              return { success: false, error: msg }
+            }
           }
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
@@ -140,16 +161,31 @@ export const auth = {
       const session = data?.session
       if (session?.access_token) {
         try {
-          const res = await fetch('/api/auth/session', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-          })
-          if (res.status !== 200) {
-            let msg = 'サーバーにセッションを保存できませんでした'
-            try { const j = await res.json().catch(() => null); if (j?.error) msg = j.error } catch(e) {}
-            return { success: false, error: msg }
+          // Determine whether /api/auth/session resolves to external API base.
+          const target = apiPath('/api/auth/session')
+          let isExternal = false
+          try { const u = new URL(target, typeof window !== 'undefined' ? window.location.origin : ''); isExternal = u.origin !== (typeof window !== 'undefined' ? window.location.origin : '') } catch (e) {}
+          if (isExternal) {
+            try {
+              if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('sb-access-token', session.access_token)
+                if (session.refresh_token) localStorage.setItem('sb-refresh-token', session.refresh_token)
+              }
+              try { ;(window as any).__SUPABASE_SESSION = { access_token: session.access_token, refresh_token: session.refresh_token } } catch {}
+            } catch (e) {
+              console.warn('[auth] failed to persist tokens locally', e)
+            }
+          } else {
+            const res = await apiFetch('/api/auth/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
+            })
+            if (res.status !== 200) {
+              let msg = 'サーバーにセッションを保存できませんでした'
+              try { const j = await res.json().catch(() => null); if (j?.error) msg = j.error } catch(e) {}
+              return { success: false, error: msg }
+            }
           }
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)

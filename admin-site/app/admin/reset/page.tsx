@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import supabaseClient from '@/lib/supabase/client'
-import apiFetch from '@/lib/api-client'
+import apiFetch, { apiPath } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -78,36 +78,70 @@ export default function ResetPage() {
           refresh_token: refreshToken,
           expires_in: expiresIn || ''
         }
-        const res = await apiFetch('/api/auth/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-        if (!res.ok) {
-          const j = await res.json().catch(() => null)
-          toast({ title: 'セッション保存失敗', description: j?.error || 'セッションを保存できませんでした', variant: 'destructive' })
-          setIsLoading(false)
-          return
-        }
-        // Ensure server-side whoami recognizes the session before navigating
-        const j = await res.json().catch(() => null)
-        if (!j || !j.ok || !j.user) {
-          toast({ title: 'セッション確認失敗', description: 'サーバーでユーザー情報を確認できませんでした', variant: 'destructive' })
-          setIsLoading(false)
-          return
-        }
-        let ok = false
-        for (let i = 0; i < 5; i++) {
+        const target = apiFetch ? apiPath('/api/auth/session') : '/api/auth/session'
+        let isExternal = false
+        try { const u = new URL(target, window.location.origin); isExternal = u.origin !== window.location.origin } catch (e) {}
+
+        if (isExternal) {
+          // Persist locally and verify whoami via Authorization header
           try {
-            const who = await apiFetch('/api/auth/whoami', { cache: 'no-store' })
-            if (who && who.ok) { ok = true; break }
-          } catch (e) {}
-          await new Promise((r) => setTimeout(r, 200))
-        }
-        if (!ok) {
-          toast({ title: 'ログイン失敗', description: 'セッションの確認に失敗しました。', variant: 'destructive' })
-          setIsLoading(false)
-          return
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('sb-access-token', accessToken)
+              if (refreshToken) localStorage.setItem('sb-refresh-token', refreshToken)
+            }
+            try { ;(window as any).__SUPABASE_SESSION = { access_token: accessToken, refresh_token: refreshToken } } catch {}
+            // verify whoami via apiFetch (apiFetch reads localStorage token)
+            let ok = false
+            for (let i = 0; i < 5; i++) {
+              try {
+                const who = await apiFetch('/api/auth/whoami', { cache: 'no-store' })
+                if (who && who.ok) { ok = true; break }
+              } catch (e) {}
+              await new Promise((r) => setTimeout(r, 200))
+            }
+            if (!ok) {
+              toast({ title: 'ログイン失敗', description: 'セッションの確認に失敗しました。', variant: 'destructive' })
+              setIsLoading(false)
+              return
+            }
+          } catch (e) {
+            console.error('[reset] local session persist error', e)
+            toast({ title: 'ネットワークエラー', description: 'サーバーに接続できませんでした', variant: 'destructive' })
+            setIsLoading(false)
+            return
+          }
+        } else {
+          const res = await apiFetch('/api/auth/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+          if (!res.ok) {
+            const j = await res.json().catch(() => null)
+            toast({ title: 'セッション保存失敗', description: j?.error || 'セッションを保存できませんでした', variant: 'destructive' })
+            setIsLoading(false)
+            return
+          }
+          // Ensure server-side whoami recognizes the session before navigating
+          const j = await res.json().catch(() => null)
+          if (!j || !j.ok || !j.user) {
+            toast({ title: 'セッション確認失敗', description: 'サーバーでユーザー情報を確認できませんでした', variant: 'destructive' })
+            setIsLoading(false)
+            return
+          }
+          let ok = false
+          for (let i = 0; i < 5; i++) {
+            try {
+              const who = await apiFetch('/api/auth/whoami', { cache: 'no-store' })
+              if (who && who.ok) { ok = true; break }
+            } catch (e) {}
+            await new Promise((r) => setTimeout(r, 200))
+          }
+          if (!ok) {
+            toast({ title: 'ログイン失敗', description: 'セッションの確認に失敗しました。', variant: 'destructive' })
+            setIsLoading(false)
+            return
+          }
         }
       } catch (e) {
         console.error('[reset] session persist error', e)

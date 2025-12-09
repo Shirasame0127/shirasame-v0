@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import supabaseClient from '@/lib/supabase/client'
-import apiFetch from '@/lib/api-client'
+import apiFetch, { apiPath } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -140,21 +140,40 @@ export default function LoginPage() {
           (async () => {
             try {
               const body = { access_token: access_token || '', refresh_token: refresh_token || '', expires_in: expires_in || '' }
-              const r = await fetch('/api/auth/session', {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify(body),
-                redirect: 'manual'
-              })
-
-              try { console.log('[login] /api/auth/session response', 'status=' + r.status, 'ok=' + r.ok) } catch (e) {}
-
-              // Success only when /api/auth/session returned 200
-              if (r.status === 200) {
-                try { window.history.replaceState({}, document.title, window.location.pathname + window.location.search) } catch (e) {}
-                try { router.replace('/admin') } catch { window.location.href = '/admin' }
-                return
+              // Determine whether /api/auth/session resolves to external API base.
+              try {
+                const target = apiPath('/api/auth/session')
+                let isExternal = false
+                try { const u = new URL(target, window.location.origin); isExternal = u.origin !== window.location.origin } catch (e) {}
+                if (isExternal) {
+                  // Persist tokens locally for static admin
+                  try {
+                    if (typeof localStorage !== 'undefined') {
+                      localStorage.setItem('sb-access-token', access_token)
+                      if (refresh_token) localStorage.setItem('sb-refresh-token', refresh_token)
+                    }
+                    try { ;(window as any).__SUPABASE_SESSION = { access_token: access_token, refresh_token: refresh_token } } catch {}
+                    try { window.history.replaceState({}, document.title, window.location.pathname + window.location.search) } catch (e) {}
+                    try { router.replace('/admin') } catch { window.location.href = '/admin' }
+                    return
+                  } catch (e) {
+                    console.error('[login] local session persist error', e)
+                  }
+                } else {
+                  const r = await apiFetch('/api/auth/session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(body),
+                  })
+                  try { console.log('[login] /api/auth/session response', 'status=' + r.status, 'ok=' + r.ok) } catch (e) {}
+                  if (r.status === 200) {
+                    try { window.history.replaceState({}, document.title, window.location.pathname + window.location.search) } catch (e) {}
+                    try { router.replace('/admin') } catch { window.location.href = '/admin' }
+                    return
+                  }
+                }
+              } catch (err) {
+                console.error('[login] /api/auth/session handling error', err)
               }
 
               toast({ title: 'ログイン失敗', description: 'トークンを保存できませんでした。', variant: 'destructive' })
