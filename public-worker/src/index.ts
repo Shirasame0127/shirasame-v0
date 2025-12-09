@@ -284,8 +284,31 @@ app.all('/api/*', async (c) => {
 
     const res = await fetch(url.toString(), { method, headers, body })
     const buf = await res.arrayBuffer()
+    // Build response headers: preserve content-type if present, and
+    // always attach CORS headers so browsers don't reject responses.
     const outHeaders: Record<string, string> = {}
     try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
+    // Dynamic origin selection (respect PUBLIC_ALLOWED_ORIGINS similar to global middleware)
+    try {
+      const origin = c.req.header('Origin') || ''
+      const allowed = ((c.env as any).PUBLIC_ALLOWED_ORIGINS || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+      let acOrigin = '*'
+      if (origin) {
+        if (allowed.length === 0 || allowed.indexOf('*') !== -1 || allowed.indexOf(origin) !== -1) {
+          acOrigin = origin
+        } else if (allowed.length > 0) {
+          acOrigin = allowed[0]
+        }
+      } else if (allowed.length > 0) {
+        acOrigin = allowed[0]
+      }
+      outHeaders['Access-Control-Allow-Origin'] = acOrigin
+      outHeaders['Access-Control-Allow-Credentials'] = 'true'
+      outHeaders['Access-Control-Allow-Headers'] = 'Content-Type, If-None-Match, Authorization, X-Internal-Key, X-User-Id'
+      outHeaders['Access-Control-Allow-Methods'] = 'GET,HEAD,OPTIONS,POST,PUT,DELETE'
+      outHeaders['Access-Control-Expose-Headers'] = 'ETag'
+      outHeaders['Vary'] = 'Origin'
+    } catch {}
     return new Response(buf, { status: res.status, headers: outHeaders })
   } catch (e: any) {
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
