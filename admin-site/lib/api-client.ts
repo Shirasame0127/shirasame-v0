@@ -122,6 +122,21 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
   merged.headers = hdrs
 
+  // Block auto-fetches when on the admin login page and the client
+  // does not appear to have any token. This prevents the entire UI
+  // from firing many parallel requests on the login screen when the
+  // user is not authenticated. Instead, return an immediate empty
+  // JSON response so calling code can proceed without triggering a
+  // network request.
+  try {
+    const onLoginPage = typeof window !== 'undefined' && window.location && window.location.pathname && window.location.pathname.startsWith('/admin/login')
+    const clientHasToken = !!token
+    if (onLoginPage && !clientHasToken) {
+      try { console.log('[apiFetch] ブロック: ログインページかつ未認証のため自動API呼び出しを抑制します') } catch (e) {}
+      return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
+  } catch (e) {}
+
   // On admin pages, ensure we bootstrap auth (whoami -> refresh -> whoami)
   // before attaching tokens / making protected requests. This prevents the
   // client from firing many parallel protected API calls while auth is
