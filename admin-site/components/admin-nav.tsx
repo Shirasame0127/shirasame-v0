@@ -4,7 +4,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
-import { getPublicImageUrl } from "@/lib/image-url"
+import { getPublicImageUrl, buildResizedImageUrl } from "@/lib/image-url"
 import { db } from "@/lib/db/storage"
 import { cn } from "@/lib/utils"
 import {
@@ -112,8 +112,12 @@ export function AdminNav() {
         let image: string | null = null
         const profileKey = data?.profile_image_key || data?.profileImageKey || (data?.profileImage ? extractKey(data.profileImage) : null)
         if (profileKey) {
-          image = getPublicImageUrl(db.images.getUpload(profileKey) || profileKey)
+          // Prefer a resized CDN-backed URL for avatars so they render correctly
+          // via Cloudflare Image Resizing (/cdn-cgi/image/...). Use a small width suited
+          // for profile thumbnails to avoid requesting the original R2 path directly.
+          image = buildResizedImageUrl(db.images.getUpload(profileKey) || profileKey, { width: 200, format: 'auto' })
         } else {
+          // Fallback to legacy avatar/profileImage values if present
           image = data?.avatarUrl || data?.profileImage || null
         }
         if (active) {
