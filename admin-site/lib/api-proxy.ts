@@ -9,7 +9,8 @@ async function cloneHeaders(headers: Headers) {
 }
 
 export async function forwardToPublicWorker(req: Request) {
-  const apiBase = process.env.API_BASE_ORIGIN || 'https://public-worker.shirasame-official.workers.dev'
+  // Prefer an explicit PUBLIC_WORKER_API_BASE env var; fall back to older name.
+  const apiBase = (process.env.PUBLIC_WORKER_API_BASE || process.env.API_BASE_ORIGIN || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
   try {
     const url = new URL(req.url)
     // Preserve the incoming path when proxying to the public worker so

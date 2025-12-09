@@ -7,19 +7,37 @@ export function apiPath(path: string) {
   // API base is configured at build-time and it points to the same origin
   // as the current page, keep it. Otherwise fall back to relative `/api`.
   try {
-    if (typeof window !== 'undefined' && BUILD_API_BASE) {
+    if (typeof window !== 'undefined') {
       try {
-        const buildUrl = new URL(BUILD_API_BASE)
-        const curOrigin = window.location.origin
-        if (buildUrl.origin === curOrigin) {
-          return `${BUILD_API_BASE}${path}`
+        // Runtime override: if host injects `window.__env__.API_BASE`, prefer it.
+        // This allows static admin builds to call a public-worker origin at runtime.
+        // Example injection in static HTML: <script>window.__env__ = { API_BASE: 'https://public-worker.example' }</script>
+        const runtime = (window as any).__env__ || {}
+        const runtimeApiBase = (runtime.API_BASE || runtime.NEXT_PUBLIC_API_BASE_URL || '').toString().replace(/\/$/, '')
+        const runtimeForce = String(runtime.FORCE_API_BASE || runtime.NEXT_PUBLIC_FORCE_API_BASE || '').toLowerCase() === 'true'
+
+        if (runtimeApiBase) {
+          return `${runtimeApiBase}${path}`
         }
-        // Different origin: prefer same-origin proxy path so browser cookies are sent
-        return path
-      } catch (e) {
-        // If BUILD_API_BASE is not a valid URL, fallback to relative path
-        return path
-      }
+
+        if (BUILD_API_BASE) {
+          try {
+            const buildUrl = new URL(BUILD_API_BASE)
+            const curOrigin = window.location.origin
+            if (buildUrl.origin === curOrigin) {
+              return `${BUILD_API_BASE}${path}`
+            }
+            // If caller explicitly requests forcing the build base at runtime,
+            // use it even if it's a different origin (useful for static admin).
+            if (runtimeForce) return `${BUILD_API_BASE}${path}`
+            // Different origin and not forced: prefer same-origin proxy path so browser cookies are sent
+            return path
+          } catch (e) {
+            // If BUILD_API_BASE is not a valid URL, fall back to using it directly
+            return `${BUILD_API_BASE}${path}`
+          }
+        }
+      } catch (e) {}
     }
   } catch (e) {
     // ignore
