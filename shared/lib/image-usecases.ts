@@ -62,7 +62,16 @@ export function getPublicImageUrl(raw?: string | null, domainOverride?: string |
     if (raw.startsWith(imagesRoot)) {
       try {
         const u = new URL(raw)
-        return `${u.protocol}//${u.hostname}` + (u.port ? `:${u.port}` : '') + (u.pathname || '')
+        // Normalize to a canonical imagesRoot + /<key> path, removing any
+        // leading bucket or redundant `images/` segments so downstream
+        // Image Resizing paths resolve correctly on the public host.
+        let key = (u.pathname || '').replace(/^\/+/, '')
+        if (key.startsWith('images/')) key = key.slice('images/'.length)
+        const bucket = (typeof process !== 'undefined' ? (process.env?.R2_BUCKET || '') : '') as string
+        if (bucket && key.startsWith(`${bucket}/`)) key = key.slice(bucket.length + 1)
+        key = key.replace(/(^|\/)uploads\/+:uploads\//, '$1uploads/')
+        key = key.replace(/\/+/g, '/')
+        return `${imagesRoot}/${key}`
       } catch {
         return raw.split(/[?#]/)[0]
       }

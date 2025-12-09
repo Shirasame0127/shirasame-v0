@@ -11,6 +11,7 @@ type Collection = { id: string; title: string; visibility?: string }
 type Recipe = { id: string; title: string }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || ""
+const ADMIN_BASE = process.env.NEXT_PUBLIC_ADMIN_URL || 'https://admin.shirasame.com'
 const api = (p: string) => `${API_BASE}${p}`
 
 interface PublicNavProps {
@@ -171,7 +172,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
           </div>
 
           <div className="pt-6 border-t">
-            <Link href="/admin">
+            <Link href={ADMIN_BASE}>
               <Button variant="default" className="w-full">
                 <Sparkles className="w-4 h-4 mr-2" />
                 管理画面へ

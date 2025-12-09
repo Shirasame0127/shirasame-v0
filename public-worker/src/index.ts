@@ -614,12 +614,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
       let collections: any[] = []
       let total: number | null = null
       const ctx = await resolveRequestUserContext(c)
-      // 管理ページ用途: 認証がない場合はアクセス拒否
-      if (!ctx.trusted) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
-      }
+      // 管理ページ用途: 認証がない場合は公開用フォールバックを行う（PUBLIC_OWNER_USER_ID または公開のみ）
       const reqUserId = ctx.userId
       if (limit && limit > 0) {
         if (wantCount) {
@@ -792,14 +787,20 @@ app.get('/recipes', zValidator('query', listQuery.partial()), async (c) => {
   const key = `recipes${c.req.url.includes('?') ? c.req.url.substring(c.req.url.indexOf('?')) : ''}`
   return cacheJson(c, key, async () => {
     try {
-      // 管理用途: 認証必須（ログイン画面からの呼び出しを除く）
+      // 管理用途: 認証があればユーザー固有のデータを返す。未認証は公開用フォールバック（PUBLIC_OWNER_USER_ID または published=true）
       const ctx = await resolveRequestUserContext(c)
-      if (!ctx.trusted) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      const reqUserId = ctx.userId
+      let recipesQuery = supabase.from('recipes').select('*').order('created_at', { ascending: false })
+      if (reqUserId) {
+        recipesQuery = recipesQuery.eq('user_id', reqUserId)
+      } else {
+        const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+        if (ownerId) {
+          recipesQuery = recipesQuery.eq('user_id', ownerId).eq('published', true)
+        } else {
+          recipesQuery = recipesQuery.eq('published', true)
+        }
       }
-      let recipesQuery = supabase.from('recipes').select('*').order('created_at', { ascending: false }).eq('user_id', ctx.userId)
       const { data: recipes = [], error: recipesErr } = await recipesQuery
       if (recipesErr) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
@@ -896,10 +897,16 @@ app.get('/tag-groups', zValidator('query', listQuery.partial()), async (c) => {
       } catch(e) {}
       // If request is authenticated, return that user's tag groups. Otherwise fall back to configured PUBLIC_OWNER_USER_ID or global list.
         const ctx = await resolveRequestUserContext(c)
-        // 管理用途のタグ群は認証必須
-        if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+        // 管理用途のタグ群: 認証ありはユーザー別。未認証は PUBLIC_OWNER_USER_ID のタグ、なければ空配列を返す
+        if (!ctx.trusted) {
+          const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+          if (!ownerId) return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+          const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ownerId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
+          if (res.error) return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+          return new Response(JSON.stringify({ data: res.data || [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+        }
         const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ctx.userId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
-        if (res.error) return new Response(JSON.stringify({ data: [] }))
+        if (res.error) return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
         return new Response(JSON.stringify({ data: res.data || [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     } catch (e: any) {
       return new Response(JSON.stringify({ data: [] }))
@@ -915,10 +922,17 @@ app.get('/tags', zValidator('query', listQuery.partial()), async (c) => {
     try {
       // If authenticated, return only that user's tags. Otherwise return global tags or PUBLIC_OWNER_USER_ID-scoped tags.
       const ctx = await resolveRequestUserContext(c)
-      // 管理用途のタグは認証必須
-      if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      let query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
-      query = query.eq('user_id', ctx.userId)
+      let query: any
+      if (!ctx.trusted) {
+        const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+        if (ownerId) {
+          query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true }).eq('user_id', ownerId)
+        } else {
+          query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
+        }
+      } else {
+        query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true }).eq('user_id', ctx.userId)
+      }
       const res = await query
       if (res.error) return new Response(JSON.stringify({ data: [] }))
       const mapped = (res.data || []).map((row: any) => ({ id: row.id, name: row.name, group: row.group ?? undefined, linkUrl: row.link_url ?? undefined, linkLabel: row.link_label ?? undefined, userId: row.user_id ?? undefined, sortOrder: row.sort_order ?? 0, createdAt: row.created_at }))
@@ -937,9 +951,14 @@ app.get('/amazon-sale-schedules', async (c) => {
     try {
       // Scope schedules to authenticated user if present, otherwise PUBLIC_OWNER_USER_ID if configured
       const ctx = await resolveRequestUserContext(c)
-      // 管理用途のスケジュールは認証必須
-      if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      let query = supabase.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true }).eq('user_id', ctx.userId)
+      let query: any
+      if (!ctx.trusted) {
+        const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+        if (!ownerId) return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+        query = supabase.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true }).eq('user_id', ownerId)
+      } else {
+        query = supabase.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true }).eq('user_id', ctx.userId)
+      }
       const { data = [], error } = await query
       if (error) return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
       const mapped = (data || []).map((row: any) => ({
@@ -1853,7 +1872,10 @@ async function handleUploadImage(c: any) {
     // for backward compatibility (not used for DB). This is optional.
     let publicUrlDatePrefixed: string | null = null
     if (imagesDomain) {
-      publicUrlDatePrefixed = `${imagesDomain}/${putKey}`
+      // Ensure the bucket name is preserved when building a public URL
+      // so custom domains that CNAME to the account host resolve correctly.
+      const bucketName = (c.env.R2_BUCKET || 'images').replace(/^\/+|\/+$/g, '')
+      publicUrlDatePrefixed = `${imagesDomain}/${bucketName}/${putKey}`
       try {
         const u2 = new URL(publicUrlDatePrefixed)
         u2.search = ''
@@ -2494,6 +2516,41 @@ app.post('/api/auth/logout', async (c) => {
       return await tryServeImageCandidates(c, rawPath)
     })
 
+    // Image thumbnail helper: redirect to Cloudflare Image Resizing URL
+    // Clients call `/images/thumbnail?url=<full-or-key>&w=<width>` and receive a 302
+    // redirect to a `/cdn-cgi/image/.../<path>` URL generated by buildResizedImageUrl.
+    app.get('/images/thumbnail', async (c) => {
+      try {
+        const urlRaw = (() => {
+          try { const u = new URL(c.req.url); return u.searchParams.get('url') } catch { return null }
+        })()
+        const wRaw = (() => {
+          try { const u = new URL(c.req.url); return u.searchParams.get('w') } catch { return null }
+        })()
+        if (!urlRaw) {
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+          return new Response(JSON.stringify({ error: 'missing_url' }), { status: 400, headers: merged })
+        }
+        const width = Math.max(1, Math.min(4096, Number(wRaw) || 400))
+        // Prefer configured IMAGES_DOMAIN, otherwise R2_PUBLIC_URL
+        const imagesDomain = ((c.env as any).IMAGES_DOMAIN || (c.env as any).R2_PUBLIC_URL || '').toString() || null
+        const resized = buildResizedImageUrl(urlRaw, { width, format: 'auto' }, imagesDomain)
+        if (!resized) {
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+          return new Response(JSON.stringify({ error: 'could_not_build' }), { status: 500, headers: merged })
+        }
+        const headers: Record<string, string> = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env))
+        headers['Location'] = resized
+        return new Response(null, { status: 302, headers })
+      } catch (e: any) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+      }
+    })
+
     app.get('/images/*', async (c) => {
       const rawPath = c.req.path.replace(/^\/+/, '') // e.g. "images/images/2025/..."
       return await tryServeImageCandidates(c, rawPath)
@@ -2657,6 +2714,8 @@ app.get('/custom-fonts', async (c) => {
     return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
   }
 })
+
+
 
 // Final catch-all: ensure any unmatched route returns a CORS-aware 404
 // This prevents Cloudflare or upstream from returning responses without
