@@ -1191,6 +1191,28 @@ app.put('/api/admin/settings', async (c) => {
         }
       }
 
+      // Normalize profile_image_key to a canonical key-only form (no leading slash or full URL)
+      if (userFields.profile_image_key && typeof userFields.profile_image_key === 'string') {
+        try {
+          let v = userFields.profile_image_key as string
+          // If a full URL was provided, extract pathname
+          if (/^https?:\/\//i.test(v)) {
+            try {
+              const u = new URL(v)
+              v = u.pathname.replace(/^\/+/, '')
+            } catch (e) {
+              // fallback: strip domain-like prefix
+              v = v.replace(/^https?:\/\/[^^/]+\//i, '')
+            }
+          }
+          // Remove leading slash if present
+          v = v.replace(/^\/+/, '')
+          userFields.profile_image_key = v
+        } catch (e) {
+          // ignore normalization errors
+        }
+      }
+
       if (maybeId && Object.keys(userFields).length > 0) {
         // upsert into users table
         const upUrl = `${supabaseUrl}/rest/v1/users?on_conflict=id`
@@ -1590,7 +1612,25 @@ async function handleUploadImage(c: any) {
     const mm = String(now.getMonth() + 1).padStart(2, '0')
     const dd = String(now.getDate()).padStart(2, '0')
     const rand = Math.random().toString(36).slice(2, 10)
-    const safeName = (file.name || 'upload').replace(/[^a-zA-Z0-9._-]/g, '_')
+    let safeName = (file.name || 'upload').replace(/[^a-zA-Z0-9._-]/g, '_')
+    // If filename has no extension, try to infer from content type and append
+    if (!/\.[a-zA-Z0-9]+$/.test(safeName)) {
+      try {
+        const mime = (file.type || '').toLowerCase()
+        const mimeToExt: Record<string, string> = {
+          'image/jpeg': 'jpg',
+          'image/jpg': 'jpg',
+          'image/png': 'png',
+          'image/gif': 'gif',
+          'image/webp': 'webp',
+          'image/svg+xml': 'svg'
+        }
+        const ext = mimeToExt[mime] || (mime && mime.split('/')[1]) || ''
+        if (ext) safeName = `${safeName}.${ext.replace(/[^a-z0-9]/gi, '')}`
+      } catch (e) {
+        // ignore and keep original safeName
+      }
+    }
     const bucket = (c.env.R2_BUCKET || 'images').replace(/^\/+|\/+$/g, '')
     // If client provided a key, sanitize and use it; otherwise generate one.
     let key: string
@@ -1620,32 +1660,16 @@ async function handleUploadImage(c: any) {
       return new Response(JSON.stringify({ error: 'failed to put object' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
     }
 
-    // Prefer a configured custom images domain (proxied Cloudflare domain) if present.
-    // Fall back to R2 public host if not provided.
+    // Return a worker-relative publicUrl so clients can use it for preview
+    // and so frontend code can treat it as a key-like value if desired.
+    // Keep canonical `key` separately (e.g. `images/YYYY/...`).
     const imagesDomain = ((c.env.IMAGES_DOMAIN as string) || (c.env.R2_PUBLIC_URL as string) || '').replace(/\/$/, '')
-    // Prefer public URL that uses the Worker fallback path `/images/<path>` so
-    // the worker's `/images/*` handler can serve objects if the custom domain
-    // is not directly pointing at R2. This keeps public URLs resilient.
-    let publicUrl = imagesDomain ? `${imagesDomain}/images/${putKey}` : null
-    // Normalize: strip query string and fragment to avoid accidental unique transforms
-    if (publicUrl) {
-      try {
-        const u = new URL(publicUrl)
-        u.search = ''
-        u.hash = ''
-        publicUrl = u.toString().replace(/\/$/, '')
-      } catch (e) {
-        // Fallback for non-absolute or malformed URLs: remove after ? or #
-        publicUrl = publicUrl.split(/[?#]/)[0].replace(/\/$/, '')
-      }
-      // Ensure the publicUrl uses HTTPS when the configured domain lacks a scheme
-      if (!/^https?:\/\//i.test(publicUrl)) {
-        publicUrl = `https://${publicUrl}`
-      }
-    }
+    // publicUrl is the worker-served path (relative) to avoid returning
+    // provider-specific hostnames or accidental blob/file names. Example: `/images/<putKey>`
+    let publicUrl = `/images/${putKey}`
 
-    // Also prepare a date-prefixed public URL (no /images/ prefix):
-    // e.g. https://images.shirasame.com/2025/12/08/<putKey>
+    // Also prepare a date-prefixed public URL that includes configured domain
+    // for backward compatibility (not used for DB). This is optional.
     let publicUrlDatePrefixed: string | null = null
     if (imagesDomain) {
       publicUrlDatePrefixed = `${imagesDomain}/${putKey}`
@@ -1812,13 +1836,10 @@ async function handleUploadImage(c: any) {
       try { console.warn('images: assign handling failed', String(e?.message || e)) } catch(e){}
     }
 
-    // Return a richer shape to support callers that expect either
-    // `{ key }` or `{ ok:true, result:{ key } }`.
-    // Return canonical key (without bucket prefix) so clients and DB use the same identifier
-    // Return DB-canonical key (including bucket prefix) so clients save the
-    // same identifier to Supabase (e.g. `images/2025/12/06/abcd1234.jpg`).
-    const result = { ok: true, result: { key, publicUrl, publicUrlDatePrefixed: publicUrlDatePrefixed || null, workerUrl, size: buf?.byteLength || null, contentType: file.type || null } }
-    return new Response(JSON.stringify(result), {
+    // Per key-only policy: return only the canonical key to clients.
+    // Keep previous fields server-side only (we persisted metadata above).
+    const responseBody = { key }
+    return new Response(JSON.stringify(responseBody), {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=60' }
     })
   } catch (e: any) {
