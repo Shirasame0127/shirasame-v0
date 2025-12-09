@@ -133,6 +133,43 @@ function computeCorsHeaders(origin: string | null, env: any) {
   }
 }
 
+// Global security middleware: enforce authentication for all non-public
+// routes. Public assets and the auth endpoints remain callable anonymously.
+app.use('*', async (c, next) => {
+  try {
+    // Allow preflight to be handled by the CORS middleware below
+    if (c.req.method === 'OPTIONS') return await next()
+
+    const url = new URL(c.req.url)
+    const path = url.pathname || ''
+
+    // Allowlist: public static assets and explicitly public endpoints
+    const publicPrefixes = ['/_next', '/public', '/images', '/static', '/assets']
+    const isPublicAsset = publicPrefixes.some(p => path.startsWith(p)) || path === '/' || path === '/favicon.ico' || path === '/robots.txt'
+
+    // Always allow auth endpoints (they implement their own checks)
+    const isAuthPath = path.startsWith('/api/auth') || path.startsWith('/auth')
+
+    // Always allow debug endpoint
+    if (isPublicAsset || isAuthPath || path === '/_debug') {
+      return await next()
+    }
+
+    // For any other path require a verified token
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx || !ctx.trusted || !ctx.userId) {
+      const headers401 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), { status: 401, headers: headers401 })
+    }
+    try { c.set && c.set('userId', ctx.userId) } catch {}
+    return await next()
+  } catch (e: any) {
+    const headersErr = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: headersErr })
+  }
+})
+
+// Handle CORS, preflight and attach headers to responses
 app.use('*', async (c, next) => {
   // Handle preflight immediately
   if (c.req.method === 'OPTIONS') {
