@@ -313,6 +313,10 @@ app.use('/api/*', async (c, next) => {
   try {
     const url = new URL(c.req.url)
     const path = url.pathname || ''
+    // Allow explicit public API namespace to be called anonymously.
+    if (path.startsWith('/api/public/')) {
+      return await next()
+    }
     // Allow auth endpoints to be called without a prior token (they
     // implement their own semantics: session POST, refresh POST, whoami GET)
     if (path.startsWith('/api/auth/') || path === '/api/auth' || path.startsWith('/auth/')) {
@@ -456,8 +460,17 @@ app.all('/api/*', async (c) => {
         return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
       }
     } catch (e) {}
-    // strip only the leading '/api'
-    url.pathname = url.pathname.replace(/^\/api/, '') || '/'
+    // If the incoming path is /api/public/* map to the root handler
+    // by stripping '/api/public'. Otherwise strip only the leading '/api'.
+    if (url.pathname.startsWith('/api/public/')) {
+      url.pathname = url.pathname.replace(/^\/api\/public/, '') || '/'
+    } else if (url.pathname.startsWith('/api/admin/')) {
+      // Keep '/admin/*' handlers reachable by mapping '/api/admin/*' -> '/admin/*'
+      url.pathname = url.pathname.replace(/^\/api/, '') || '/'
+    } else {
+      // Generic /api/* -> /* mapping
+      url.pathname = url.pathname.replace(/^\/api/, '') || '/'
+    }
 
     const method = c.req.method
     const headers = makeUpstreamHeaders(c)
