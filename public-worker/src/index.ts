@@ -301,6 +301,38 @@ function makeUpstreamHeaders(c: any): Record<string, string> {
 // so forward `/api/*` -> `/*` to avoid client 404s. This performs a server-side
 // fetch to the normalized path and returns the response. CORS headers are
 // attached by the global middleware above.
+// Security middleware: Require token authentication for all API routes
+// except the auth endpoints themselves. This ensures that non-public API
+// routes cannot be accessed anonymously.
+app.use('/api/*', async (c, next) => {
+  try {
+    const url = new URL(c.req.url)
+    const path = url.pathname || ''
+    // Allow auth endpoints to be called without a prior token (they
+    // implement their own semantics: session POST, refresh POST, whoami GET)
+    if (path.startsWith('/api/auth/') || path === '/api/auth' || path.startsWith('/auth/')) {
+      return await next()
+    }
+
+    // Allow debug and public assets
+    if (path === '/_debug' || path.startsWith('/_next') || path.startsWith('/public') || path.startsWith('/images') || path === '/favicon.ico') {
+      return await next()
+    }
+
+    // For all other /api/* routes require a verified token
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx || !ctx.trusted || !ctx.userId) {
+      const headers401 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), { status: 401, headers: headers401 })
+    }
+    // attach resolved user id to context for downstream handlers
+    try { c.set && c.set('userId', ctx.userId) } catch {}
+    return await next()
+  } catch (e: any) {
+    const headersErr = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: headersErr })
+  }
+})
 app.all('/api/*', async (c) => {
   try {
     const url = new URL(c.req.url)
