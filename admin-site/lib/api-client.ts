@@ -118,17 +118,43 @@ export async function apiFetch(path: string, init?: RequestInit) {
   try { console.log('[apiFetch] リクエスト開始:', url, 'options:', { method: merged.method || 'GET', credentials: (merged as any).credentials }) } catch (e) {}
   const res = await fetch(url, merged)
 
-  // If server reports unauthenticated for admin requests, handle centrally:
+  // If server reports unauthenticated for admin requests, try token refresh once,
+  // then fall back to logout. Avoid attempting refresh for auth endpoints themselves.
   if (res.status === 401) {
     try {
-      if (typeof window !== 'undefined') {
-        try {
-          // Show user-facing toast
-          try { globalToast({ title: 'ログイン情報が見つけられなかったよ' }) } catch {}
-          // Clear local session and perform logout flow which redirects to /admin/login
-          try { console.warn('[apiFetch] 401 を検出しました — auth.logout を実行します'); auth.logout().catch(() => {}) } catch {}
-        } catch (e) {}
+      const isAuthPath = path.startsWith('/api/auth') || path.includes('/api/auth/')
+      if (isAuthPath) {
+        try { globalToast({ title: 'ログイン情報が見つけられなかったよ' }) } catch {}
+        try { console.warn('[apiFetch] 401 on auth path — performing logout'); auth.logout().catch(() => {}) } catch {}
+        throw new Error('unauthenticated')
       }
+
+      // Attempt a silent refresh using HttpOnly cookies. If refresh succeeds,
+      // retry the original request once (dropping any client-side Authorization header
+      // so cookies are used).
+      try {
+        const refreshUrl = apiPath('/api/auth/refresh')
+        const refreshRes = await fetch(refreshUrl, { method: 'POST', credentials: 'include', redirect: 'manual' })
+        if (refreshRes && refreshRes.ok) {
+          // Retry original request but remove Authorization header so the
+          // browser-sent cookies are relied upon.
+          try { console.log('[apiFetch] refreshSucceeded, retrying original request') } catch {}
+          const retryMerged: RequestInit = Object.assign({}, merged)
+          const retryHdrs = new Headers((merged && merged.headers) || {})
+          try { retryHdrs.delete('Authorization') } catch {}
+          retryMerged.headers = retryHdrs
+          const retryRes = await fetch(url, retryMerged)
+          if (retryRes.status !== 401) return retryRes
+          // If retry still 401, fall through to logout
+        } else {
+          try { console.warn('[apiFetch] refresh failed (status=' + (refreshRes && refreshRes.status) + ')') } catch {}
+        }
+      } catch (e) {
+        try { console.warn('[apiFetch] refresh attempt threw', e) } catch {}
+      }
+
+      try { globalToast({ title: 'ログイン情報が見つけられなかったよ' }) } catch {}
+      try { console.warn('[apiFetch] 401 を検出しました — auth.logout を実行します'); auth.logout().catch(() => {}) } catch {}
     } catch (e) {}
     throw new Error('unauthenticated')
   }
