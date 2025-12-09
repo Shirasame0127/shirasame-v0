@@ -240,6 +240,29 @@ export function ImageUpload({
                       if (resp?.src) setPreviewUrl(resp.src)
                     } catch (e) {}
                     if (onUploadComplete) onUploadComplete(returnedKey || undefined)
+                  } else if (completeRes.status === 404) {
+                    // Admin API route missing in production — try public worker fallback
+                    try {
+                      const workerHost = (typeof window !== 'undefined' && (window as any).__env__?.NEXT_PUBLIC_API_BASE_URL) || process.env.NEXT_PUBLIC_API_BASE_URL || 'https://public-worker.shirasame-official.workers.dev'
+                      const dest = `${workerHost.replace(/\/$/, '')}/api/images/complete`
+                      const fallbackRes = await fetch(dest, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key: uploadedKey, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
+                      })
+                      if (fallbackRes.ok) {
+                        const fj = await fallbackRes.json().catch(() => ({}))
+                        const returnedKey = fj?.key || uploadedKey
+                        try {
+                          const usage = aspectRatioType === 'header' ? 'header-large' : aspectRatioType === 'recipe' ? 'recipe' : aspectRatioType === 'profile' ? 'avatar' : aspectRatioType === 'product' ? 'list' : aspectRatioType === 'background' ? 'original' : 'list'
+                          const resp = responsiveImageForUsage(returnedKey || '', usage as any)
+                          if (resp?.src) setPreviewUrl(resp.src)
+                        } catch (e) {}
+                        if (onUploadComplete) onUploadComplete(returnedKey || undefined)
+                      }
+                    } catch (e) {
+                      console.warn('images/complete fallback failed', e)
+                    }
                   }
                 } catch (err) {
                   console.warn('images/complete failed', err)
@@ -449,6 +472,29 @@ export function ImageUpload({
                   if (resp?.src) setPreviewUrl(resp.src)
                 } catch (e) {}
                 if (onUploadComplete) onUploadComplete(returnedKey || undefined)
+              } else if (completeRes.status === 404) {
+                // Admin API missing on this host — try public worker fallback
+                try {
+                  const workerHost = (typeof window !== 'undefined' && (window as any).__env__?.NEXT_PUBLIC_API_BASE_URL) || process.env.NEXT_PUBLIC_API_BASE_URL || 'https://public-worker.shirasame-official.workers.dev'
+                  const dest = `${workerHost.replace(/\/$/, '')}/api/images/complete`
+                  const fallbackRes = await fetch(dest, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: uploadedKey, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
+                  })
+                  if (fallbackRes.ok) {
+                    const fj = await fallbackRes.json().catch(() => ({}))
+                    const returnedKey = fj?.key || uploadedKey
+                    try {
+                      const usage = aspectRatioType === 'header' ? 'header-large' : aspectRatioType === 'recipe' ? 'recipe' : aspectRatioType === 'profile' ? 'avatar' : aspectRatioType === 'product' ? 'list' : aspectRatioType === 'background' ? 'original' : 'list'
+                      const resp = responsiveImageForUsage(returnedKey || '', usage as any)
+                      if (resp?.src) setPreviewUrl(resp.src)
+                    } catch (e) {}
+                    if (onUploadComplete) onUploadComplete(returnedKey || undefined)
+                  }
+                } catch (e) {
+                  console.warn('images/complete fallback failed', e)
+                }
               }
             } catch (err) {
               console.warn('images/complete failed', err)
