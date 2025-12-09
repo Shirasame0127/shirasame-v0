@@ -17,7 +17,13 @@ export function apiPath(path: string) {
         const runtimeForce = String(runtime.FORCE_API_BASE || runtime.NEXT_PUBLIC_FORCE_API_BASE || '').toLowerCase() === 'true'
 
         if (runtimeApiBase) {
-          return `${runtimeApiBase}${path}`
+          // If runtime API base is an external public-worker, admin client
+          // often calls paths with an `/api` prefix (e.g. `/api/products`).
+          // The public-worker implements routes without the `/api` prefix
+          // (e.g. `/products`), so strip the prefix when calling an
+          // external base to avoid 404s.
+          const p = path.startsWith('/api/') ? path.replace(/^\/api/, '') : path
+          return `${runtimeApiBase}${p}`
         }
 
         if (BUILD_API_BASE) {
@@ -29,7 +35,10 @@ export function apiPath(path: string) {
             }
             // If caller explicitly requests forcing the build base at runtime,
             // use it even if it's a different origin (useful for static admin).
-            if (runtimeForce) return `${BUILD_API_BASE}${path}`
+            if (runtimeForce) {
+              const p = path.startsWith('/api/') ? path.replace(/^\/api/, '') : path
+              return `${BUILD_API_BASE}${p}`
+            }
             // Different origin and not forced: prefer same-origin proxy path so browser cookies are sent
             return path
           } catch (e) {
