@@ -124,7 +124,8 @@ app.use('*', async (c, next) => {
     return {
       'Access-Control-Allow-Origin': acOrigin,
       'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Headers': 'Content-Type, If-None-Match, Authorization, X-Internal-Key',
+      // include X-User-Id and common custom headers used by admin
+      'Access-Control-Allow-Headers': 'Content-Type, If-None-Match, Authorization, X-Internal-Key, X-User-Id',
       'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS,POST,PUT,DELETE',
       'Access-Control-Expose-Headers': 'ETag',
       'Vary': 'Origin',
@@ -251,6 +252,45 @@ function makeUpstreamHeaders(c: any): Record<string, string> {
   } catch {}
   return out
 }
+
+// Quick proxy to support incoming client calls that use the `/api/*` prefix
+// (admin UI currently issues requests to `/api/...`). Many internal routes
+// are defined without the `/api` prefix (e.g. `/products`, `/site-settings`),
+// so forward `/api/*` -> `/*` to avoid client 404s. This performs a server-side
+// fetch to the normalized path and returns the response. CORS headers are
+// attached by the global middleware above.
+app.all('/api/*', async (c) => {
+  try {
+    const url = new URL(c.req.url)
+    // strip only the leading '/api'
+    url.pathname = url.pathname.replace(/^\/api/, '') || '/'
+
+    const method = c.req.method
+    const headers = makeUpstreamHeaders(c)
+    // forward common admin headers if present
+    try {
+      const xu = c.req.header('x-user-id') || c.req.header('X-User-Id')
+      if (xu) headers['x-user-id'] = xu.toString()
+    } catch {}
+    try {
+      const xi = c.req.header('x-internal-key') || c.req.header('X-Internal-Key')
+      if (xi) headers['x-internal-key'] = xi.toString()
+    } catch {}
+
+    let body: any = undefined
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      try { body = await c.req.text() } catch { body = undefined }
+    }
+
+    const res = await fetch(url.toString(), { method, headers, body })
+    const buf = await res.arrayBuffer()
+    const outHeaders: Record<string, string> = {}
+    try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
+    return new Response(buf, { status: res.status, headers: outHeaders })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
 
 // ヘルパ: JWT のペイロードをデコードして返す（署名検証は行いません。存在確認と sub/user_id 抽出用）
 function parseJwtPayload(token: string | null | undefined): any | null {
