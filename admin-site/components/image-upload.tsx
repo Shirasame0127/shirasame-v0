@@ -175,15 +175,15 @@ export function ImageUpload({
               throw new Error(errData?.error || `Proxy upload failed (status ${res.status})`)
             }
             const json = await res.json().catch(() => ({}))
-            const variants: string[] | undefined = json?.result?.variants
-            const originalUrl: string | undefined = json?.result?.publicUrl || json?.result?.url
+            const variants: string[] | undefined = json?.result?.variants || json?.variants
+            const originalUrl: string | undefined = json?.result?.publicUrl || json?.result?.url || json?.publicUrl || json?.url
             let uploadedUrl: string | undefined
             try {
               uploadedUrl = originalUrl || (Array.isArray(variants) ? variants.find((v) => v.toLowerCase().endsWith('.gif')) : undefined) || variants?.[0]
             } catch (e) {
               uploadedUrl = (Array.isArray(variants) && variants[0]) || originalUrl
             }
-              const uploadedKey: string | undefined = json?.result?.key
+            const uploadedKey: string | undefined = json?.result?.key || json?.key
             return { url: uploadedUrl, key: uploadedKey }
           }
 
@@ -213,26 +213,37 @@ export function ImageUpload({
             // Prefer canonical `key` payload from upload endpoints. If a key exists,
             // call images/complete with only the key to enforce the key-only policy.
             if (uploadedKey) {
-              try {
-                const completeTarget = aspectRatioType === 'profile'
-                  ? 'profile'
-                  : aspectRatioType === 'header'
-                  ? 'header'
-                  : aspectRatioType === 'background'
-                  ? 'background'
-                  : aspectRatioType === 'recipe'
-                  ? 'recipe'
-                  : aspectRatioType === 'product'
-                  ? 'product'
-                  : 'other'
-                await apiFetch('/api/images/complete', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ key: uploadedKey, filename: file.name, target: completeTarget, aspect: '1:1' }),
-                })
-              } catch (err) {
-                console.warn('images/complete failed', err)
-              }
+                try {
+                  const completeTarget = aspectRatioType === 'profile'
+                    ? 'profile'
+                    : aspectRatioType === 'header'
+                    ? 'header'
+                    : aspectRatioType === 'background'
+                    ? 'background'
+                    : aspectRatioType === 'recipe'
+                    ? 'recipe'
+                    : aspectRatioType === 'product'
+                    ? 'product'
+                    : 'other'
+                  const completeRes = await apiFetch('/api/images/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: uploadedKey, filename: file.name, target: completeTarget, aspect: '1:1' }),
+                  })
+                  if (completeRes.ok) {
+                    const completeJson = await completeRes.json().catch(() => ({}))
+                    const returnedKey = completeJson?.key || uploadedKey
+                    // Update preview to use CDN/responsive helper when possible
+                    try {
+                      const usage = aspectRatioType === 'header' ? 'header-large' : aspectRatioType === 'recipe' ? 'recipe' : aspectRatioType === 'profile' ? 'avatar' : aspectRatioType === 'product' ? 'list' : aspectRatioType === 'background' ? 'original' : 'list'
+                      const resp = responsiveImageForUsage(returnedKey || '', usage as any)
+                      if (resp?.src) setPreviewUrl(resp.src)
+                    } catch (e) {}
+                    if (onUploadComplete) onUploadComplete(returnedKey || undefined)
+                  }
+                } catch (err) {
+                  console.warn('images/complete failed', err)
+                }
             } else if ((result as any)?.id) {
               // Backward compatibility: if the upload flow returned only a Cloudflare Images id
               // (no R2 key), fall back to the previous behaviour to avoid breaking uploads.
@@ -357,8 +368,8 @@ export function ImageUpload({
         }
         const json = await res.json().catch(() => ({}))
         // Prefer original URL for GIFs (to preserve animation). Variants may be transformed/static.
-        const variants: string[] | undefined = json?.result?.variants
-        const originalUrl: string | undefined = json?.result?.publicUrl || json?.result?.url
+        const variants: string[] | undefined = json?.result?.variants || json?.variants
+        const originalUrl: string | undefined = json?.result?.publicUrl || json?.result?.url || json?.publicUrl || json?.url
         let uploadedUrl: string | undefined
         try {
           const isGif = file?.type === 'image/gif' || (file?.name && file.name.toLowerCase().endsWith('.gif'))
@@ -370,7 +381,8 @@ export function ImageUpload({
         } catch (e) {
           uploadedUrl = (Array.isArray(variants) && variants[0]) || originalUrl
         }
-        return { url: uploadedUrl }
+        const uploadedKey: string | undefined = json?.result?.key || json?.key
+        return { url: uploadedUrl, key: uploadedKey }
       }
 
         try {
@@ -423,11 +435,21 @@ export function ImageUpload({
                 : aspectRatioType === 'product'
                 ? 'product'
                 : 'other'
-              await apiFetch('/api/images/complete', {
+              const completeRes = await apiFetch('/api/images/complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ key: uploadedKey, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
               })
+              if (completeRes.ok) {
+                const completeJson = await completeRes.json().catch(() => ({}))
+                const returnedKey = completeJson?.key || uploadedKey
+                try {
+                  const usage = aspectRatioType === 'header' ? 'header-large' : aspectRatioType === 'recipe' ? 'recipe' : aspectRatioType === 'profile' ? 'avatar' : aspectRatioType === 'product' ? 'list' : aspectRatioType === 'background' ? 'original' : 'list'
+                  const resp = responsiveImageForUsage(returnedKey || '', usage as any)
+                  if (resp?.src) setPreviewUrl(resp.src)
+                } catch (e) {}
+                if (onUploadComplete) onUploadComplete(returnedKey || undefined)
+              }
             } catch (err) {
               console.warn('images/complete failed', err)
             }

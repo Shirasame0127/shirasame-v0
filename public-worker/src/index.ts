@@ -1880,6 +1880,28 @@ app.post('/api/images/complete', async (c) => {
 
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    // Determine if this request intends to assign the uploaded key to a user profile
+    const wantsAssignToProfile = (payload?.assign === 'users.profile') || (payload?.target === 'profile')
+    const assignTargetUserId = payload?.userId || effectiveUserId || null
+
+    async function tryAssignProfile(keyToAssign: string) {
+      try {
+        if (!wantsAssignToProfile) return
+        if (!assignTargetUserId) return
+        if (!supabaseUrl || !serviceKey) return
+        const patchUrl = `${supabaseUrl}/rest/v1/users?id=eq.${assignTargetUserId}`
+        const patchRes = await fetch(patchUrl, {
+          method: 'PATCH',
+          headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+          body: JSON.stringify({ profile_image_key: keyToAssign })
+        })
+        if (!patchRes.ok) {
+          try { console.warn('[images/complete] failed to assign profile_image_key', await patchRes.text().catch(() => '')) } catch(e){}
+        }
+      } catch (e) {
+        try { console.warn('[images/complete] exception assigning profile image', String(e)) } catch(e){}
+      }
+    }
     if (!supabaseUrl || !serviceKey) {
       // If service role key not configured, do not fail hard; return success but log.
       try { console.warn('SUPABASE_SERVICE_ROLE_KEY not configured; images/complete did not persist to DB') } catch {}
@@ -1908,6 +1930,7 @@ app.post('/api/images/complete', async (c) => {
       if (upsertRes.ok) {
         const inserted = await upsertRes.json().catch(() => [])
         if (Array.isArray(inserted) && inserted.length > 0) {
+          await tryAssignProfile(key)
           return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
         }
 
@@ -1918,11 +1941,13 @@ app.post('/api/images/complete', async (c) => {
           const qRes = await fetch(qUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
           if (qRes.ok) {
             // Return key-only on success per key-only policy
+            await tryAssignProfile(key)
             return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
           }
         } catch (e) {
           return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
         }
+        await tryAssignProfile(key)
         return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
       }
 
@@ -1941,6 +1966,7 @@ app.post('/api/images/complete', async (c) => {
           })
           if (rpcRes.ok) {
             // RPC succeeded; still return key-only to keep API strict.
+            await tryAssignProfile(key)
             return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
           }
         } catch (e) {
@@ -1961,6 +1987,7 @@ app.post('/api/images/complete', async (c) => {
           if (qRes.ok) {
             const existing = await qRes.json().catch(() => null)
             if (Array.isArray(existing) && existing.length > 0) {
+              await tryAssignProfile(key)
               return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
             }
           }
@@ -1972,6 +1999,7 @@ app.post('/api/images/complete', async (c) => {
             if (insRes.ok) {
               const rec = await insRes.json().catch(() => [])
               if (Array.isArray(rec) && rec.length > 0) {
+                await tryAssignProfile(key)
                 return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
               }
             } else {
@@ -1982,8 +2010,9 @@ app.post('/api/images/complete', async (c) => {
               const reQ = await fetch(qUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
               if (reQ.ok) {
                 const existing = await reQ.json().catch(() => null)
-                if (Array.isArray(existing) && existing.length > 0) {
-                  return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+                  if (Array.isArray(existing) && existing.length > 0) {
+                    await tryAssignProfile(key)
+                    return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
                 }
               }
             }
