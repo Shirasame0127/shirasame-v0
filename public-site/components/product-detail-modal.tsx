@@ -32,7 +32,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
   if (!isOpen || !product) return null
 
   const images = product.images || []
-  const preferred = initialImageUrl ? images.find((img: any) => getPublicImageUrl(img.url) === getPublicImageUrl(initialImageUrl)) : null
+  const preferred = initialImageUrl ? images.find((img: any) => getPublicImageUrl(img.key || img.url) === getPublicImageUrl(initialImageUrl)) : null
   const mainImage = preferred || images.find((img: any) => img.role === 'main') || images[0] || null
   const attachmentImages = (images.filter ? images.filter((img: any) => img.role === 'attachment') : []).slice(0, 4)
 
@@ -72,7 +72,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
             <div className={innerImageClassName}>
             {
               (() => {
-                const resp = responsiveImageForUsage(mainImage?.url, 'detail')
+                const resp = responsiveImageForUsage(mainImage?.key || mainImage?.url, 'detail')
                 const src = resp.src || "/placeholder.svg"
                 return <img src={src} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-cover" />
               })()
@@ -171,7 +171,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                     <div key={img.id} className="relative aspect-square rounded-md overflow-hidden bg-white dark:bg-slate-800 shadow-sm">
                       {
                         (() => {
-                          const resp = responsiveImageForUsage(img.url, 'attachment')
+                          const resp = responsiveImageForUsage(img.key || img.url, 'attachment')
                           return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt="添付画像" className="w-full h-full object-cover" />
                         })()
                       }

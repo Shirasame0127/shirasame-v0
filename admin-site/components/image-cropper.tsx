@@ -9,6 +9,7 @@ import { Slider } from "@/components/ui/slider"
 import { RotateCw } from 'lucide-react'
 import Cropper from "react-easy-crop"
 import type { Area } from "react-easy-crop"
+import { getPublicImageUrl } from "@/lib/image-url"
 
 interface ImageCropperProps {
   open: boolean
@@ -104,13 +105,10 @@ export function ImageCropper({
 
   const createCroppedImage = async () => {
     if (!croppedAreaPixels || isProcessing) return
-
-    setIsProcessing(true)
-
     try {
       const image = new Image()
       image.crossOrigin = "anonymous"
-      image.src = imageUrl
+      image.src = getPublicImageUrl(imageUrl) || imageUrl
 
       await new Promise((resolve, reject) => {
         image.onload = resolve
@@ -205,7 +203,7 @@ export function ImageCropper({
                   <SelectItem value="1:1" className="text-xs sm:text-sm">正方形 (1:1)</SelectItem>
                   <SelectItem value="4:3" className="text-xs sm:text-sm">横長 (4:3)</SelectItem>
                   <SelectItem value="16:9" className="text-xs sm:text-sm">横長ワイド (16:9)</SelectItem>
-                  <SelectItem value="2:3" className="text-xs sm:text-sm">縦長 (2:3)</SelectItem>
+                    image={getPublicImageUrl(imageUrl) || imageUrl}
                   <SelectItem value="3:4" className="text-xs sm:text-sm">縦長 (3:4)</SelectItem>
                 </SelectContent>
               </Select>

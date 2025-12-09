@@ -392,7 +392,7 @@ export default function HomePage() {
     return shuffleArray(products.flatMap((product) => {
       return (product.images || []).map((img: any, idx: number) => {
         const bp = img?.basePath || null
-        const pu = getPublicImageUrl(img.url) || img.url
+        const pu = getPublicImageUrl(img.key || img.url) || img.key || img.url
         const image = bp ? (buildR2VariantFromBasePath(bp, 'thumb-400') || pu) : pu
         return ({ id: `${product.id}__${idx}`, productId: product.id, image: image || "/placeholder.svg", aspect: img.aspect || undefined, title: product.title, href: `/products/${product.slug}` })
       })
@@ -642,7 +642,7 @@ export default function HomePage() {
                   const sale = saleNameFor(product.id)
                   const img0: any = product.images?.[0] || null
                   const bp = img0?.basePath || null
-                  const raw = getPublicImageUrl(img0?.url) || img0?.url
+                  const raw = getPublicImageUrl(img0?.key || img0?.url) || img0?.key || img0?.url
                   const src = thumbnailFor(raw, 400, bp)
                   const webp = bp ? buildR2VariantFromBasePathWithFormat(bp, 'thumb-400', 'webp') : null
                   const jpg = bp ? buildR2VariantFromBasePathWithFormat(bp, 'thumb-400', 'jpg') : src
@@ -667,7 +667,7 @@ export default function HomePage() {
                   const sale = saleNameFor(product.id)
                   const img0: any = product.images?.[0] || null
                   const bp = img0?.basePath || null
-                  const raw = getPublicImageUrl(img0?.url) || img0?.url
+                  const raw = getPublicImageUrl(img0?.key || img0?.url) || img0?.key || img0?.url
                   const src = thumbnailFor(raw, 160, bp)
                   const webp = bp ? buildR2VariantFromBasePathWithFormat(bp, 'thumb-400', 'webp') : null
                   const jpg = bp ? buildR2VariantFromBasePathWithFormat(bp, 'thumb-400', 'jpg') : src
