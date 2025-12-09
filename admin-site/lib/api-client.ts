@@ -123,7 +123,17 @@ export async function apiFetch(path: string, init?: RequestInit) {
   if (res.status === 401) {
     try {
       const isAuthPath = path.startsWith('/api/auth') || path.includes('/api/auth/')
+      // Determine whether the client appears to have an existing session
+      let clientHasSession = false
+      try {
+        if (typeof window !== 'undefined') {
+          const local = window.localStorage.getItem('auth_user')
+          const maybe = window.localStorage.getItem('sb-access-token')
+          clientHasSession = !!local || !!maybe
+        }
+      } catch {}
       if (isAuthPath) {
+        // For auth paths, always surface unauthenticated so UI can react
         try { globalToast({ title: 'ログイン情報が見つけられなかったよ' }) } catch {}
         try { console.warn('[apiFetch] 401 on auth path — performing logout'); auth.logout().catch(() => {}) } catch {}
         throw new Error('unauthenticated')
@@ -153,8 +163,15 @@ export async function apiFetch(path: string, init?: RequestInit) {
         try { console.warn('[apiFetch] refresh attempt threw', e) } catch {}
       }
 
-      try { globalToast({ title: 'ログイン情報が見つけられなかったよ' }) } catch {}
-      try { console.warn('[apiFetch] 401 を検出しました — auth.logout を実行します'); auth.logout().catch(() => {}) } catch {}
+      // If the client did not previously have a session, don't force a logout
+      // flow — simply surface unauthenticated so pages that expect anonymous
+      // access can handle it without redirecting to login.
+      if (clientHasSession) {
+        try { globalToast({ title: 'ログイン情報が見つけられなかったよ' }) } catch {}
+        try { console.warn('[apiFetch] 401 を検出しました — auth.logout を実行します'); auth.logout().catch(() => {}) } catch {}
+      } else {
+        try { console.log('[apiFetch] 401 received for anonymous client — not forcing logout') } catch {}
+      }
     } catch (e) {}
     throw new Error('unauthenticated')
   }
