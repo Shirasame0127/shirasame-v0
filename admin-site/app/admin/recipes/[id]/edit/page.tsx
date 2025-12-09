@@ -916,7 +916,7 @@ export default function RecipeEditPage() {
           form.append("file", new File([blob], fileName, { type: blob.type || "image/png" }))
           form.append("target", "recipe")
 
-          const uploadResp = await fetch("/api/images/upload", { method: "POST", body: form, credentials: 'include' })
+          const uploadResp = await apiFetch('/api/images/upload', { method: 'POST', body: form })
           const uploadJson = await uploadResp.json().catch(() => null)
           if (uploadJson && uploadJson.ok && uploadJson.result) {
             // R2 path returns result: { url: publicUrl, key }

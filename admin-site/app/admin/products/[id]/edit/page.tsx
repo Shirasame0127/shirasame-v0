@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { db } from "@/lib/db/storage"
+import apiFetch from '@/lib/api-client'
 import { getPublicImageUrl } from "@/lib/image-url"
 
 type AffiliateTemplate = {
@@ -70,7 +71,7 @@ export default function ProductEditPage({ params }: { params: any }) {
     const fetchData = async () => {
       try {
         if (!id) throw new Error('Invalid product id')
-        const res = await fetch(`/api/admin/products/${id}`)
+        const res = await apiFetch(`/api/admin/products/${id}`)
         if (!res.ok) throw new Error("Failed to fetch product")
         const data = await res.json()
 
@@ -101,8 +102,8 @@ export default function ProductEditPage({ params }: { params: any }) {
           setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, url: img.url || '' })))
         }
         else {
-          try {
-            const pubRes = await fetch(`/api/products?id=${id}`)
+            try {
+            const pubRes = await apiFetch(`/api/products?id=${id}`)
             if (pubRes.ok) {
               const pubJson = await pubRes.json().catch(() => ({}))
               const pubData = Array.isArray(pubJson?.data) ? pubJson.data[0] : pubJson?.data
@@ -131,9 +132,9 @@ export default function ProductEditPage({ params }: { params: any }) {
   useEffect(() => {
     ;(async () => {
       try {
-        const [tagsRes, groupsRes] = await Promise.all([fetch('/api/tags'), fetch('/api/tag-groups')])
-        const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
-        const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
+        const [tagsRes, groupsRes] = await Promise.all([apiFetch('/api/tags'), apiFetch('/api/tag-groups')])
+          const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
+          const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
         const serverTags = Array.isArray(tagsJson) ? tagsJson : tagsJson.data || []
         const serverGroups = Array.isArray(groupsJson) ? groupsJson : groupsJson.data || []
         const finalTags = tagsRes.ok && Array.isArray(serverTags) && serverTags.length > 0 ? serverTags : db.tags.getAllWithPlaceholders()
@@ -266,7 +267,7 @@ export default function ProductEditPage({ params }: { params: any }) {
   const uploadFile = async (file: File) => {
     const fd = new FormData()
     fd.append('file', file)
-    const res = await fetch('/api/images/upload', { method: 'POST', body: fd })
+    const res = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
     if (!res.ok) {
       let errData: any = null
       try { errData = await res.json() } catch (e) { try { const txt = await res.text(); errData = { error: txt } } catch (e2) { errData = { error: 'unknown' } } }
@@ -374,7 +375,7 @@ export default function ProductEditPage({ params }: { params: any }) {
 
     try {
       if (!id) throw new Error('Invalid product id')
-      const res = await fetch(`/api/admin/products/${id}`, {
+      const res = await apiFetch(`/api/admin/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(productData),

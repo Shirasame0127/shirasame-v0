@@ -290,7 +290,7 @@ export default function AdminSettingsPage() {
     try {
       const fd = new FormData()
       fd.append("file", file)
-      const res = await fetch("/api/images/upload", { method: "POST", body: fd, credentials: 'include' })
+      const res = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
       const json = await res.json()
       // prefer returned key
       const uploadedKey = json?.result?.key || null
@@ -554,45 +554,14 @@ export default function AdminSettingsPage() {
     }
 
     if (avatarFile) {
-      try {
-        // If ImageUpload already returned a value, prefer to convert it to a canonical key.
-        if (avatarUploadedUrl) {
-          // If it's an absolute URL, try to extract the key path. Otherwise treat as key-like and normalize.
-          if (avatarUploadedUrl.startsWith('http')) {
-            try {
-              const u = new URL(avatarUploadedUrl)
-              let p = u.pathname.replace(/^\/+/, '')
-              // If path contains '/images/' ensure we store the subpath starting at images/
-              const idx = p.indexOf('images/')
-              if (idx >= 0) p = p.slice(idx)
-              updates.profileImageKey = p
-            } catch (e) {
-              // fallback: do not store full URL
-            }
-          } else {
-            // relative path or key-like value (e.g. '/images/...')
-            updates.profileImageKey = avatarUploadedUrl.replace(/^\/+/, '')
-          }
-        } else {
-          // No uploaded URL available yet: upload file to server and use returned key.
-          const fd = new FormData()
-          fd.append('file', avatarFile)
-          fd.append('target', 'profile')
-          const upl = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
-          if (!upl.ok) {
-            throw new Error('avatar upload failed')
-          }
-          const uplJson = await upl.json().catch(() => null)
-          const returnedKey = uplJson?.result?.key || uplJson?.key || uplJson?.id || null
-          if (returnedKey && typeof returnedKey === 'string') {
-            updates.profileImageKey = returnedKey.replace(/^\/+/, '')
-          } else {
-            throw new Error('avatar upload did not return key')
-          }
-        }
-      } catch (e) {
-        toast({ variant: 'destructive', title: 'アップロード失敗', description: 'プロフィール画像のアップロードに失敗しました' })
-        console.error('avatar upload/save failed', e)
+      // If the image was uploaded via ImageUpload and returned a URL, prefer that direct URL.
+      if (avatarUploadedUrl) {
+        updates.profileImage = avatarUploadedUrl
+      } else {
+        const avatarKey = `avatar-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        const avatarBase64 = await fileToBase64(avatarFile)
+        db.images.saveUpload(avatarKey, avatarBase64)
+        updates.profileImageKey = avatarKey
       }
     }
 

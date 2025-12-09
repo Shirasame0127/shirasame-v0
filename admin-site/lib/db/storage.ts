@@ -1,6 +1,6 @@
 import type { Product, Recipe, Collection, User, CustomFont } from "@/lib/db/schema"
 import { getPublicImageUrl } from "@/lib/image-url"
-import apiFetchBase from '@/lib/api-client'
+import apiFetchBase, { apiPath } from '@/lib/api-client'
 
 // Wrapper that uses shared api-client and attaches X-User-Id header when available
 async function apiFetch(method: string, path: string, body?: any) {
@@ -460,7 +460,14 @@ export const db = {
                 caches.imageUploads = { ...(caches.imageUploads || {}), [returnedKey]: caches.imageUploads[key] }
                 // Persist metadata explicitly (compat); public-worker may already have persisted
                 try {
-                  await apiFetch("POST", "/api/images/complete", { key: returnedKey })
+                  // Persist metadata by calling the admin proxy `/api/images/save` so browser-origin calls go through admin
+                  apiFetch('POST', '/api/images/save', { key: returnedKey })
+                    .then((r) => {
+                      if (!r) console.warn('[v0] images.saveUpload: server save failed')
+                    })
+                    .catch(() => {
+                      console.warn('[v0] images.saveUpload: server save failed')
+                    })
                 } catch (e) {
                   // ignore
                 }
@@ -474,9 +481,18 @@ export const db = {
 
         // If url is already a key or public URL, persist key-only
         const persistKey = (url && typeof url === 'string' && !url.startsWith('http') && !url.startsWith('/')) ? url : key
-        apiFetch("POST", "/api/images/complete", { key: persistKey }).then((r) => {
-          if (!r) console.warn("[v0] images.saveUpload: server save failed")
-        })
+        // Best-effort: call the images/complete endpoint via apiPath so BUILD_API_BASE is respected
+        try {
+          apiFetch('POST', '/api/images/save', { key: persistKey })
+            .then((r) => {
+              if (!r) console.warn('[v0] images.saveUpload: server save failed')
+            })
+            .catch(() => {
+              console.warn('[v0] images.saveUpload: server save failed')
+            })
+        } catch (e) {
+          console.warn('[v0] images.saveUpload: call failed', e)
+        }
         return persistKey
       } catch (err) {
         console.error('[v0] images.saveUpload error', err)
