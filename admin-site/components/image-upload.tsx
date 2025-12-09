@@ -225,7 +225,7 @@ export function ImageUpload({
                     : aspectRatioType === 'product'
                     ? 'product'
                     : 'other'
-                  const completeRes = await apiFetch('/api/images/complete', {
+                  const completeRes = await apiFetch('/api/images/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key: uploadedKey, filename: file.name, target: completeTarget, aspect: '1:1' }),
@@ -259,7 +259,7 @@ export function ImageUpload({
                   : aspectRatioType === 'product'
                   ? 'product'
                   : 'other'
-                await apiFetch('/api/images/complete', {
+                await apiFetch('/api/images/save', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ cf_id: (result as any).id, url: uploadedUrl, filename: file.name, target: completeTarget, aspect: '1:1' }),
@@ -435,7 +435,7 @@ export function ImageUpload({
                 : aspectRatioType === 'product'
                 ? 'product'
                 : 'other'
-              const completeRes = await apiFetch('/api/images/complete', {
+              const completeRes = await apiFetch('/api/images/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ key: uploadedKey, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
@@ -468,7 +468,7 @@ export function ImageUpload({
                 : aspectRatioType === 'product'
                 ? 'product'
                 : 'other'
-              await apiFetch('/api/images/complete', {
+              await apiFetch('/api/images/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ cf_id: cfId, url: uploadedUrl, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
