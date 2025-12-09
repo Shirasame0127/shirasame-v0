@@ -14,14 +14,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             Prefer same-origin relative `/api` so HttpOnly cookies are sent. */}
         {
           (() => {
-            // Production-safe injection: prefer an explicit NEXT_PUBLIC_API_BASE_URL
-            // when present. Only fall back to forcing behavior when NEXT_PUBLIC_FORCE_API_BASE
-            // is enabled. This ensures published Pages will call the canonical
-            // public worker without relying on client-side hacks.
-            const force = String(process.env.NEXT_PUBLIC_FORCE_API_BASE || 'false') === 'true'
-            const configuredBase = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE || ''
-            const base = configuredBase || (force ? (process.env.PUBLIC_WORKER_API_BASE || '') : '')
-            const script = `window.__env__ = window.__env__ || {}; window.__env__.API_BASE = ${JSON.stringify(base)}; window.__env__.FORCE_API_BASE = ${JSON.stringify(String(process.env.NEXT_PUBLIC_FORCE_API_BASE || 'false'))};`
+            // Hardcode the runtime API base to the canonical public worker
+            // origin so that published Pages always call the correct API
+            // and receive HttpOnly cookies from the worker. This is a
+            // deliberate, permanent setting agreed for production.
+            const base = 'https://api.shirasame.com'
+            const script = `window.__env__ = window.__env__ || {}; window.__env__.API_BASE = ${JSON.stringify(base)}; window.__env__.FORCE_API_BASE = "true";`
             return <script dangerouslySetInnerHTML={{ __html: script }} />
           })()
         }

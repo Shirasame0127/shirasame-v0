@@ -469,6 +469,18 @@ app.all('/api/*', async (c) => {
     try {
       const origPath = url.pathname || ''
       if (origPath === '/api/auth/logout' && c.req.method === 'POST') {
+        try {
+          // Require an authenticated user to perform logout.
+          const ctxUser = await getRequestUserId(c)
+          if (!ctxUser) {
+            const headers401 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+            return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), { status: 401, headers: headers401 })
+          }
+        } catch (e) {
+          // If token validation fails treat as unauthorized
+          const headers401 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+          return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), { status: 401, headers: headers401 })
+        }
         const headers = new Headers(Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env)))
         headers.set('Content-Type', 'application/json; charset=utf-8')
         headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure; Domain=.shirasame.com`)

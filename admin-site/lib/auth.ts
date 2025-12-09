@@ -70,40 +70,48 @@ export const auth = {
     if (this._bootstrapPromise) return this._bootstrapPromise
     this._bootstrapPromise = (async () => {
       try {
-        // Try whoami first against configured API base
-        let who = null
+        // If on the admin login page and the client does not have a local
+        // access token, avoid performing refresh or other API calls — only
+        // a direct whoami check is allowed in other contexts. This keeps the
+        // login page quiet and prevents unwanted API activity.
         try {
-          const r = await fetch(apiPath('/api/auth/whoami'), { credentials: 'include' })
-          if (r && r.ok) {
-            try { who = await r.json().catch(() => null) } catch {}
-            if (who?.user) {
-              writeLocalUser({ id: who.user.id, email: who.user.email || null })
-              return
+          const onLoginPage = typeof window !== 'undefined' && window.location && window.location.pathname && window.location.pathname.startsWith('/admin/login')
+          // Detect whether a client-side token exists (localStorage or supabase session)
+          let clientHasToken = false
+          try {
+            // @ts-ignore
+            const sess = (window as any).__SUPABASE_SESSION
+            if (sess && sess.access_token) clientHasToken = true
+          } catch {}
+          try {
+            if (!clientHasToken && typeof localStorage !== 'undefined') {
+              const maybe = localStorage.getItem('sb-access-token')
+              if (maybe) clientHasToken = true
             }
-          }
-        } catch (e) {
-          console.warn('[auth] whoami fetch error', e)
-        }
+          } catch {}
 
-        // If whoami didn't return an authenticated user, try refresh via cookie against API base.
-        try {
-          const rv = await fetch(apiPath('/api/auth/refresh'), { method: 'POST', credentials: 'include' })
-          if (rv && rv.ok) {
-            try {
-              const r2 = await fetch(apiPath('/api/auth/whoami'), { credentials: 'include' })
-              if (r2 && r2.ok) {
-                const who2 = await r2.json().catch(() => null)
-                if (who2?.user) {
-                  writeLocalUser({ id: who2.user.id, email: who2.user.email || null })
-                  return
-                }
-              }
-            } catch (e) {
-              console.warn('[auth] whoami after refresh error', e)
-            }
+          if (onLoginPage && !clientHasToken) {
+            // Do nothing on login page if no client token is present.
+            return
           }
+
+          // Otherwise perform a single whoami check to determine auth state.
+          try {
+            const r = await fetch(apiPath('/api/auth/whoami'), { credentials: 'include' })
+            if (r && r.ok) {
+              const who = await r.json().catch(() => null)
+              if (who?.user) {
+                writeLocalUser({ id: who.user.id, email: who.user.email || null })
+                return
+              }
+            }
+          } catch (e) {
+            console.warn('[auth] whoami fetch error', e)
+          }
+          // Note: do NOT attempt automatic refresh here — refresh is tried
+          // only when an API call returns 401 and apiFetch triggers a refresh.
         } catch (e) {
-          console.warn('[auth] refresh fetch error', e)
+          console.warn('[auth] bootstrap check error', e)
         }
       } catch (e) {
         console.warn('[auth] bootstrap error', e)
