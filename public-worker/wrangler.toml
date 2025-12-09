@@ -62,6 +62,10 @@ PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"
 name = "public-worker"
 # Production-specific overrides can go here. We mirror top-level vars/bindings
 # into the production env so `--env production` deploys with the correct config.
+# Bind this worker to the production API custom domain so cookies can be set
+# from https://api.shirasame.com. Actual route creation may require Cloudflare
+# API token permissions when publishing.
+routes = ["https://api.shirasame.com/*"]
 
 [[env.production.r2_buckets]]
 binding = "IMAGES"

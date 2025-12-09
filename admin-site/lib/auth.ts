@@ -1,4 +1,32 @@
 import supabaseClient from '@/lib/supabase/client'
+import apiFetch, { apiPath } from '@/lib/api-client'
+
+// Helper: send session tokens to server; try same-origin apiPath first,
+// then fall back to explicit public-worker origin if the POST is rejected
+// (e.g., Pages returning 405 for that path).
+async function sendSessionToServer(session: { access_token?: string; refresh_token?: string } | null) {
+  const payload = JSON.stringify({ access_token: session?.access_token || '', refresh_token: session?.refresh_token || '' })
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' }
+
+  // 1) Try resolved apiPath (may be same-origin or external depending on build/runtime)
+  try {
+    const target = apiPath('/api/auth/session')
+    const res = await fetch(target, { method: 'POST', credentials: 'include', headers, body: payload, redirect: 'manual' })
+    if (res && res.status === 200) return res
+  } catch (e) {
+    // swallow and try fallback
+  }
+
+  // 2) Fallback: try explicit public-worker origin (production canonical)
+  try {
+    const base = (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.PUBLIC_WORKER_API_BASE || 'https://public-worker.shirasame-official.workers.dev').toString().replace(/\/$/, '')
+    const fallback = base + '/api/auth/session'
+    const res2 = await fetch(fallback, { method: 'POST', credentials: 'include', headers, body: payload, redirect: 'manual' })
+    return res2
+  } catch (e) {
+    throw e
+  }
+}
 
 export type AuthUser = {
   id: string
@@ -42,10 +70,10 @@ export const auth = {
     if (this._bootstrapPromise) return this._bootstrapPromise
     this._bootstrapPromise = (async () => {
       try {
-        // Try whoami first
+        // Try whoami first against configured API base
         let who = null
         try {
-          const r = await fetch('/api/auth/whoami', { credentials: 'include' })
+          const r = await fetch(apiPath('/api/auth/whoami'), { credentials: 'include' })
           if (r && r.ok) {
             try { who = await r.json().catch(() => null) } catch {}
             if (who?.user) {
@@ -57,12 +85,12 @@ export const auth = {
           console.warn('[auth] whoami fetch error', e)
         }
 
-        // If whoami didn't return an authenticated user, try refresh via cookie.
+        // If whoami didn't return an authenticated user, try refresh via cookie against API base.
         try {
-          const rv = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+          const rv = await fetch(apiPath('/api/auth/refresh'), { method: 'POST', credentials: 'include' })
           if (rv && rv.ok) {
             try {
-              const r2 = await fetch('/api/auth/whoami', { credentials: 'include' })
+              const r2 = await fetch(apiPath('/api/auth/whoami'), { credentials: 'include' })
               if (r2 && r2.ok) {
                 const who2 = await r2.json().catch(() => null)
                 if (who2?.user) {
@@ -122,31 +150,38 @@ export const auth = {
       const session = data?.session
       if (session?.access_token) {
         try {
-          // Persist session server-side by POSTing to same-origin `/api/auth/session`.
-          // Use same-origin fetch so HttpOnly cookies are set for the admin domain.
+          // Persist session server-side by POSTing to API base `/api/auth/session`.
+          const res = await sendSessionToServer({ access_token: session.access_token, refresh_token: session.refresh_token })
+          if (!res || res.status !== 200) {
+            let msg = 'サーバーにセッションを保存できませんでした'
+            try { const j = await (res?.json?.() ?? Promise.resolve(null)).catch(() => null); if (j?.error) msg = j.error } catch(e) {}
+            return { success: false, error: msg }
+          }
+
+          // Do not treat login as successful until we can verify via whoami
           try {
-            const res = await fetch('/api/auth/session', {
-              method: 'POST',
-              credentials: 'include',
-              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-              body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-            })
-            if (res.status !== 200) {
-              let msg = 'サーバーにセッションを保存できませんでした'
-              try { const j = await res.json().catch(() => null); if (j?.error) msg = j.error } catch(e) {}
-              return { success: false, error: msg }
+            const whoRes = await fetch(apiPath('/api/auth/whoami'), { credentials: 'include' })
+            if (!whoRes || !whoRes.ok) {
+              return { success: false, error: 'ログイン検証に失敗しました' }
             }
+            const whoJson = await whoRes.json().catch(() => null)
+            if (!whoJson || !whoJson.ok || !whoJson.user || !whoJson.user.id) {
+              return { success: false, error: 'ログイン検証に失敗しました' }
+            }
+            // Verified — write local mirror and return success
+            writeLocalUser({ id: whoJson.user.id, email: whoJson.user.email || null })
+            return { success: true, user: { id: whoJson.user.id, email: whoJson.user.email || null } }
           } catch (e) {
-            console.warn('[auth] failed to set server session cookie', e)
-            return { success: false, error: 'サーバーに接続できませんでした' }
+            console.warn('[auth] whoami after session set failed', e)
+            return { success: false, error: 'ログイン検証に失敗しました' }
           }
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
           return { success: false, error: 'サーバーに接続できませんでした' }
         }
       }
-      writeLocalUser(authUser) // keep minimal local mirror for compatibility (not used for security)
-      return { success: true, user: authUser }
+      // No session tokens available from supabase response — treat as failure
+      return { success: false, error: 'セッションが取得できませんでした' }
     } catch (e: any) {
       console.error('[auth] login exception', e)
       return { success: false, error: String(e) }
@@ -200,30 +235,30 @@ export const auth = {
       const session = data?.session
       if (session?.access_token) {
         try {
-          // Determine whether /api/auth/session resolves to external API base.
+          const res = await sendSessionToServer({ access_token: session.access_token, refresh_token: session.refresh_token })
+          if (!res || res.status !== 200) {
+            let msg = 'サーバーにセッションを保存できませんでした'
+            try { const j = await (res?.json?.() ?? Promise.resolve(null)).catch(() => null); if (j?.error) msg = j.error } catch(e) {}
+            return { success: false, error: msg }
+          }
+          // verify via whoami
           try {
-            const res = await fetch('/api/auth/session', {
-              method: 'POST',
-              credentials: 'include',
-              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-              body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-            })
-            if (res.status !== 200) {
-              let msg = 'サーバーにセッションを保存できませんでした'
-              try { const j = await res.json().catch(() => null); if (j?.error) msg = j.error } catch(e) {}
-              return { success: false, error: msg }
-            }
+            const whoRes = await fetch(apiPath('/api/auth/whoami'), { credentials: 'include' })
+            if (!whoRes || !whoRes.ok) return { success: false, error: 'ログイン検証に失敗しました' }
+            const whoJson = await whoRes.json().catch(() => null)
+            if (!whoJson || !whoJson.ok || !whoJson.user || !whoJson.user.id) return { success: false, error: 'ログイン検証に失敗しました' }
+            writeLocalUser({ id: whoJson.user.id, email: whoJson.user.email || null })
+            return { success: true, user: { id: whoJson.user.id, email: whoJson.user.email || null } }
           } catch (e) {
-            console.warn('[auth] failed to set server session cookie', e)
-            return { success: false, error: 'サーバーに接続できませんでした' }
+            console.warn('[auth] whoami after session set failed', e)
+            return { success: false, error: 'ログイン検証に失敗しました' }
           }
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
           return { success: false, error: 'サーバーに接続できませんでした' }
         }
       }
-      writeLocalUser(authUser)
-      return { success: true, user: authUser }
+      return { success: false, error: 'セッションが取得できませんでした' }
     } catch (e: any) {
       console.error('[auth] signup exception', e)
       return { success: false, error: String(e) }
@@ -286,7 +321,7 @@ export const auth = {
   // Try to refresh session server-side using refresh token cookie
   refresh: async (): Promise<{ success: boolean; error?: string }> => {
     try {
-      const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+      const res = await fetch(apiPath('/api/auth/refresh'), { method: 'POST', credentials: 'include' })
       if (!res.ok) {
         // Treat refresh as an internal helper only. Do not perform logout
         // or redirect here — UI login state must be determined via

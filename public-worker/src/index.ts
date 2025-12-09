@@ -55,19 +55,19 @@ app.use('/api/admin/*', async (c, next) => {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
       }
       if (!verified) {
-        if (debug) try { console.log('admin-auth middleware: token verification failed') } catch {}
+        if (debug) try { console.log('admin-auth middleware: token verification failed') } catch (e) {}
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
         return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
       }
       if (verified !== headerUser) {
-        if (debug) try { console.log('admin-auth middleware: token user mismatch header=', headerUser, 'tokenUser=', verified) } catch {}
+        if (debug) try { console.log('admin-auth middleware: token user mismatch header=', headerUser, 'tokenUser=', verified) } catch (e) {}
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
         return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
       }
       // matched
-      try { c.set && c.set('userId', verified) } catch {}
+      try { c.set && c.set('userId', verified) } catch (e) {}
       return await next()
     }
 
@@ -94,10 +94,31 @@ function computeCorsHeaders(origin: string | null, env: any) {
   const allowed = ((env as any).PUBLIC_ALLOWED_ORIGINS || '').split(',').map((s: string) => s.trim()).filter(Boolean)
   let acOrigin = '*'
   if (origin) {
+    // If origin explicitly allowed or wildcard configured, echo it.
     if (allowed.length === 0 || allowed.indexOf('*') !== -1 || allowed.indexOf(origin) !== -1) {
       acOrigin = origin
     } else if (allowed.length > 0) {
-      acOrigin = allowed[0]
+      // If origin is a Cloudflare Pages domain (endsWith .pages.dev) allow it
+      // to support public static sites without needing env changes.
+      try {
+        const u = new URL(origin)
+        if (u.hostname.endsWith('.pages.dev')) {
+          acOrigin = origin
+        } else {
+          acOrigin = allowed[0]
+        }
+      } catch (e) {
+        // If URL parsing fails, also allow any origin string that contains '.pages.dev'
+        try {
+          if (typeof origin === 'string' && origin.indexOf('.pages.dev') !== -1) {
+            acOrigin = origin
+          } else {
+            acOrigin = allowed[0]
+          }
+        } catch (ee) {
+          acOrigin = allowed[0]
+        }
+      }
     }
   } else if (allowed.length > 0) {
     acOrigin = allowed[0]
@@ -283,6 +304,94 @@ function makeUpstreamHeaders(c: any): Record<string, string> {
 app.all('/api/*', async (c) => {
   try {
     const url = new URL(c.req.url)
+    const origPath = url.pathname || ''
+    // If the request maps to auth endpoints (which we implement under
+    // `/api/auth/*`) then we should not proxy/strip the `/api` prefix here.
+    // Some clients call `/api/*` and the proxy strips `/api` resulting in
+    // requests to `/auth/*` which do not exist; accept both variants by
+    // handling `/auth/*` equivalents here.
+    if (origPath.startsWith('/api/auth/') || origPath.startsWith('/auth/')) {
+      // Normalize to the canonical /api/auth/* path and dispatch locally
+      // to avoid forwarding to an upstream that doesn't exist.
+      const normalized = origPath.startsWith('/api/') ? origPath : '/api' + origPath
+      // Create a lightweight in-place dispatch for a few auth endpoints
+      // to ensure compatibility with clients that hit /api/* proxy.
+      if (normalized === '/api/auth/session' && c.req.method === 'POST') {
+        try {
+          const payload = await c.req.json().catch(() => ({}))
+          const access = payload?.access_token || ''
+          const refresh = payload?.refresh_token || ''
+          if (!access) {
+            const headers400 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+            return new Response(JSON.stringify({ ok: false, error: 'missing_access_token' }), { status: 400, headers: headers400 })
+          }
+          const origin = c.req.header('Origin') || null
+          const headers = new Headers(Object.assign({}, computeCorsHeaders(origin, c.env), { 'Content-Type': 'application/json; charset=utf-8' }))
+          const cookieOpts = 'Path=/; HttpOnly; Secure; SameSite=Lax; Domain=.shirasame.com'
+          headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(access)}; ${cookieOpts}`)
+          if (refresh) headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(refresh)}; ${cookieOpts}`)
+          return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+        } catch (e: any) {
+          const headersErr = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+          return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: headersErr })
+        }
+      }
+      if (normalized === '/api/auth/whoami' && c.req.method === 'GET') {
+        try {
+          const user = await getUserFromRequest(c)
+          if (!user) {
+            const headers401 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+            return new Response(JSON.stringify({ ok: false }), { status: 401, headers: headers401 })
+          }
+          const headers200 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+          return new Response(JSON.stringify({ ok: true, user }), { status: 200, headers: headers200 })
+        } catch (e: any) {
+          const headersErr = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+          return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: headersErr })
+        }
+      }
+      if (normalized === '/api/auth/refresh' && c.req.method === 'POST') {
+        try {
+          // Perform existing refresh logic inline: read sb-refresh-token cookie and call Supabase token endpoint
+          const cookieHeader = c.req.header('cookie') || ''
+          const match = cookieHeader.split(';').map((s: string) => s.trim()).find((s: string) => s.startsWith('sb-refresh-token='))
+          const refreshToken = match ? decodeURIComponent(match.split('=')[1]) : null
+          if (!refreshToken) {
+            const headers401 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+            return new Response(JSON.stringify({ ok: false, error: 'no_refresh_token' }), { status: 401, headers: headers401 })
+          }
+          const supabaseBase = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+          const anonKey = (c.env.SUPABASE_ANON_KEY || '')
+          const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '') || null
+          if (!supabaseBase) {
+            const headers500 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+            return new Response(JSON.stringify({ ok: false, error: 'SUPABASE_URL not configured' }), { status: 500, headers: headers500 })
+          }
+          const tokenUrl = `${supabaseBase}/auth/v1/token`
+          const body = `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`
+          const reqHeaders: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded', 'apikey': anonKey as string }
+          if (serviceKey) reqHeaders['Authorization'] = 'Bearer ' + serviceKey
+          const tokenRes = await fetch(tokenUrl, { method: 'POST', headers: reqHeaders, body })
+          const tokenJson = await tokenRes.json().catch(() => null)
+          if (!tokenRes.ok || !tokenJson) {
+            const headers401 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+            return new Response(JSON.stringify({ ok: false, error: tokenJson || 'token_refresh_failed' }), { status: 401, headers: headers401 })
+          }
+          const accessToken = tokenJson.access_token || null
+          const newRefreshToken = tokenJson.refresh_token || null
+          const origin = c.req.header('Origin') || null
+          const headers = new Headers(Object.assign({}, computeCorsHeaders(origin, c.env), { 'Content-Type': 'application/json; charset=utf-8' }))
+          const cookieOpts = 'Path=/; HttpOnly; Secure; SameSite=Lax; Domain=.shirasame.com'
+          if (accessToken) headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(accessToken)}; ${cookieOpts}`)
+          if (newRefreshToken) headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(newRefreshToken)}; ${cookieOpts}`)
+          return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+        } catch (e: any) {
+          const headersErr = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+          return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: headersErr })
+        }
+      }
+      // If we didn't match an explicit auth subpath, fall through to the normal proxy below
+    }
     // If client called `/api/auth/logout` the proxy would normally strip
     // `/api` and forward to `/auth/logout` — but since many handlers are
     // registered after this proxy, forwarded paths may miss their target.
@@ -293,8 +402,8 @@ app.all('/api/*', async (c) => {
       if (origPath === '/api/auth/logout' && c.req.method === 'POST') {
         const headers = new Headers(Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env)))
         headers.set('Content-Type', 'application/json; charset=utf-8')
-        headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
-        headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+        headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure; Domain=.shirasame.com`)
+        headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure; Domain=.shirasame.com`)
         return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
       }
     } catch (e) {}
@@ -2406,7 +2515,7 @@ app.post('/api/auth/session', async (c) => {
     const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
     // Ensure cookies are scoped to the admin domain so the browser will send
     // them when calling admin-side APIs (whoami). Do NOT log token values.
-    const cookieOpts = 'Path=/; HttpOnly; Secure; SameSite=None; Domain=.shirasame.com'
+    const cookieOpts = 'Path=/; HttpOnly; Secure; SameSite=Lax; Domain=.shirasame.com'
     headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(access)}; ${cookieOpts}`)
     if (refresh) headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(refresh)}; ${cookieOpts}`)
 
@@ -2422,6 +2531,8 @@ app.post('/api/auth/refresh', async (c) => {
     const cookieHeader = c.req.header('cookie') || ''
     const match = cookieHeader.split(';').map((s: string) => s.trim()).find((s: string) => s.startsWith('sb-refresh-token='))
     const refreshToken = match ? decodeURIComponent(match.split('=')[1]) : null
+    try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('[api/auth/refresh] incoming cookie header:', cookieHeader ? cookieHeader.split(';').map(s=>s.trim())[0] : '<none>') } catch {}
+    try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('[api/auth/refresh] refresh token preview:', refreshToken ? `${refreshToken.slice(0,8)}... len=${refreshToken.length}` : '<none>') } catch {}
     if (!refreshToken) return new Response(JSON.stringify({ ok: false, error: 'no_refresh_token' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
     const supabaseBase = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
@@ -2439,6 +2550,7 @@ app.post('/api/auth/refresh', async (c) => {
 
     const tokenRes = await fetch(tokenUrl, { method: 'POST', headers: reqHeaders, body })
     const tokenJson = await tokenRes.json().catch(() => null)
+    try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('[api/auth/refresh] supabase token endpoint responded status=', tokenRes.status, 'json_preview=', JSON.stringify(tokenJson).slice(0,400)) } catch {}
     if (!tokenRes.ok || !tokenJson) return new Response(JSON.stringify({ ok: false, error: tokenJson || 'token_refresh_failed' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
     const accessToken = tokenJson.access_token || null
@@ -2447,6 +2559,7 @@ app.post('/api/auth/refresh', async (c) => {
 
     const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
     const cookieBase = 'Path=/; HttpOnly; Secure; SameSite=None; Domain=.shirasame.com'
+    try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('[api/auth/refresh] setting cookies accessTokenLen=', accessToken ? accessToken.length : 0, 'newRefreshLen=', newRefresh ? newRefresh.length : 0) } catch {}
     if (accessToken) {
       const maxAge = expiresIn && expiresIn > 0 ? Math.min(expiresIn, 60 * 60 * 24 * 7) : 60 * 60 * 24 * 7
       headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(accessToken)}; ${cookieBase}; Max-Age=${maxAge}`)
@@ -2465,8 +2578,8 @@ app.post('/api/auth/refresh', async (c) => {
 app.post('/api/auth/logout', async (c) => {
   try {
     const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
-    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
-    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure; Domain=.shirasame.com`)
+    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure; Domain=.shirasame.com`)
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
