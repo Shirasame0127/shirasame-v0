@@ -33,38 +33,6 @@ async function maybeCompressClientFile(file: File) {
   }
 }
 
-// Ensure file has a sensible filename with extension. If missing, try to infer
-// extension from MIME type and return a new File with that name. Falls back
-// to the original file on failure.
-async function ensureFileHasExtension(file: File) {
-  try {
-    const hasExt = /\.[a-zA-Z0-9]+$/.test(file.name || '')
-    if (hasExt) return file
-    const mime = (file.type || '').toLowerCase()
-    const mimeToExt: Record<string, string> = {
-      'image/jpeg': 'jpg',
-      'image/jpg': 'jpg',
-      'image/png': 'png',
-      'image/gif': 'gif',
-      'image/webp': 'webp',
-      'image/svg+xml': 'svg'
-    }
-    let ext = mimeToExt[mime] || (mime && mime.split('/')[1]) || ''
-    ext = ext.replace(/[^a-z0-9]/gi, '')
-    if (!ext) return file
-    const base = (file.name || 'upload').replace(/[^a-zA-Z0-9._-]/g, '_')
-    const newName = `${base}.${ext}`
-    try {
-      return new File([file], newName, { type: file.type })
-    } catch (e) {
-      // Some environments may not support File constructor with blobs; fallback
-      return file
-    }
-  } catch (e) {
-    return file
-  }
-}
-
 interface ImageUploadProps {
   value?: string
   onChange: (file: File) => void
@@ -113,9 +81,7 @@ export function ImageUpload({
 
         ;(async () => {
           // reuse the same upload logic as handleCropComplete for GIFs (upload original)
-            const trySignedUpload = async (fileToUpload: File) => {
-              // normalize filename before upload to avoid blob/local placeholder names
-              fileToUpload = await ensureFileHasExtension(fileToUpload)
+          const trySignedUpload = async (fileToUpload: File) => {
             try {
               const signRes = await apiFetch('/api/images/direct-upload', { method: 'POST' })
               if (!signRes.ok) throw new Error('Failed to get direct upload URL')
@@ -151,7 +117,7 @@ export function ImageUpload({
             }
           }
 
-                fileToUpload = await ensureFileHasExtension(fileToUpload)
+          const fallbackProxyUpload = async (fileToUpload: File) => {
             const fd = new FormData()
             fd.append('file', fileToUpload)
             const target = aspectRatioType === 'profile'
@@ -281,8 +247,7 @@ export function ImageUpload({
 
     // Try direct signed upload to Cloudflare Images; fallback to server proxy if needed
     ;(async () => {
-        // normalize filename before upload
-        file = await ensureFileHasExtension(file)
+      const trySignedUpload = async (file: File) => {
         try {
           const signRes = await apiFetch('/api/images/direct-upload', { method: 'POST' })
           if (!signRes.ok) throw new Error('Failed to get direct upload URL')
@@ -318,7 +283,7 @@ export function ImageUpload({
         }
       }
 
-          file = await ensureFileHasExtension(file)
+        const fallbackProxyUpload = async (file: File) => {
         const fd = new FormData()
         fd.append('file', file)
         // include target so server knows the intended purpose of the image
