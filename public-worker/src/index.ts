@@ -35,52 +35,20 @@ export type Env = {
 const app = new Hono<{ Bindings: Env }>()
 
 // Admin authentication middleware: enforce JWT <-> X-User-Id matching
+// Admin routes MUST only accept requests authenticated by a verified
+// user token. Do NOT accept user_id from headers/payload/queries as the
+// authority for admin operations.
 app.use('/api/admin/*', async (c, next) => {
   try {
-    const env = c.env as any
-    const debug = env.DEBUG_WORKER === 'true'
-    // Extract header user id
-    const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
-    // Extract token from Authorization or cookie
-    const token = await getTokenFromRequest(c)
-    if (debug) {
-      try { console.log('admin-auth middleware: headerUser=', headerUser, 'tokenPresent=', !!token) } catch {}
+    // Require a verified token and set userId on context. Reject otherwise.
+    const userId = await getRequestUserId(c)
+    if (!userId) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
     }
-    // If headerUser is present, require token and ensure match.
-    const verified = token ? await verifyTokenWithSupabase(token, c) : null
-    if (headerUser) {
-      if (!token) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
-      }
-      if (!verified) {
-        if (debug) try { console.log('admin-auth middleware: token verification failed') } catch (e) {}
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
-      }
-      if (verified !== headerUser) {
-        if (debug) try { console.log('admin-auth middleware: token user mismatch header=', headerUser, 'tokenUser=', verified) } catch (e) {}
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
-      }
-      // matched
-      try { c.set && c.set('userId', verified) } catch (e) {}
-      return await next()
-    }
-
-    // No headerUser: allow cookie/token-only flows if token verifies
-    if (verified) {
-      try { c.set && c.set('userId', verified) } catch {}
-      return await next()
-    }
-
-    // No headerUser and no valid token -> unauthorized
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
+    try { c.set && c.set('userId', userId) } catch {}
+    return await next()
   } catch (e) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
@@ -760,17 +728,18 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
       }
     }
 
-    // 2) If internal key present, trust payload.userId or x-user-id header
+    // 2) If internal key present, allow internal (machine) access but do
+    // NOT accept user identifiers coming from request body/header as the
+    // authority for which user's data to act upon. Internal callers must
+    // perform server-side operations that do not impersonate users via
+    // request-supplied user_id. Therefore, return trusted internal-key
+    // identity without a userId (downstream handlers must not use payload
+    // user_id to authorize actions).
     const provided = c.req.header('x-internal-key') || c.req.header('X-Internal-Key') || ''
     const expected = (c.env.INTERNAL_API_KEY || '').toString()
     const hasValidInternalKey = !!(expected && provided && provided === expected)
     if (hasValidInternalKey) {
-      // prefer explicit payload.userId, then x-user-id header
-      let uid: string | null = null
-      if (payload && (payload.userId || payload.user_id)) uid = (payload.userId || payload.user_id)
-      const headerUser = c.req.header('x-user-id') || c.req.header('X-User-Id') || ''
-      if (!uid && headerUser) uid = headerUser
-      return { userId: uid || null, authType: 'internal-key', trusted: true }
+      return { userId: null, authType: 'internal-key', trusted: true }
     }
 
     // 3) x-user-id alone is not trusted for write operations. Treat as none.
@@ -919,6 +888,50 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
       return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
     }
   })
+})
+
+// Admin: return or update authenticated user's `users` record
+app.get('/api/admin/me', async (c) => {
+  try {
+    const userId = await getRequestUserId(c)
+    if (!userId) {
+      const headers401 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), { status: 401, headers: headers401 })
+    }
+    const supabase = getSupabase(c.env)
+    const { data, error } = await supabase.from('users').select('id, email, username, display_name, bio, created_at, updated_at').eq('id', userId).limit(1)
+    const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    if (error) return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500, headers })
+    return new Response(JSON.stringify({ ok: true, user: (data && data[0]) || null }), { status: 200, headers })
+  } catch (e: any) {
+    const headersErr = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: headersErr })
+  }
+})
+
+app.put('/api/admin/me', async (c) => {
+  try {
+    const userId = await getRequestUserId(c)
+    if (!userId) {
+      const headers401 = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), { status: 401, headers: headers401 })
+    }
+    const payload = await c.req.json().catch(() => ({}))
+    // Do not allow client to set id, role, service fields
+    const allowed: Record<string, any> = {}
+    const updatable = ['username', 'display_name', 'bio']
+    for (const k of updatable) {
+      if (Object.prototype.hasOwnProperty.call(payload, k)) allowed[k] = payload[k]
+    }
+    const supabase = getSupabase(c.env)
+    const { data, error } = await supabase.from('users').update(allowed).eq('id', userId).select('id, email, username, display_name, bio, created_at, updated_at').limit(1)
+    const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    if (error) return new Response(JSON.stringify({ ok: false, error: error.message }), { status: 500, headers })
+    return new Response(JSON.stringify({ ok: true, user: (data && data[0]) || null }), { status: 200, headers })
+  } catch (e: any) {
+    const headersErr = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: headersErr })
+  }
 })
 
 // /profile
@@ -1763,8 +1776,13 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
   return cacheJson(c, key, async () => {
     try {
       let query = supabase.from('products').select(shallow ? shallowSelect : baseSelect)
-      if (id) query = supabase.from('products').select(shallow ? shallowSelect : baseSelect).eq('id', id)
-      else if (slug) query = supabase.from('products').select(shallow ? shallowSelect : baseSelect).eq('slug', slug)
+      // If caller requested a specific id/slug and the request is authenticated
+      // as a user, enforce that the returned product belongs to that user.
+      if (id) {
+        query = supabase.from('products').select(shallow ? shallowSelect : baseSelect).eq('id', id)
+      } else if (slug) {
+        query = supabase.from('products').select(shallow ? shallowSelect : baseSelect).eq('slug', slug)
+      }
       else if (tag) query = supabase.from('products').select(shallow ? shallowSelect : baseSelect).contains('tags', [tag])
       else if (published) query = supabase.from('products').select(shallow ? shallowSelect : baseSelect).eq('published', true)
 
@@ -1772,12 +1790,20 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
       // Prefer authenticated user scope when available; otherwise fall back to PUBLIC_OWNER_USER_ID for single-owner sites
       const ctx = await resolveRequestUserContext(c)
       const reqUserId = ctx.trusted ? ctx.userId : null
+      // If no specific id/slug requested, scope list to the user or PUBLIC_OWNER
       if (!id && !slug) {
         if (reqUserId) {
           query = query.eq('user_id', reqUserId)
         } else {
           const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
           if (ownerId) query = query.eq('user_id', ownerId)
+        }
+      } else {
+        // If requesting a specific resource and the caller is authenticated
+        // as a user, ensure the query also filters by that user's id so that
+        // other users' resources cannot be retrieved by id/slug.
+        if (reqUserId) {
+          query = query.eq('user_id', reqUserId)
         }
       }
 
