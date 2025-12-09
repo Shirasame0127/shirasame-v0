@@ -94,7 +94,26 @@ export default function AdminSettingsPage() {
   // Sanitize server-provided user row into a client-friendly updates object
   function sanitizeServerUserForCache(srv: any) {
     if (!srv) return {}
-    const headerKeys = srv.header_image_keys || srv.headerImageKeys || []
+    const headerKeysRaw = srv.header_image_keys || srv.headerImageKeys || srv.headerImages || srv.headerImage || srv.headerImageKey || []
+    function extractKeyFromUrl(u: any) {
+      if (!u || typeof u !== 'string') return null
+      try {
+        const url = new URL(u)
+        let p = url.pathname.replace(/^\/+/, '')
+        p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
+        return p || null
+      } catch (e) {
+        if (u.includes('/')) return u
+        return null
+      }
+    }
+
+    const headerKeys = Array.isArray(headerKeysRaw)
+      ? headerKeysRaw.map(extractKeyFromUrl).filter(Boolean)
+      : typeof headerKeysRaw === 'string'
+      ? [extractKeyFromUrl(headerKeysRaw)].filter(Boolean)
+      : []
+
     return {
       displayName: srv.display_name || srv.displayName || srv.name || null,
       bio: srv.bio || null,
@@ -105,10 +124,23 @@ export default function AdminSettingsPage() {
       profileImage: null,
       profileImageKey: srv.profile_image_key || srv.profileImageKey || null,
       avatarUrl: null,
-      headerImageKeys: Array.isArray(headerKeys) ? headerKeys : headerKeys ? [headerKeys] : [],
+      headerImageKeys: headerKeys,
       amazonAccessKey: srv.access_key || srv.amazon_access_key || srv.amazonAccessKey || null,
       amazonSecretKey: srv.secret_key || srv.amazon_secret_key || srv.amazonSecretKey || null,
       amazonAssociateId: srv.associate_id || srv.amazon_associate_id || srv.amazonAssociateId || null,
+    }
+  }
+
+  // Helper used elsewhere in this module to convert CDN/full URLs into R2 keys when possible
+  function extractKey(u: any) {
+    if (!u) return null
+    try {
+      const url = new URL(u)
+      let p = url.pathname.replace(/^\/+/, '')
+      p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
+      return p || null
+    } catch (e) {
+      return typeof u === 'string' && u.includes('/') ? u : null
     }
   }
 
@@ -130,9 +162,8 @@ export default function AdminSettingsPage() {
           setAmazonAccessKey(serverUser.amazonAccessKey || "")
           setAmazonSecretKey(serverUser.amazonSecretKey || "")
           setAmazonAssociateId(serverUser.amazonAssociateId || "")
-          setHeaderImageKeys(
-            serverUser.headerImageKeys || serverUser.headerImages || (serverUser.headerImage ? [serverUser.headerImage] : []) || (serverUser.headerImageKey ? [serverUser.headerImageKey] : []),
-          )
+          const headerKeysFromServer = serverUser.headerImageKeys || (Array.isArray(serverUser.headerImages) ? serverUser.headerImages.map(extractKey).filter(Boolean) : serverUser.headerImageKey ? [serverUser.headerImageKey] : serverUser.headerImage ? [extractKey(serverUser.headerImage)].filter(Boolean) : [])
+          setHeaderImageKeys(headerKeysFromServer)
           // If server provides direct profile image URL, prefer it
           if (serverUser.profileImage) setAvatarUploadedUrl(serverUser.profileImage)
           return
@@ -151,9 +182,7 @@ export default function AdminSettingsPage() {
           setAmazonAccessKey(currentUser.amazonAccessKey || "")
           setAmazonSecretKey(currentUser.amazonSecretKey || "")
           setAmazonAssociateId(currentUser.amazonAssociateId || "")
-          setHeaderImageKeys(
-            currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []),
-          )
+          setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
           if (currentUser.profileImage) setAvatarUploadedUrl(currentUser.profileImage)
         }
       } catch (e) {
@@ -702,7 +731,7 @@ export default function AdminSettingsPage() {
     .filter(Boolean) as string[]
   const profileImageUrl =
     getPublicImageUrl(
-      avatarUploadedUrl || (user?.profileImage ? user.profileImage : user?.profileImageKey ? db.images.getUpload(user.profileImageKey) : user?.avatarUrl || user?.profileImage) || null,
+      avatarUploadedUrl || (user?.profileImageKey ? db.images.getUpload(user.profileImageKey) : user?.avatarUrl || user?.profileImage) || null,
     )
 
   // Normalize loading_animation value which may be stored as string or object

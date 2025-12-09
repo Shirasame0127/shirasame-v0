@@ -94,7 +94,28 @@ export default function AdminSettingsPage() {
   // Sanitize server-provided user row into a client-friendly updates object
   function sanitizeServerUserForCache(srv: any) {
     if (!srv) return {}
-    const headerKeys = srv.header_image_keys || srv.headerImageKeys || []
+    const headerKeysRaw = srv.header_image_keys || srv.headerImageKeys || srv.headerImages || srv.headerImage || srv.headerImageKey || []
+    function extractKeyFromUrl(u: any) {
+      if (!u || typeof u !== 'string') return null
+      try {
+        const url = new URL(u)
+        let p = url.pathname.replace(/^\/+/, '')
+        // strip possible /cdn-cgi/image/.../ prefix
+        p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
+        return p || null
+      } catch (e) {
+        // not a URL — maybe it's already a key
+        if (u.includes('/')) return u
+        return null
+      }
+    }
+
+    const headerKeys = Array.isArray(headerKeysRaw)
+      ? headerKeysRaw.map(extractKeyFromUrl).filter(Boolean)
+      : typeof headerKeysRaw === 'string'
+      ? [extractKeyFromUrl(headerKeysRaw)].filter(Boolean)
+      : []
+
     return {
       displayName: srv.display_name || srv.displayName || srv.name || null,
       bio: srv.bio || null,
@@ -103,9 +124,13 @@ export default function AdminSettingsPage() {
       backgroundValue: srv.background_value || srv.backgroundValue || null,
       // Do not read or expose full URL fields. Use keys only.
       profileImage: null,
-      profileImageKey: srv.profile_image_key || srv.profileImageKey || null,
+      profileImageKey:
+        srv.profile_image_key ||
+        srv.profileImageKey ||
+        (srv.profileImage ? (extractKeyFromUrl(srv.profileImage) as any) : null) ||
+        null,
       avatarUrl: null,
-      headerImageKeys: Array.isArray(headerKeys) ? headerKeys : headerKeys ? [headerKeys] : [],
+      headerImageKeys: headerKeys,
       amazonAccessKey: srv.access_key || srv.amazon_access_key || srv.amazonAccessKey || null,
       amazonSecretKey: srv.secret_key || srv.amazon_secret_key || srv.amazonSecretKey || null,
       amazonAssociateId: srv.associate_id || srv.amazon_associate_id || srv.amazonAssociateId || null,
@@ -130,11 +155,25 @@ export default function AdminSettingsPage() {
           setAmazonAccessKey(serverUser.amazonAccessKey || "")
           setAmazonSecretKey(serverUser.amazonSecretKey || "")
           setAmazonAssociateId(serverUser.amazonAssociateId || "")
-          setHeaderImageKeys(
-            serverUser.headerImageKeys || serverUser.headerImages || (serverUser.headerImage ? [serverUser.headerImage] : []) || (serverUser.headerImageKey ? [serverUser.headerImageKey] : []),
-          )
-          // If server provides direct profile image URL, prefer it
-          if (serverUser.profileImage) setAvatarUploadedUrl(serverUser.profileImage)
+          // Prefer explicit key array; if only full URLs are provided, extract keys
+          const extractKey = (u: any) => {
+            if (!u) return null
+            try {
+              const url = new URL(u)
+              let p = url.pathname.replace(/^\/+/, '')
+              p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
+              return p || null
+            } catch (e) {
+              return typeof u === 'string' && u.includes('/') ? u : null
+            }
+          }
+
+          const headerKeysFromServer = serverUser.headerImageKeys || (Array.isArray(serverUser.headerImages) ? serverUser.headerImages.map(extractKey).filter(Boolean) : serverUser.headerImageKey ? [serverUser.headerImageKey] : serverUser.headerImage ? [extractKey(serverUser.headerImage)].filter(Boolean) : [])
+          setHeaderImageKeys(headerKeysFromServer)
+
+          // Prefer profile image key over legacy full URL
+          const profileKey = serverUser.profile_image_key || serverUser.profileImageKey || (serverUser.profileImage ? extractKey(serverUser.profileImage) : null)
+          if (profileKey) setAvatarUploadedUrl(getPublicImageUrl(db.images.getUpload(profileKey) || profileKey))
           return
         }
 
@@ -151,10 +190,9 @@ export default function AdminSettingsPage() {
           setAmazonAccessKey(currentUser.amazonAccessKey || "")
           setAmazonSecretKey(currentUser.amazonSecretKey || "")
           setAmazonAssociateId(currentUser.amazonAssociateId || "")
-          setHeaderImageKeys(
-            currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []),
-          )
-          if (currentUser.profileImage) setAvatarUploadedUrl(currentUser.profileImage)
+          setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
+          const profileKeyLocal = currentUser.profileImageKey || currentUser.profile_image_key || (currentUser.profileImage ? (currentUser.profileImage.includes('/') ? currentUser.profileImage : null) : null)
+          if (profileKeyLocal) setAvatarUploadedUrl(getPublicImageUrl(db.images.getUpload(profileKeyLocal) || profileKeyLocal))
         }
       } catch (e) {
         const currentUser = db.user.get()
@@ -554,9 +592,30 @@ export default function AdminSettingsPage() {
     }
 
     if (avatarFile) {
-      // If the image was uploaded via ImageUpload and returned a URL, prefer that direct URL.
+      // Prefer keys. If avatarUploadedUrl is a CDN URL, try to extract key and store profileImageKey.
       if (avatarUploadedUrl) {
-        updates.profileImage = avatarUploadedUrl
+        const maybeKey = ((): string | null => {
+          if (!avatarUploadedUrl) return null
+          try {
+            const u = new URL(avatarUploadedUrl)
+            let p = u.pathname.replace(/^\/+/, '')
+            p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
+            return p || null
+          } catch (e) {
+            // not a URL
+            return avatarUploadedUrl && avatarUploadedUrl.includes('/') ? avatarUploadedUrl : null
+          }
+        })()
+
+        if (maybeKey) {
+          updates.profileImageKey = maybeKey
+        } else {
+          // As a fallback, upload the file to obtain a key
+          const avatarKey = `avatar-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          const avatarBase64 = await fileToBase64(avatarFile)
+          db.images.saveUpload(avatarKey, avatarBase64)
+          updates.profileImageKey = avatarKey
+        }
       } else {
         const avatarKey = `avatar-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         const avatarBase64 = await fileToBase64(avatarFile)
@@ -683,7 +742,7 @@ export default function AdminSettingsPage() {
     .filter(Boolean) as string[]
   const profileImageUrl =
     getPublicImageUrl(
-      avatarUploadedUrl || (user?.profileImage ? user.profileImage : user?.profileImageKey ? db.images.getUpload(user.profileImageKey) : user?.avatarUrl || user?.profileImage) || null,
+      avatarUploadedUrl || (user?.profileImageKey ? db.images.getUpload(user.profileImageKey) : user?.avatarUrl || user?.profileImage) || null,
     )
 
   // Normalize loading_animation value which may be stored as string or object

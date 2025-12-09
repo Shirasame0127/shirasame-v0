@@ -4,6 +4,8 @@ import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
+import { getPublicImageUrl } from "@/lib/image-url"
+import { db } from "@/lib/db/storage"
 import { cn } from "@/lib/utils"
 import {
   Home,
@@ -94,7 +96,26 @@ export function AdminNav() {
         if (!res.ok) return
         const json = await res.json().catch(() => null)
         const data = json?.data || null
-        const image = data?.profileImage || data?.avatarUrl || null
+        // Prefer profile image key => build public URL; fallback to avatarUrl or legacy profileImage
+        const extractKey = (u: any) => {
+          if (!u) return null
+          try {
+            const url = new URL(u)
+            let p = url.pathname.replace(/^\/+/, '')
+            p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
+            return p || null
+          } catch (e) {
+            return typeof u === 'string' && u.includes('/') ? u : null
+          }
+        }
+
+        let image: string | null = null
+        const profileKey = data?.profile_image_key || data?.profileImageKey || (data?.profileImage ? extractKey(data.profileImage) : null)
+        if (profileKey) {
+          image = getPublicImageUrl(db.images.getUpload(profileKey) || profileKey)
+        } else {
+          image = data?.avatarUrl || data?.profileImage || null
+        }
         if (active) {
           setProfileData(data)
           setProfileImageUrl(image || null)
