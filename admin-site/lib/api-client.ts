@@ -13,17 +13,24 @@ export function apiPath(path: string) {
         // This allows static admin builds to call a public-worker origin at runtime.
         // Example injection in static HTML: <script>window.__env__ = { API_BASE: 'https://public-worker.example' }</script>
         const runtime = (window as any).__env__ || {}
-        const runtimeApiBase = (runtime.API_BASE || runtime.NEXT_PUBLIC_API_BASE_URL || '').toString().replace(/\/$/, '')
+        const runtimeApiBaseRaw = (runtime.API_BASE || runtime.NEXT_PUBLIC_API_BASE_URL || '').toString()
+        const runtimeApiBase = runtimeApiBaseRaw.replace(/\/$/, '')
         const runtimeForce = String(runtime.FORCE_API_BASE || runtime.NEXT_PUBLIC_FORCE_API_BASE || '').toLowerCase() === 'true'
 
-        if (runtimeApiBase) {
+        // If runtime injection exists but API_BASE is empty, provide a safe
+        // fallback so published Pages that failed to inject env still call
+        // the canonical public worker. This avoids blocking admin usage
+        // while Cloudflare Pages envs are being corrected.
+        const effectiveRuntimeApiBase = runtimeApiBase || (runtimeApiBaseRaw !== undefined ? 'https://api.shirasame.com' : '')
+
+        if (effectiveRuntimeApiBase) {
           // If runtime API base is an external public-worker, admin client
           // often calls paths with an `/api` prefix (e.g. `/api/products`).
           // The public-worker implements routes without the `/api` prefix
           // (e.g. `/products`), so strip the prefix when calling an
           // external base to avoid 404s.
           const p = path.startsWith('/api/') ? path.replace(/^\/api/, '') : path
-          return `${runtimeApiBase}${p}`
+          return `${effectiveRuntimeApiBase}${p}`
         }
 
         if (BUILD_API_BASE) {
