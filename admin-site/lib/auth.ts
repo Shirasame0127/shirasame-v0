@@ -79,27 +79,40 @@ export const auth = {
             isExternal = u.origin !== window.location.origin
           } catch (e) {}
 
-          if (isExternal) {
+          // Try to set server-side cookie first via a same-origin POST.
+          // If that fails (network/CORS/404), fall back to localStorage
+          // so static admin builds still work.
+          const payload = { access_token: session.access_token, refresh_token: session.refresh_token }
+          let serverSet = false
+          try {
+            try {
+              const controller = new AbortController()
+              const id = setTimeout(() => controller.abort(), 5000)
+              try {
+                const resp = await fetch('/api/auth/session', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify(payload),
+                  signal: controller.signal,
+                })
+                if (resp && resp.status === 200) serverSet = true
+              } finally { clearTimeout(id) }
+            } catch (e) {
+              // network or CORS error — will fallback
+            }
+          } catch (e) {}
+
+          if (!serverSet) {
+            // Fallback for static admin / external API_BASE: persist tokens locally
             try {
               if (typeof localStorage !== 'undefined') {
                 localStorage.setItem('sb-access-token', session.access_token)
                 if (session.refresh_token) localStorage.setItem('sb-refresh-token', session.refresh_token)
               }
-              // mirror in-memory session for immediate use
               try { ;(window as any).__SUPABASE_SESSION = { access_token: session.access_token, refresh_token: session.refresh_token } } catch {}
             } catch (e) {
               console.warn('[auth] failed to persist tokens locally', e)
-            }
-          } else {
-            const res = await apiFetch('/api/auth/session', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-            })
-            if (res.status !== 200) {
-              let msg = 'サーバーにセッションを保存できませんでした'
-              try { const j = await res.json().catch(() => null); if (j?.error) msg = j.error } catch(e) {}
-              return { success: false, error: msg }
             }
           }
         } catch (e) {
@@ -165,7 +178,32 @@ export const auth = {
           const target = apiPath('/api/auth/session')
           let isExternal = false
           try { const u = new URL(target, typeof window !== 'undefined' ? window.location.origin : ''); isExternal = u.origin !== (typeof window !== 'undefined' ? window.location.origin : '') } catch (e) {}
-          if (isExternal) {
+          // Try to set server-side cookie first via a same-origin POST.
+          // If that fails (network/CORS/404), fall back to localStorage
+          // so static admin builds still work.
+          const payload = { access_token: session.access_token, refresh_token: session.refresh_token }
+          let serverSet = false
+          try {
+            try {
+              const controller = new AbortController()
+              const id = setTimeout(() => controller.abort(), 5000)
+              try {
+                const resp = await fetch('/api/auth/session', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify(payload),
+                  signal: controller.signal,
+                })
+                if (resp && resp.status === 200) serverSet = true
+              } finally { clearTimeout(id) }
+            } catch (e) {
+              // network or CORS error — will fallback
+            }
+          } catch (e) {}
+
+          if (!serverSet) {
+            // Fallback for static admin / external API_BASE: persist tokens locally
             try {
               if (typeof localStorage !== 'undefined') {
                 localStorage.setItem('sb-access-token', session.access_token)
@@ -174,17 +212,6 @@ export const auth = {
               try { ;(window as any).__SUPABASE_SESSION = { access_token: session.access_token, refresh_token: session.refresh_token } } catch {}
             } catch (e) {
               console.warn('[auth] failed to persist tokens locally', e)
-            }
-          } else {
-            const res = await apiFetch('/api/auth/session', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token }),
-            })
-            if (res.status !== 200) {
-              let msg = 'サーバーにセッションを保存できませんでした'
-              try { const j = await res.json().catch(() => null); if (j?.error) msg = j.error } catch(e) {}
-              return { success: false, error: msg }
             }
           }
         } catch (e) {

@@ -109,6 +109,7 @@ function computeCorsHeaders(origin: string | null, env: any) {
     'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS,POST,PUT,DELETE',
     'Access-Control-Expose-Headers': 'ETag',
     'Vary': 'Origin',
+    'X-Served-By': 'public-worker',
   }
 }
 
@@ -116,6 +117,8 @@ app.use('*', async (c, next) => {
   // Handle preflight immediately
   if (c.req.method === 'OPTIONS') {
     const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
+    // mark response as served by this worker for easy tracing
+    headers['X-Served-By'] = 'public-worker'
     return new Response(null, { status: 204, headers })
   }
 
@@ -127,6 +130,7 @@ app.use('*', async (c, next) => {
       for (const k of Object.keys(ch)) {
         try { res.headers.set(k, (ch as any)[k]) } catch {}
       }
+        try { res.headers.set('X-Served-By', 'public-worker') } catch {}
     } catch {}
     return res
   } catch (e: any) {
@@ -135,6 +139,7 @@ app.use('*', async (c, next) => {
       if ((c.env as any).DEBUG_WORKER === 'true') body.stack = e?.stack || null
     } catch {}
     const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
+      headers['X-Served-By'] = 'public-worker'
     headers['Content-Type'] = 'application/json; charset=utf-8'
     return new Response(JSON.stringify(body), { status: 500, headers })
   }
@@ -280,78 +285,8 @@ function makeUpstreamHeaders(c: any): Record<string, string> {
 // so forward `/api/*` -> `/*` to avoid client 404s. This performs a server-side
 // fetch to the normalized path and returns the response. CORS headers are
 // attached by the global middleware above.
-app.all('/api/*', async (c) => {
-  try {
-    const url = new URL(c.req.url)
-    // If client called `/api/auth/logout` the proxy would normally strip
-    // `/api` and forward to `/auth/logout` — but since many handlers are
-    // registered after this proxy, forwarded paths may miss their target.
-    // Special-case logout here so `/api/auth/logout` returns the same
-    // cookie-clearing response expected by the admin UI.
-    try {
-      const origPath = url.pathname || ''
-      if (origPath === '/api/auth/logout' && c.req.method === 'POST') {
-        const headers = new Headers(Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env)))
-        headers.set('Content-Type', 'application/json; charset=utf-8')
-        headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
-        headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
-        return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
-      }
-    } catch (e) {}
-    // strip only the leading '/api'
-    url.pathname = url.pathname.replace(/^\/api/, '') || '/'
-
-    const method = c.req.method
-    const headers = makeUpstreamHeaders(c)
-    // forward common admin headers if present
-    try {
-      const xu = c.req.header('x-user-id') || c.req.header('X-User-Id')
-      if (xu) headers['x-user-id'] = xu.toString()
-    } catch {}
-    try {
-      const xi = c.req.header('x-internal-key') || c.req.header('X-Internal-Key')
-      if (xi) headers['x-internal-key'] = xi.toString()
-    } catch {}
-
-    let body: any = undefined
-    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-      try { body = await c.req.text() } catch { body = undefined }
-    }
-
-    const res = await fetch(url.toString(), { method, headers, body })
-    const buf = await res.arrayBuffer()
-    // Build response headers: preserve content-type if present, and
-    // always attach CORS headers so browsers don't reject responses.
-    const outHeaders: Record<string, string> = {}
-    try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
-    // Dynamic origin selection (respect PUBLIC_ALLOWED_ORIGINS similar to global middleware)
-    try {
-      const origin = c.req.header('Origin') || ''
-      const allowed = ((c.env as any).PUBLIC_ALLOWED_ORIGINS || '').split(',').map((s: string) => s.trim()).filter(Boolean)
-      let acOrigin = '*'
-      if (origin) {
-        if (allowed.length === 0 || allowed.indexOf('*') !== -1 || allowed.indexOf(origin) !== -1) {
-          acOrigin = origin
-        } else if (allowed.length > 0) {
-          acOrigin = allowed[0]
-        }
-      } else if (allowed.length > 0) {
-        acOrigin = allowed[0]
-      }
-      outHeaders['Access-Control-Allow-Origin'] = acOrigin
-      outHeaders['Access-Control-Allow-Credentials'] = 'true'
-      outHeaders['Access-Control-Allow-Headers'] = 'Content-Type, If-None-Match, Authorization, X-Internal-Key, X-User-Id'
-      outHeaders['Access-Control-Allow-Methods'] = 'GET,HEAD,OPTIONS,POST,PUT,DELETE'
-      outHeaders['Access-Control-Expose-Headers'] = 'ETag'
-      outHeaders['Vary'] = 'Origin'
-    } catch {}
-    return new Response(buf, { status: res.status, headers: outHeaders })
-  } catch (e: any) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
-  }
-})
+// /api/* proxy moved to end of file so explicit routes are matched first.
+// See end of file for the implemented proxy.
 
 // NOTE: final catch-all moved to the end of the file so that explicitly
 // registered routes (declared below) are matched before a 404 is returned.
@@ -2710,6 +2645,89 @@ app.get('/custom-fonts', async (c) => {
 // This prevents Cloudflare or upstream from returning responses without
 // Access-Control-Allow-* headers which would cause browsers to block
 // cross-origin requests with opaque CORS failures.
+// Re-add proxy here so explicit `/api/*` handlers declared above take
+// precedence. Proxy supports forwarding non-auth API calls to their
+// normalized path (`/api/foo` -> `/foo`) while special-casing logout.
+app.all('/api/*', async (c) => {
+  try {
+    const url = new URL(c.req.url)
+    // Special-case logout to clear cookies for admin UI callers
+    try {
+      const origPath = url.pathname || ''
+      if (origPath === '/api/auth/logout' && c.req.method === 'POST') {
+        const headers = new Headers(Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env)))
+        headers.set('Content-Type', 'application/json; charset=utf-8')
+        headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+        headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+      }
+    } catch (e) {}
+
+    // strip only the leading '/api'
+    url.pathname = url.pathname.replace(/^\/api/, '') || '/'
+
+    const method = c.req.method
+    const headers = makeUpstreamHeaders(c)
+    try {
+      const xu = c.req.header('x-user-id') || c.req.header('X-User-Id')
+      if (xu) headers['x-user-id'] = xu.toString()
+    } catch {}
+    try {
+      const xi = c.req.header('x-internal-key') || c.req.header('X-Internal-Key')
+      if (xi) headers['x-internal-key'] = xi.toString()
+    } catch {}
+
+    let body: any = undefined
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      try { body = await c.req.text() } catch { body = undefined }
+    }
+
+    // If the proxy would fetch back to the same origin, surface an error
+    // to avoid request loops. This should not trigger when the worker is
+    // properly mounted at the API hostname with routes handled locally.
+    try {
+      const reqHost = (new URL(c.req.url)).hostname
+      const targetHost = url.hostname
+      if (reqHost === targetHost) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        const bodyMsg = JSON.stringify({ error: 'proxy_loop_detected', message: 'Worker proxy would fetch same host; ensure admin site API routes are not shadowed. Consider mapping admin.shirasame.com/api/* to this worker or updating client API_BASE.' })
+        return new Response(bodyMsg, { status: 502, headers: merged })
+      }
+    } catch (e) {}
+
+    const res = await fetch(url.toString(), { method, headers, body })
+    const buf = await res.arrayBuffer()
+    const outHeaders: Record<string, string> = {}
+    try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
+    try {
+      const origin = c.req.header('Origin') || ''
+      const allowed = ((c.env as any).PUBLIC_ALLOWED_ORIGINS || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+      let acOrigin = '*'
+      if (origin) {
+        if (allowed.length === 0 || allowed.indexOf('*') !== -1 || allowed.indexOf(origin) !== -1) {
+          acOrigin = origin
+        } else if (allowed.length > 0) {
+          acOrigin = allowed[0]
+        }
+      } else if (allowed.length > 0) {
+        acOrigin = allowed[0]
+      }
+      outHeaders['Access-Control-Allow-Origin'] = acOrigin
+      outHeaders['Access-Control-Allow-Credentials'] = 'true'
+      outHeaders['Access-Control-Allow-Headers'] = 'Content-Type, If-None-Match, Authorization, X-Internal-Key, X-User-Id'
+      outHeaders['Access-Control-Allow-Methods'] = 'GET,HEAD,OPTIONS,POST,PUT,DELETE'
+      outHeaders['Access-Control-Expose-Headers'] = 'ETag'
+      outHeaders['Vary'] = 'Origin'
+    } catch {}
+    return new Response(buf, { status: res.status, headers: outHeaders })
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+  }
+})
+
 app.all('*', async (c) => {
   try {
     const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
