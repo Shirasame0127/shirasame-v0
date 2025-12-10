@@ -40,18 +40,11 @@ export function apiPath(path: string) {
         // explicitly the same origin.
         if (BUILD_API_BASE) {
           try {
-            const buildUrl = new URL(BUILD_API_BASE)
-            const curOrigin = window.location.origin
-            if (buildUrl.origin === curOrigin) {
-              return `${BUILD_API_BASE}${path}`
-            }
-            // Not same-origin: do not call the external build base from the browser
-            // unless runtimeForce is explicitly true for static admin builds.
-            if (runtimeForce) {
-              const p = path.startsWith('/api/') ? path.replace(/^\/api/, '') : path
-              return `${BUILD_API_BASE}${p}`
-            }
-            return path
+            // When a build-time API base is configured, prefer calling it
+            // directly. Strip the leading `/api` prefix because the public
+            // worker implements routes without that prefix (e.g. `/products`).
+            const p = path.startsWith('/api/') ? path.replace(/^\/api/, '') : path
+            return `${BUILD_API_BASE}${p}`
           } catch (e) {
             return path
           }
