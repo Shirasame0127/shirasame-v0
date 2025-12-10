@@ -2,6 +2,13 @@ export const BUILD_API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || process.e
 
 export function apiPath(path: string) {
   if (!path.startsWith('/')) path = '/' + path
+  // Ensure auth endpoints use same-origin relative path so cookies (HttpOnly)
+  // can be set/cleared by responses from the admin domain. This avoids
+  // accidental calls to an external API host (BUILD_API_BASE) for auth
+  // flows which would fail to set Domain-scoped HttpOnly cookies.
+  try {
+    if (path.startsWith('/api/auth')) return path
+  } catch (e) {}
   // In browser, prefer same-origin relative APIs so cookies (HttpOnly) are sent
   // and Next.js middleware can proxy to the public worker. If an explicit
   // API base is configured at build-time and it points to the same origin
