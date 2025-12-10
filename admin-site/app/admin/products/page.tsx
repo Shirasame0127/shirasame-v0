@@ -56,7 +56,7 @@ export default function AdminProductsPage() {
   useEffect(() => {
     ;(async () => {
       try {
-        const [groupsRes, tagsRes] = await Promise.all([fetch('/api/tag-groups'), fetch('/api/tags')])
+        const [groupsRes, tagsRes] = await Promise.all([apiFetch('/api/tag-groups'), apiFetch('/api/tags')])
         const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
         const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
         const serverGroups = Array.isArray(groupsJson.data) ? groupsJson.data : groupsJson.data || []

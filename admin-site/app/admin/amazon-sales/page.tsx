@@ -39,7 +39,7 @@ export default function AdminAmazonSalesPage() {
   const loadSchedules = () => {
     ;(async () => {
       try {
-        const res = await fetch('/api/admin/amazon-sale-schedules')
+        const res = await apiFetch('/api/admin/amazon-sale-schedules')
         if (!res.ok) throw new Error('failed')
         const json = await res.json().catch(() => ({ data: [] }))
         const list = Array.isArray(json.data) ? json.data : json.data || []
@@ -83,7 +83,7 @@ export default function AdminAmazonSalesPage() {
     }
 
     let created: any = null
-    const res = await fetch('/api/admin/amazon-sale-schedules', {
+    const res = await apiFetch('/api/admin/amazon-sale-schedules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -175,7 +175,7 @@ export default function AdminAmazonSalesPage() {
     if (!schedule) return
 
     try {
-      const res = await fetch(`/api/admin/amazon-sale-schedules/${encodeURIComponent(scheduleId)}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/admin/amazon-sale-schedules/${encodeURIComponent(scheduleId)}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('delete failed')
       console.log('[v0] Deleted sale schedule:', scheduleId)
       loadSchedules()

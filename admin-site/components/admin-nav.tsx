@@ -26,6 +26,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { auth } from "@/lib/auth"
+import apiFetch from '@/lib/api-client'
 import { useToast } from '@/hooks/use-toast'
 
 type NavItem = {
@@ -92,7 +93,7 @@ export function AdminNav() {
     let active = true
     const loadProfileImage = async () => {
       try {
-        const res = await fetch("/api/profile", { cache: "no-store", credentials: 'include' })
+        const res = await apiFetch('/api/profile')
         if (!res.ok) return
         const json = await res.json().catch(() => null)
         const data = json?.data || null

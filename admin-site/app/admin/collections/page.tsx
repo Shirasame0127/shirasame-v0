@@ -13,6 +13,7 @@ import { arrayMove, SortableContext, rectSortingStrategy, useSortable } from "@d
 import { CSS } from "@dnd-kit/utilities"
 import { db } from "@/lib/db/storage"
 import { getCurrentUser } from "@/lib/auth"
+import apiFetch from "@/lib/api-client"
 import { ProductCard } from "@/components/product-card"
 import { Plus, Edit, Trash2, Save, X, GripVertical } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -41,7 +42,7 @@ export default function AdminCollectionsPage() {
     // Load from server API to ensure authoritative list
     ;(async () => {
       try {
-        const res = await fetch('/api/admin/collections')
+        const res = await apiFetch('/api/admin/collections')
         if (!res.ok) throw new Error('failed')
         const json = await res.json()
         const list = Array.isArray(json) ? json : json.data || []
@@ -71,7 +72,7 @@ export default function AdminCollectionsPage() {
         try {
           const inspections = await Promise.all(list.map(async (c: any) => {
             try {
-              const r = await fetch(`/api/admin/collections/${encodeURIComponent(c.id)}/inspect`)
+              const r = await apiFetch(`/api/admin/collections/${encodeURIComponent(c.id)}/inspect`)
               if (!r.ok) return null
               const j = await r.json().catch(() => null)
               return { id: c.id, inspect: j?.data || null }
@@ -122,8 +123,8 @@ export default function AdminCollectionsPage() {
     ;(async () => {
       try {
         const [prodRes, itemsRes] = await Promise.all([
-          fetch('/api/admin/products'),
-          fetch(`/api/admin/collections/${encodeURIComponent(collectionId)}/items`),
+          apiFetch('/api/admin/products'),
+          apiFetch(`/api/admin/collections/${encodeURIComponent(collectionId)}/items`),
         ])
 
         const prodJson = await prodRes.json().catch(() => ({ data: [] }))
@@ -164,7 +165,7 @@ export default function AdminCollectionsPage() {
           description: formData.description,
           visibility: formData.visibility,
         }
-        const res = await fetch('/api/admin/collections', {
+        const res = await apiFetch('/api/admin/collections', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -180,7 +181,7 @@ export default function AdminCollectionsPage() {
       }
     } else if (editingCollection) {
       try {
-        const res = await fetch(`/api/admin/collections/${encodeURIComponent(editingCollection.id)}`, {
+        const res = await apiFetch(`/api/admin/collections/${encodeURIComponent(editingCollection.id)}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title: formData.title, description: formData.description, visibility: formData.visibility }),
@@ -215,7 +216,7 @@ export default function AdminCollectionsPage() {
           size="sm"
               onClick={async () => {
                 try {
-                  const res = await fetch(`/api/admin/collections/${encodeURIComponent(collectionId)}`, { method: 'DELETE' })
+                  const res = await apiFetch(`/api/admin/collections/${encodeURIComponent(collectionId)}`, { method: 'DELETE' })
                   if (!res.ok) throw new Error('delete failed')
                   db.collections.delete(collectionId)
                   setCollections(collections.filter((col) => col.id !== collectionId))
@@ -250,7 +251,7 @@ export default function AdminCollectionsPage() {
   const handleAddProduct = (collectionId: string, productId: string) => {
     ;(async () => {
       try {
-        const res = await fetch('/api/admin/collection-items', {
+        const res = await apiFetch('/api/admin/collection-items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ collectionId, productId }),
@@ -283,7 +284,7 @@ export default function AdminCollectionsPage() {
 
   const handleRemoveProduct = async (collectionId: string, productId: string) => {
     try {
-      const res = await fetch('/api/admin/collection-items', {
+      const res = await apiFetch('/api/admin/collection-items', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ collectionId, productId }),
@@ -346,7 +347,7 @@ export default function AdminCollectionsPage() {
     setCollections((prev) => prev.map((c) => (c.id === collectionId ? { ...c, visibility: toVisibility } : c)))
 
     try {
-      const res = await fetch(`/api/admin/collections/${encodeURIComponent(collectionId)}`, {
+      const res = await apiFetch(`/api/admin/collections/${encodeURIComponent(collectionId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ visibility: toVisibility }),
@@ -403,7 +404,7 @@ export default function AdminCollectionsPage() {
           // try to persist order to server (best-effort)
           ;(async () => {
             try {
-              await fetch('/api/admin/collections/reorder', {
+              await apiFetch('/api/admin/collections/reorder', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ order: next.map((c, i) => ({ id: c.id, order: i })) }),
@@ -472,7 +473,7 @@ export default function AdminCollectionsPage() {
                               className="bg-transparent"
                               onClick={async () => {
                                 try {
-                                  const res = await fetch(`/api/admin/collections/${encodeURIComponent(collection.id)}/sync`, { method: 'POST' })
+                                  const res = await apiFetch(`/api/admin/collections/${encodeURIComponent(collection.id)}/sync`, { method: 'POST' })
                                   if (!res.ok) throw new Error('sync failed')
                                   const json = await res.json()
                                   const data = json.data || json

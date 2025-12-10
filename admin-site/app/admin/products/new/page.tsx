@@ -73,7 +73,7 @@ export default function ProductNewPage() {
   useEffect(() => {
     ;(async () => {
       try {
-        const [tagsRes, groupsRes] = await Promise.all([fetch('/api/tags'), fetch('/api/tag-groups')])
+        const [tagsRes, groupsRes] = await Promise.all([apiFetch('/api/tags'), apiFetch('/api/tag-groups')])
         const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
         const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
         const serverTags = Array.isArray(tagsJson) ? tagsJson : tagsJson.data || []
@@ -186,7 +186,7 @@ export default function ProductNewPage() {
 
     const controller = new AbortController()
     const timeout = setTimeout(() => {
-      fetch('/api/admin/product-drafts', {
+      apiFetch('/api/admin/product-drafts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: draftState }),
@@ -372,7 +372,7 @@ export default function ProductNewPage() {
     }
 
     try {
-      const res = await fetch('/api/admin/products', {
+      const res = await apiFetch('/api/admin/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newProduct),
@@ -394,7 +394,7 @@ export default function ProductNewPage() {
 
       const created = json.data || json
 
-      await fetch('/api/admin/product-drafts', {
+      await apiFetch('/api/admin/product-drafts', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id }),
