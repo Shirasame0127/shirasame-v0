@@ -128,7 +128,6 @@ export const auth = {
               return { success: false, error: 'サーバーへの確認中にエラーが発生しました' }
             }
           }
-          }
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
           return { success: false, error: 'サーバーに接続できませんでした' }
