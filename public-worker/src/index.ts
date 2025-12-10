@@ -9,7 +9,6 @@ import { getPublicImageUrl, buildResizedImageUrl, responsiveImageForUsage } from
 export type Env = {
   PUBLIC_ALLOWED_ORIGINS?: string
   // INTERNAL_API_BASE removed: public-worker is now the single API gateway
-  INTERNAL_API_KEY?: string
   // Supabase
   SUPABASE_URL?: string
   SUPABASE_ANON_KEY?: string
@@ -87,6 +86,49 @@ app.use('/api/admin/*', async (c, next) => {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
   }
 })
+// Admin-origin guard: for admin-origin requests to sensitive paths,
+// require a verified Supabase token and a resolved userId (trusted + userId).
+// This intentionally requires Supabase token-based auth for admin-origin requests.
+app.use('*', async (c, next) => {
+  try {
+    if (c.req.method === 'OPTIONS') return await next()
+    const origin = c.req.header('Origin') || ''
+    const isAdminOrigin = origin === 'https://admin.shirasame.com' || origin.endsWith('.admin.shirasame.com')
+    if (!isAdminOrigin) return await next()
+
+    const sensitivePrefixes = [
+      '/products',
+      '/collections',
+      '/recipes',
+      '/site-settings',
+      '/admin/settings',
+      '/api/admin/settings',
+      '/profile',
+      '/images',
+      '/images/upload',
+      '/images/complete',
+      '/upload'
+    ]
+    const reqPath = (new URL(c.req.url)).pathname
+    const matches = sensitivePrefixes.some(p => reqPath === p || reqPath.startsWith(p + '/'))
+    if (!matches) return await next()
+
+    const ctx = await resolveRequestUserContext(c)
+    // Require both trusted identity and a concrete userId
+    if (!ctx.trusted || !ctx.userId) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+    }
+
+    try { c.set && c.set('userId', ctx.userId) } catch {}
+    return await next()
+  } catch (e) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+  }
+})
 
 // Debug and global error middleware: キャッチされなかった例外を詳細に返す（DEBUG_WORKER=true の場合は stack を含める）
 // Centralized CORS header computation used across handlers and cache
@@ -105,7 +147,7 @@ function computeCorsHeaders(origin: string | null, env: any) {
   return {
     'Access-Control-Allow-Origin': acOrigin,
     'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Headers': 'Content-Type, If-None-Match, Authorization, X-Internal-Key, X-User-Id',
+    'Access-Control-Allow-Headers': 'Content-Type, If-None-Match, Authorization, X-User-Id',
     'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS,POST,PUT,DELETE',
     'Access-Control-Expose-Headers': 'ETag',
     'Vary': 'Origin',
@@ -427,9 +469,8 @@ async function getRequestUserId(c: any): Promise<string | null> {
 // Centralized request user context resolver.
 // Returns { userId, authType, trusted } where authType is one of:
 //  - 'user-token'   : verified Supabase token (highest trust)
-//  - 'internal-key' : request authenticated by INTERNAL_API_KEY (trusted)
 //  - 'none'         : no trusted identity
-async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userId: string | null; authType: 'user-token' | 'internal-key' | 'none'; trusted: boolean }> {
+async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userId: string | null; authType: 'user-token' | 'none'; trusted: boolean }> {
   try {
     // TEMP LOG: inspect incoming headers to debug why some requests are unauthenticated
     try {
@@ -437,7 +478,6 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
       if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: authorization present=', !!a)
     } catch (e) {}
     try { console.log('resolveRequestUserContext: cookie=', c.req.header('cookie')) } catch (e) {}
-    try { console.log('resolveRequestUserContext: x-internal-key=', !!(c.req.header('x-internal-key') || c.req.header('X-Internal-Key'))) } catch (e) {}
     try { console.log('resolveRequestUserContext: x-user-id=', c.req.header('x-user-id') || c.req.header('X-User-Id')) } catch (e) {}
     // NEW BEHAVIOR: 管理ページから渡される `X-User-Id` ヘッダが存在する場合は
     // その user_id を権威あるユーザー識別子として扱います（/api/auth/* エンドポイントは除く）。
@@ -505,18 +545,7 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
       }
     }
 
-    // 2) If internal key present, trust payload.userId or x-user-id header
-    const provided = c.req.header('x-internal-key') || c.req.header('X-Internal-Key') || ''
-    const expected = (c.env.INTERNAL_API_KEY || '').toString()
-    const hasValidInternalKey = !!(expected && provided && provided === expected)
-    if (hasValidInternalKey) {
-      // prefer explicit payload.userId, then x-user-id header
-      let uid: string | null = null
-      if (payload && (payload.userId || payload.user_id)) uid = (payload.userId || payload.user_id)
-      const headerUser = c.req.header('x-user-id') || c.req.header('X-User-Id') || ''
-      if (!uid && headerUser) uid = headerUser
-      return { userId: uid || null, authType: 'internal-key', trusted: true }
-    }
+    // No internal key support: we require token-based auth only
 
     // 3) x-user-id alone is not trusted for write operations. Treat as none.
     const headerUser = c.req.header('x-user-id') || c.req.header('X-User-Id') || ''
@@ -931,9 +960,8 @@ app.post('/site-settings', async (c) => {
   try {
     const internal = upstream(c, '/api/site-settings')
     const ctx = await resolveRequestUserContext(c)
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    // require authenticated admin user or internal key
-    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    // require authenticated admin user (Supabase token)
+    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
     // If there's an internal API configured, proxy the write upstream
     if (internal) {
@@ -983,9 +1011,8 @@ app.get('/api/admin/settings', async (c) => {
       console.log('admin/settings: cookie=', c.req.header('cookie'))
       console.log('admin/settings: authorization present=', !!(c.req.header('authorization') || c.req.header('Authorization')))
     } catch (e) {}
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    // require authenticated user or internal key for admin settings
-    if (!ctx.trusted && !hasValidInternalKey) {
+    // require authenticated admin user for admin settings
+    if (!ctx.trusted || !ctx.userId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
       return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: merged })
@@ -1124,9 +1151,8 @@ app.get('/admin/settings', async (c) => {
   try {
     const internal = upstream(c, '/api/admin/settings')
     const ctx = await resolveRequestUserContext(c)
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    // require authenticated user or internal key for admin settings
-    if (!ctx.trusted && !hasValidInternalKey) {
+    // require authenticated admin user for admin settings
+    if (!ctx.trusted || !ctx.userId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
       return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: merged })
@@ -1249,8 +1275,8 @@ app.put('/api/admin/settings', async (c) => {
     const internal = upstream(c, '/api/admin/settings')
     const bodyText = await c.req.text()
     const ctx = await resolveRequestUserContext(c)
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    // require authenticated admin user (Supabase token)
+    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     if (internal) {
       const headers = { ...makeUpstreamHeaders(c) }
       if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
@@ -1319,6 +1345,21 @@ app.put('/api/admin/settings', async (c) => {
       }
 
       if (maybeId && Object.keys(userFields).length > 0) {
+        // Enforce owner check: only the user themself or configured site owner may update this user row
+        try {
+          const ownerIdGlobal = (c.env.PUBLIC_OWNER_USER_ID || '').toString() || null
+          if (maybeId !== ctx.userId && ctx.userId !== ownerIdGlobal) {
+            const base = { 'Content-Type': 'application/json; charset=utf-8' }
+            const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+            return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+          }
+        } catch (e) {
+          // if owner lookup fails unexpectedly, treat as forbidden to be safe
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+          return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+        }
+
         // upsert into users table
         const upUrl = `${supabaseUrl}/rest/v1/users?on_conflict=id`
         const bodyObj: any = { id: maybeId, ...userFields }
@@ -1410,9 +1451,8 @@ app.put('/admin/settings', async (c) => {
     const internal = upstream(c, '/api/admin/settings')
     const bodyText = await c.req.text()
     const ctx = await resolveRequestUserContext(c)
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    // require authenticated user or internal key for admin settings
-    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    // require authenticated admin user for admin settings
+    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     if (internal) {
       const headers = { ...makeUpstreamHeaders(c) }
       if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
@@ -1625,15 +1665,15 @@ app.put('/api/admin/users/:id', async (c) => {
     const id = c.req.param('id')
     const payload = JSON.parse(bodyText || '{}')
     const ctx = await resolveRequestUserContext(c, payload)
-    // Only allow users to update their own profile unless internal key is provided
-    if (ctx.authType === 'user-token') {
-      if (!ctx.userId || ctx.userId !== id) {
-        return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      }
-    } else if (ctx.authType === 'internal-key') {
-      // allowed to act on behalf when internal key is used
-    } else {
+    // Only allow users to update their own profile or an owner account.
+    if (!ctx.trusted || !ctx.userId) {
       return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
+    const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').toString() || null
+    if (ctx.userId !== id && ctx.userId !== ownerId) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
     }
     // Update profiles table by id (assuming profiles table exists with id column)
     const url = `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(id)}`
@@ -1655,8 +1695,7 @@ app.post('/api/admin/amazon/credentials', async (c) => {
     const internal = upstream(c, '/api/admin/amazon/credentials')
     const bodyText = await c.req.text().catch(() => '')
     const ctx = await resolveRequestUserContext(c)
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
     if (internal) {
       const headers = { ...makeUpstreamHeaders(c) }
@@ -1672,6 +1711,19 @@ app.post('/api/admin/amazon/credentials', async (c) => {
     if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'not_configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
     const id = payload?.id || payload?.userId || 'default'
+    // Enforce owner check: only the user themself or configured site owner may set credentials for a user
+    try {
+      const ownerIdGlobal = (c.env.PUBLIC_OWNER_USER_ID || '').toString() || null
+      if (id !== ctx.userId && ctx.userId !== ownerIdGlobal) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+      }
+    } catch (e) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+    }
     const accessKey = payload?.accessKey || payload?.access_key || null
     const secretKey = payload?.secretKey || payload?.secret_key || null
     const associateId = payload?.associateId || payload?.associate_id || null
@@ -1696,10 +1748,9 @@ app.post('/api/admin/amazon/credentials', async (c) => {
 // 返却: { ok: true, result: { key, publicUrl, size, contentType } }
 async function handleUploadImage(c: any) {
   try {
-    // Require authenticated/admin user or internal-key to upload images
+    // Require authenticated/admin user (token only) to upload images
     const ctx = await resolveRequestUserContext(c)
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    if (!ctx.trusted && !hasValidInternalKey) {
+    if (!ctx.trusted || !ctx.userId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
       return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: merged })
@@ -1854,12 +1905,20 @@ async function handleUploadImage(c: any) {
     //  - 'users.profile'         : Set `users.profile_image_key = <key>` for target user
     //  - 'users.header_append'   : Append `key` into `users.header_image_keys` array for target user
     //  - 'product'               : Insert a row into `product_images` with product_id=targetId and key
-    // Security: assignment only performed when request is trusted (token or internal-key). If internal-key is used,
-    // the client may specify `targetId`. If token-authenticated, we default target to the token's user id unless
-    // an internal-key is present.
+    // Security: assignment only performed when request is trusted (token). For token-authenticated
+    // requests we default target to the token's user id unless a specific targetId was provided.
     try {
       const assign = (form.get('assign') as string) || ''
-      if (assign && (ctx.trusted || hasValidInternalKey)) {
+      if (assign && ctx.trusted && !!ctx.userId) {
+        // Determine effective target and enforce owner check: only token owner or site owner can assign to other user
+        const targetId = (form.get('targetId') as string) || (form.get('userId') as string) || (form.get('productId') as string) || null
+        const effectiveTargetUserId = targetId || ctx.userId || null
+        const ownerIdGlobal = (c.env.PUBLIC_OWNER_USER_ID || '').toString() || null
+        if (effectiveTargetUserId && ctx.userId !== effectiveTargetUserId && ctx.userId !== ownerIdGlobal) {
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+          return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+        }
         const supabaseUrl2 = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
         const serviceKey2 = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
         if (supabaseUrl2 && serviceKey2) {
@@ -2008,7 +2067,7 @@ async function handleImagesComplete(c: any) {
     if (payload?.aspect) metadata.aspect = payload.aspect
     if (payload?.extra) metadata.extra = payload.extra
 
-    // Resolve user context centrally (token > internal-key > none)
+    // Resolve user context centrally (token only)
     const ctx = await resolveRequestUserContext(c, payload)
     if (!ctx.trusted) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
@@ -2016,7 +2075,7 @@ async function handleImagesComplete(c: any) {
       return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: merged })
     }
 
-    // effectiveUserId: token-authenticated users or internal-key supplied user id
+    // effectiveUserId: token-authenticated user id
     const effectiveUserId = ctx.userId || null
 
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
@@ -2024,6 +2083,19 @@ async function handleImagesComplete(c: any) {
     // Determine if this request intends to assign the uploaded key to a user profile
     const wantsAssignToProfile = (payload?.assign === 'users.profile') || (payload?.target === 'profile')
     const assignTargetUserId = payload?.userId || effectiveUserId || null
+    // Enforce owner check for explicit profile assignment: only token owner or site owner may assign
+    try {
+      const ownerIdGlobal = (c.env.PUBLIC_OWNER_USER_ID || '').toString() || null
+      if (wantsAssignToProfile && assignTargetUserId && ctx.userId !== assignTargetUserId && ctx.userId !== ownerIdGlobal) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+      }
+    } catch (e) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+    }
 
     async function tryAssignProfile(keyToAssign: string) {
       try {
@@ -2208,7 +2280,7 @@ app.delete('/api/images/:key', async (c) => {
 
     // Resolve user context and ensure authorized
     const ctx = await resolveRequestUserContext(c)
-    const allowed = ctx.trusted || ctx.authType === 'internal-key'
+    const allowed = ctx.trusted && !!ctx.userId
     if (!allowed) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
     const key = decodeURIComponent(keyParam)
@@ -2248,10 +2320,9 @@ app.delete('/api/images/:key', async (c) => {
 // Cloudflare Images direct-upload presigner for admin UI
 app.post('/api/images/direct-upload', async (c) => {
   try {
-    // Require authenticated/admin user or internal-key to get direct-upload token
+    // Require authenticated/admin user (token only) to get direct-upload token
     const ctx = await resolveRequestUserContext(c)
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     const account = (c.env.CLOUDFLARE_ACCOUNT_ID || '').toString()
     const token = (c.env.CLOUDFLARE_IMAGES_API_TOKEN || '').toString()
     if (!account || !token) {
@@ -2272,10 +2343,9 @@ app.post('/api/images/direct-upload', async (c) => {
 // Also accept `/images/direct-upload` (some proxies strip the `/api` prefix).
 app.post('/images/direct-upload', async (c) => {
   try {
-    // Require authenticated/admin user or internal-key to get direct-upload token
+    // Require authenticated/admin user (token only) to get direct-upload token
     const ctx = await resolveRequestUserContext(c)
-    const hasValidInternalKey = ctx.authType === 'internal-key'
-    if (!ctx.trusted && !hasValidInternalKey) return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     const account = (c.env.CLOUDFLARE_ACCOUNT_ID || '').toString()
     const token = (c.env.CLOUDFLARE_IMAGES_API_TOKEN || '').toString()
     if (!account || !token) {
@@ -2674,10 +2744,7 @@ app.all('/api/*', async (c) => {
       const xu = c.req.header('x-user-id') || c.req.header('X-User-Id')
       if (xu) headers['x-user-id'] = xu.toString()
     } catch {}
-    try {
-      const xi = c.req.header('x-internal-key') || c.req.header('X-Internal-Key')
-      if (xi) headers['x-internal-key'] = xi.toString()
-    } catch {}
+    // No internal-key forwarding supported anymore
 
     let body: any = undefined
     if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
@@ -2741,7 +2808,7 @@ app.all('/api/*', async (c) => {
       }
       outHeaders['Access-Control-Allow-Origin'] = acOrigin
       outHeaders['Access-Control-Allow-Credentials'] = 'true'
-      outHeaders['Access-Control-Allow-Headers'] = 'Content-Type, If-None-Match, Authorization, X-Internal-Key, X-User-Id'
+      outHeaders['Access-Control-Allow-Headers'] = 'Content-Type, If-None-Match, Authorization, X-User-Id'
       outHeaders['Access-Control-Allow-Methods'] = 'GET,HEAD,OPTIONS,POST,PUT,DELETE'
       outHeaders['Access-Control-Expose-Headers'] = 'ETag'
       outHeaders['Vary'] = 'Origin'
