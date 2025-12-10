@@ -33,6 +33,11 @@ export function apiPath(path: string) {
           return `${runtimeApiBase}${p}`
         }
 
+        // In the browser, prefer same-origin relative `/api` so that Next.js
+        // middleware can proxy to the public-worker and browser cookies are
+        // sent/received correctly. Only use BUILD_API_BASE in the browser if
+        // a runtime `API_BASE` override is provided or if the build base is
+        // explicitly the same origin.
         if (BUILD_API_BASE) {
           try {
             const buildUrl = new URL(BUILD_API_BASE)
@@ -40,17 +45,15 @@ export function apiPath(path: string) {
             if (buildUrl.origin === curOrigin) {
               return `${BUILD_API_BASE}${path}`
             }
-            // If caller explicitly requests forcing the build base at runtime,
-            // use it even if it's a different origin (useful for static admin).
+            // Not same-origin: do not call the external build base from the browser
+            // unless runtimeForce is explicitly true for static admin builds.
             if (runtimeForce) {
               const p = path.startsWith('/api/') ? path.replace(/^\/api/, '') : path
               return `${BUILD_API_BASE}${p}`
             }
-            // Different origin and not forced: prefer same-origin proxy path so browser cookies are sent
             return path
           } catch (e) {
-            // If BUILD_API_BASE is not a valid URL, fall back to using it directly
-            return `${BUILD_API_BASE}${path}`
+            return path
           }
         }
       } catch (e) {}

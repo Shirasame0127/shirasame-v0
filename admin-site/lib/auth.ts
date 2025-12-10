@@ -114,7 +114,22 @@ export const auth = {
             } catch (e) {
               console.warn('[auth] failed to persist tokens locally', e)
             }
+          } else {
+            // If serverSet is true (we POSTed to same-origin), verify that the
+            // cookie was actually synchronized by calling whoami. Only treat
+            // login as successful if whoami confirms the server session.
+            try {
+              const who = await fetch('/api/auth/whoami', { method: 'GET', credentials: 'include' })
+              if (!who || who.status !== 200) {
+                return { success: false, error: 'サーバー側でセッションが確認できませんでした（Cookie同期失敗）' }
+              }
+            } catch (e) {
+              console.warn('[auth] whoami check failed', e)
+              return { success: false, error: 'サーバーへの確認中にエラーが発生しました' }
+            }
           }
+        }
+      }
         } catch (e) {
           console.warn('[auth] failed to set server session cookie', e)
           return { success: false, error: 'サーバーに接続できませんでした' }
@@ -212,6 +227,17 @@ export const auth = {
               try { ;(window as any).__SUPABASE_SESSION = { access_token: session.access_token, refresh_token: session.refresh_token } } catch {}
             } catch (e) {
               console.warn('[auth] failed to persist tokens locally', e)
+            }
+          } else {
+            // Verify server-side cookie was set
+            try {
+              const who = await fetch('/api/auth/whoami', { method: 'GET', credentials: 'include' })
+              if (!who || who.status !== 200) {
+                return { success: false, error: 'サーバー側でセッションが確認できませんでした（Cookie同期失敗）' }
+              }
+            } catch (e) {
+              console.warn('[auth] whoami check failed (signup)', e)
+              return { success: false, error: 'サーバーへの確認中にエラーが発生しました' }
             }
           }
         } catch (e) {
