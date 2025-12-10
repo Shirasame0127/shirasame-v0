@@ -2652,10 +2652,10 @@ app.get('/custom-fonts', async (c) => {
 // normalized path (`/api/foo` -> `/foo`) while special-casing logout.
 app.all('/api/*', async (c) => {
   try {
-    const url = new URL(c.req.url)
+    let targetUrl = new URL(c.req.url)
     // Special-case logout to clear cookies for admin UI callers
     try {
-      const origPath = url.pathname || ''
+      const origPath = targetUrl.pathname || ''
       if (origPath === '/api/auth/logout' && c.req.method === 'POST') {
         const headers = new Headers(Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env)))
         headers.set('Content-Type', 'application/json; charset=utf-8')
@@ -2666,7 +2666,7 @@ app.all('/api/*', async (c) => {
     } catch (e) {}
 
     // strip only the leading '/api'
-    url.pathname = url.pathname.replace(/^\/api/, '') || '/'
+    targetUrl.pathname = targetUrl.pathname.replace(/^\/api/, '') || '/'
 
     const method = c.req.method
     const headers = makeUpstreamHeaders(c)
@@ -2684,17 +2684,41 @@ app.all('/api/*', async (c) => {
       try { body = await c.req.text() } catch { body = undefined }
     }
 
-    // If the proxy would fetch back to the same origin, surface an error
-    // to avoid request loops. This should not trigger when the worker is
-    // properly mounted at the API hostname with routes handled locally.
+    // If the incoming request would proxy back to the same host (e.g.
+    // request arrived at admin.shirasame.com/api/...), avoid issuing a
+    // same-host fetch which would create a loop. Instead, prefer fetching
+    // the worker's public host (WORKER_PUBLIC_HOST) so the normalized path
+    // is handled by this worker via its public endpoint. This keeps the
+    // `/api/* -> /*` normalization while preventing proxy loops when the
+    // worker is mounted on the same hostname as the client.
     try {
       const reqHost = (new URL(c.req.url)).hostname
-      const targetHost = url.hostname
+      const targetHost = targetUrl.hostname
       if (reqHost === targetHost) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        const bodyMsg = JSON.stringify({ error: 'proxy_loop_detected', message: 'Worker proxy would fetch same host; ensure admin site API routes are not shadowed. Consider mapping admin.shirasame.com/api/* to this worker or updating client API_BASE.' })
-        return new Response(bodyMsg, { status: 502, headers: merged })
+        try {
+          const workerHostRaw = ((c.env.WORKER_PUBLIC_HOST as string) || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
+          // If WORKER_PUBLIC_HOST looks like a full URL, construct a new URL
+          // that points to the worker public host but preserves the stripped pathname/search.
+          try {
+            const wh = new URL(workerHostRaw)
+            const proxied = new URL(wh.toString())
+            proxied.pathname = targetUrl.pathname
+            proxied.search = targetUrl.search
+            targetUrl = proxied
+          } catch (e) {
+            // If parsing fails, fall back to the original behavior and return error.
+            const base = { 'Content-Type': 'application/json; charset=utf-8' }
+            const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+            const bodyMsg = JSON.stringify({ error: 'proxy_loop_detected', message: 'Worker proxy would fetch same host and WORKER_PUBLIC_HOST is not configured correctly.' })
+            return new Response(bodyMsg, { status: 502, headers: merged })
+          }
+        } catch (inner) {
+          // If anything fails, return a 502 so the operator can notice.
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+          const bodyMsg = JSON.stringify({ error: 'proxy_loop_detected', message: 'Worker proxy would fetch same host; ensure admin site API routes are not shadowed or set WORKER_PUBLIC_HOST.' })
+          return new Response(bodyMsg, { status: 502, headers: merged })
+        }
       }
     } catch (e) {}
 

@@ -1,3 +1,12 @@
+// Design note:
+// - Admin client MUST NOT call the public-worker origin directly from the
+//   browser. Browser-origin requests on the admin domain must use the
+//   same-origin `/api/*` proxy so that HttpOnly domain cookies are sent.
+// - This module implements the server-side proxy that forwards `/api/*`
+//   requests to the public worker and preserves cookies/identity headers.
+// - Do not inject runtime API_BASE into admin HTML; client-side guards
+//   (in `lib/api-client.ts`) additionally enforce same-origin behavior.
+
 async function cloneHeaders(headers: Headers) {
   const out = new Headers()
   for (const [k, v] of headers.entries()) {

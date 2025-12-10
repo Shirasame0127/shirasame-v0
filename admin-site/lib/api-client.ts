@@ -9,6 +9,20 @@ export function apiPath(path: string) {
   try {
     if (path.startsWith('/api/auth')) return path
   } catch (e) {}
+  // Security/design guard (highest priority): when running in a browser on
+  // the official admin domain, ALWAYS use same-origin relative `/api` paths
+  // so that HttpOnly domain cookies are included. This intentionally
+  // ignores any runtime-injected `window.__env__.API_BASE` to prevent the
+  // client from calling an external public-worker directly.
+  try {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname || ''
+      if (host === 'admin.shirasame.com' || host.endsWith('.admin.shirasame.com')) {
+        return path
+      }
+    }
+  } catch (e) {}
+
   // In browser, prefer same-origin relative APIs so cookies (HttpOnly) are sent
   // and Next.js middleware can proxy to the public worker. If an explicit
   // API base is configured at build-time and it points to the same origin
@@ -32,12 +46,19 @@ export function apiPath(path: string) {
           const p = path.startsWith('/api/') ? path.replace(/^\/api/, '') : path
           return `${runtimeApiBase}${p}`
         }
+        // If we're running on the official admin domain, always use a
+        // same-origin relative `/api` path so browser HttpOnly cookies are
+        // included. This prevents the client from calling the external
+        // public-worker origin where cookies would not be sent.
+        const host = window.location.hostname || ''
+        if (host === 'admin.shirasame.com' || host.endsWith('.admin.shirasame.com')) {
+          return path
+        }
 
-        // In the browser, prefer same-origin relative `/api` so that Next.js
-        // middleware can proxy to the public-worker and browser cookies are
-        // sent/received correctly. Only use BUILD_API_BASE in the browser if
-        // a runtime `API_BASE` override is provided or if the build base is
-        // explicitly the same origin.
+        // In other cases (preview, local dev), if BUILD_API_BASE is present,
+        // prefer calling it directly. Strip the leading `/api` prefix because
+        // the public worker implements routes without that prefix (e.g.
+        // `/products`).
         if (BUILD_API_BASE) {
           try {
             // When a build-time API base is configured, prefer calling it

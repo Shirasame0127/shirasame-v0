@@ -24,6 +24,13 @@ compatibility_flags = ["nodejs_compat"]
 #     "https://*-public-worker.shirasame-official.workers.dev/*"
 # ]
 
+# Custom route: forward admin site's API path to this worker so that
+# requests to https://admin.shirasame.com/api/* are handled by the worker.
+# Note: ensure you control the `admin.shirasame.com` zone in this Cloudflare
+# account before enabling. If preferred, add this route in the Cloudflare
+# Dashboard instead of editing the toml here.
+routes = ["https://admin.shirasame.com/api/*"]
+
 # If you want to bind to a custom route (example: api.example.com/*),
 # uncomment and set the routes array below.
 # routes = ["api.yoursite.com/*"]
@@ -42,6 +49,10 @@ preview_bucket_name = "images"
 PUBLIC_ALLOWED_ORIGINS = "https://admin.shirasame.com"
 # 既存Next APIのベースURL（暫定プロキシ先）。例: https://admin.example.com
 INTERNAL_API_BASE = ""
+
+# Public worker host (used as a safe proxy target when this worker is mounted
+# on the same hostname as incoming requests). Set to your workers.dev URL.
+WORKER_PUBLIC_HOST = "https://public-worker.shirasame-official.workers.dev"
 
 # Supabase anon 直取得（RLS前提）
 SUPABASE_URL = "https://zikwelnhcpnnpurlomrf.supabase.co"
@@ -78,3 +89,4 @@ R2_PUBLIC_URL = "https://images.shirasame.com"
 R2_BUCKET = "images"
 PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"
 IMAGES_DOMAIN = "https://images.shirasame.com"
+WORKER_PUBLIC_HOST = "https://public-worker.shirasame-official.workers.dev"

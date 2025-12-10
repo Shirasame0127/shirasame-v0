@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node ./scripts/postbuild-copy.js",
+    "build": "next build && node ./scripts/postbuild-copy.js && node ./scripts/check-no-api-injection.js",
     "start": "next start",
     "lint": "eslint ."
   },
