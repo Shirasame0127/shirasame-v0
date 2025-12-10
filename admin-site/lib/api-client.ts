@@ -139,6 +139,61 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
   merged.headers = hdrs
 
+  // Simple in-memory GET cache + promise coalescing to avoid
+  // hammering the API when admin UI triggers many identical requests.
+  // - Only caches GET responses.
+  // - Short TTL to keep data fresh but reduce duplicate concurrent calls.
+  // - Stores body as text and headers necessary to reconstruct a Response.
+  try {
+    if (typeof window !== 'undefined') {
+      ;(window as any).__apiClientCache = (window as any).__apiClientCache || { cache: new Map(), inflight: new Map() }
+    }
+  } catch (e) {}
+
+  const isGet = !(merged.method && merged.method.toUpperCase() !== 'GET')
+  const cacheKey = isGet ? `GET:${url}` : null
+  const CACHE_TTL_MS = 5 * 1000 // 5 seconds
+  try {
+    if (isGet && typeof window !== 'undefined') {
+      const store = (window as any).__apiClientCache
+      const cached = store.cache.get(cacheKey)
+      const now = Date.now()
+      if (cached && (now - cached.ts) < CACHE_TTL_MS) {
+        try { console.log('[apiFetch] cache hit for', url) } catch (e) {}
+        return new Response(cached.bodyText, { status: cached.status, headers: new Headers(cached.headers) })
+      }
+      const inflight = store.inflight.get(cacheKey)
+      if (inflight) {
+        try { console.log('[apiFetch] waiting inflight for', url) } catch (e) {}
+        const result = await inflight
+        return new Response(result.bodyText, { status: result.status, headers: new Headers(result.headers) })
+      }
+      // Create a placeholder promise and store in inflight to coalesce
+      let resolveFn: (v: any) => void = () => {}
+      let rejectFn: (e: any) => void = () => {}
+      const p = new Promise<any>((resolve, reject) => { resolveFn = resolve; rejectFn = reject })
+      store.inflight.set(cacheKey, p)
+      try {
+        const resp = await fetch(url, merged)
+        const bodyText = await resp.clone().text()
+        const headersArr: Array<[string,string]> = []
+        try { resp.headers.forEach((v,k) => headersArr.push([k,v])) } catch (e) {}
+        const result = { status: resp.status, headers: headersArr, bodyText }
+        // Cache successful GETs
+        if (resp.ok) {
+          try { store.cache.set(cacheKey, { ts: Date.now(), status: resp.status, headers: headersArr, bodyText }) } catch (e) {}
+        }
+        resolveFn(result)
+        store.inflight.delete(cacheKey)
+        return new Response(bodyText, { status: resp.status, headers: new Headers(headersArr) })
+      } catch (e) {
+        try { rejectFn(e) } catch (er) {}
+        store.inflight.delete(cacheKey)
+        throw e
+      }
+    }
+  } catch (e) {}
+
   // Guard: when viewing the login/reset pages, avoid firing non-auth API
   // requests unless we have a local token mirror. This prevents the
   // login page from triggering many parallel requests that return 401

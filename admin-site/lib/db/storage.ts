@@ -95,8 +95,13 @@ async function warmCache(key: string, path: string) {
   }
 }
 
-// Start warming common caches (non-blocking)
-if (typeof window !== "undefined") {
+// Start warming common caches (disabled by default - module-load warm is no-op)
+// To avoid unnecessary parallel initial fetches from the admin UI,
+// disable automatic warm on module evaluation. Call individual
+// `db.*.refresh()` from page-level code when needed.
+const ENABLE_WARM_CACHE = false
+
+if (typeof window !== "undefined" && ENABLE_WARM_CACHE) {
   ;(async () => {
     warmCache("products", "/api/products")
     warmCache("recipes", "/api/recipes")
@@ -120,6 +125,8 @@ if (typeof window !== "undefined") {
       // ignore and do not warm
     }
   })()
+} else {
+  // intentionally no-op on module load
 }
 
 function nowISO() {

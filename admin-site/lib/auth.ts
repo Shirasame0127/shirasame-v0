@@ -89,10 +89,9 @@ export const auth = {
               const controller = new AbortController()
               const id = setTimeout(() => controller.abort(), 5000)
               try {
-                const resp = await fetch('/api/auth/session', {
+                const resp = await apiFetch('/api/auth/session', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  credentials: 'include',
                   body: JSON.stringify(payload),
                   signal: controller.signal,
                 })
@@ -119,7 +118,7 @@ export const auth = {
             // cookie was actually synchronized by calling whoami. Only treat
             // login as successful if whoami confirms the server session.
             try {
-              const who = await fetch('/api/auth/whoami', { method: 'GET', credentials: 'include' })
+              const who = await apiFetch('/api/auth/whoami', { method: 'GET' })
               if (!who || who.status !== 200) {
                 return { success: false, error: 'サーバー側でセッションが確認できませんでした（Cookie同期失敗）' }
               }
@@ -201,10 +200,9 @@ export const auth = {
               const controller = new AbortController()
               const id = setTimeout(() => controller.abort(), 5000)
               try {
-                const resp = await fetch('/api/auth/session', {
+                const resp = await apiFetch('/api/auth/session', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  credentials: 'include',
                   body: JSON.stringify(payload),
                   signal: controller.signal,
                 })
@@ -229,7 +227,7 @@ export const auth = {
           } else {
             // Verify server-side cookie was set
             try {
-              const who = await fetch('/api/auth/whoami', { method: 'GET', credentials: 'include' })
+              const who = await apiFetch('/api/auth/whoami', { method: 'GET' })
               if (!who || who.status !== 200) {
                 return { success: false, error: 'サーバー側でセッションが確認できませんでした（Cookie同期失敗）' }
               }
