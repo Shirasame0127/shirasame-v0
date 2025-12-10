@@ -2394,6 +2394,54 @@ app.post('/api/auth/session', async (c) => {
   }
 })
 
+// Compatibility: also accept `/auth/*` (no `/api` prefix) for older client calls
+// These mirror the `/api/auth/*` endpoints so that requests sent to a host
+// like `https://api.shirasame.com/auth/*` continue to work even if the
+// worker is mounted at that hostname without an `/api` prefix.
+app.post('/auth/session', async (c) => {
+  try {
+    const payload = await c.req.json().catch(() => ({}))
+    const access = payload?.access_token || ''
+    const refresh = payload?.refresh_token || ''
+    if (!access) return new Response(JSON.stringify({ ok: false, error: 'missing_access_token' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+
+    const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
+    const cookieOpts = 'Path=/; HttpOnly; Secure; SameSite=None; Domain=.shirasame.com'
+    headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(access)}; ${cookieOpts}`)
+    if (refresh) headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(refresh)}; ${cookieOpts}`)
+
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+})
+
+app.post('/auth/logout', async (c) => {
+  try {
+    const headers = new Headers(Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env)))
+    headers.set('Content-Type', 'application/json; charset=utf-8')
+    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+  }
+})
+
+app.get('/auth/whoami', async (c) => {
+  try {
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    if (!supabaseUrl) return new Response(JSON.stringify({ ok: false }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    const user = await getUserFromRequest(c)
+    if (!user) return new Response(JSON.stringify({ ok: false }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    return new Response(JSON.stringify({ ok: true, user }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+  }
+})
+
 // Refresh access token using sb-refresh-token cookie
 app.post('/api/auth/refresh', async (c) => {
   try {

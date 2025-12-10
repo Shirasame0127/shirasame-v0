@@ -242,6 +242,18 @@ export const auth = {
       console.warn('[auth] clear local user failed', e)
     }
 
+    // Ensure any local token mirrors are removed as well (used by static admin)
+    try {
+      if (typeof localStorage !== 'undefined') {
+        try { localStorage.removeItem('sb-access-token') } catch {}
+        try { localStorage.removeItem('sb-refresh-token') } catch {}
+        try { localStorage.removeItem('auth_user') } catch {}
+      }
+      try { ;(window as any).__SUPABASE_SESSION = null } catch {}
+    } catch (e) {
+      console.warn('[auth] clear local tokens failed', e)
+    }
+
     if (typeof window !== 'undefined') {
       try {
         // use replace to avoid keeping the previous page in history

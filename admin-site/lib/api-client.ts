@@ -115,6 +115,46 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
   merged.headers = hdrs
 
+  // Guard: when viewing the login/reset pages, avoid firing non-auth API
+  // requests unless we have a local token mirror. This prevents the
+  // login page from triggering many parallel requests that return 401
+  // and cause logout/redirect loops. Allow auth-related paths to proceed.
+  try {
+    if (typeof window !== 'undefined') {
+      const pathname = window.location.pathname || ''
+      const isLoginPage = pathname === '/admin/login' || pathname.startsWith('/admin/reset')
+      const isAuthPath = path.startsWith('/api/auth') || path.includes('/api/auth')
+      let hasLocalToken = false
+      try {
+        if (typeof localStorage !== 'undefined') {
+          hasLocalToken = !!(localStorage.getItem('sb-access-token') || localStorage.getItem('auth_user'))
+        }
+      } catch (e) {
+        hasLocalToken = false
+      }
+
+      if (isLoginPage && !hasLocalToken && !isAuthPath) {
+        try { console.log('[apiFetch] Login page and no local token — skipping non-auth API call:', url) } catch(e){}
+        // Return a minimal Response-like object so callers can inspect status/json
+        try {
+          return new Response(null, { status: 401, statusText: 'unauthenticated (skipped on login)' })
+        } catch (e) {
+          // Fallback plain object for environments without Response constructor.
+          // Include `text()` so callers that call `res.text()` won't break, and
+          // cast to `Response` to satisfy TypeScript where needed.
+          const fb = {
+            ok: false,
+            status: 401,
+            statusText: 'unauthenticated (skipped on login)',
+            json: async () => ({ error: 'unauthenticated (skipped on login)' }),
+            text: async () => 'unauthenticated (skipped on login)'
+          }
+          return fb as unknown as Response
+        }
+      }
+    }
+  } catch (e) {}
+
   try { console.log('[apiFetch] リクエスト開始:', url, 'options:', { method: merged.method || 'GET', credentials: (merged as any).credentials }) } catch (e) {}
   const res = await fetch(url, merged)
 
