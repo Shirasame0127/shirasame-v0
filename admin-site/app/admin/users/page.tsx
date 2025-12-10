@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || ''
-const api = (p: string) => `${API_BASE}${p}`
+import apiFetch from '@/lib/api-client'
 
 type User = { id: string; email?: string; displayName?: string }
 
@@ -14,8 +13,7 @@ export default function AdminUsersPage() {
   useEffect(() => {
     (async () => {
       try {
-        const key = (process.env.NEXT_PUBLIC_INTERNAL_KEY || '')
-        const res = await fetch(api('/admin/users'), { headers: { 'X-Internal-Key': key } })
+        const res = await apiFetch('/api/admin/users', { method: 'GET' })
         const js = await res.json().catch(() => ({ data: [] }))
         setUsers(Array.isArray(js.data) ? js.data : [])
       } finally { setLoading(false) }
