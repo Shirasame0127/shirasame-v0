@@ -9,6 +9,12 @@ const scanDir = (dir) => {
     if (ent.isDirectory()) {
       scanDir(full);
     } else {
+      // Skip server-only build artifacts which are not sent to browsers
+      // (e.g. `.next/server/**`). We only want to detect runtime injection
+      // patterns in client-distributable assets under `.next/static`, `out`,
+      // or similar.
+      const normalized = full.split(path.sep).join('/');
+      if (normalized.includes('/.next/server/')) continue;
       checkFile(full);
     }
   }
@@ -39,7 +45,7 @@ function checkFile(filePath) {
   }
 }
 
-// scan common Next.js output dirs
+// scan common Next.js client-facing output dirs (skip server-only files)
 const candidates = [path.join(root, '.next'), path.join(root, 'out'), path.join(root, 'build')];
 for (const c of candidates) {
   if (fs.existsSync(c)) scanDir(c);
