@@ -2355,8 +2355,9 @@ app.post('/auth/logout', async (c) => {
   try {
     const headers = new Headers(Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env)))
     headers.set('Content-Type', 'application/json; charset=utf-8')
-    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
-    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+    // Include Expires in addition to Max-Age for broader browser compatibility
+    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Domain=.shirasame.com`)
+    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Domain=.shirasame.com`)
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
@@ -2426,8 +2427,9 @@ app.post('/api/auth/refresh', async (c) => {
 app.post('/api/auth/logout', async (c) => {
   try {
     const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
-    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
-    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
+    // Include Expires for broader compatibility when clearing cookies
+    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Domain=.shirasame.com`)
+    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Domain=.shirasame.com`)
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })

@@ -281,6 +281,28 @@ export const auth = {
       console.warn('[auth] clear local tokens failed', e)
     }
 
+    // Also attempt to clear any host-only cookies (cookies set without Domain)
+    // and provide multiple variants to maximize browser compatibility.
+    try {
+      if (typeof document !== 'undefined') {
+        try {
+          // Host-only clears (no Domain)
+          document.cookie = 'sb-access-token=; Path=/; Max-Age=0; SameSite=None; Secure';
+          document.cookie = 'sb-refresh-token=; Path=/; Max-Age=0; SameSite=None; Secure';
+          // Expires-based clears for older browsers
+          document.cookie = 'sb-access-token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=None; Secure';
+          document.cookie = 'sb-refresh-token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=None; Secure';
+          // Domain-scoped clears as fallback (match server-set cookies)
+          document.cookie = 'sb-access-token=; Path=/; Max-Age=0; Domain=.shirasame.com; SameSite=None; Secure';
+          document.cookie = 'sb-refresh-token=; Path=/; Max-Age=0; Domain=.shirasame.com; SameSite=None; Secure';
+        } catch (e) {
+          console.warn('[auth] clear document.cookie failed', e)
+        }
+      }
+    } catch (e) {
+      console.warn('[auth] clear host cookies failed', e)
+    }
+
     if (typeof window !== 'undefined') {
       try {
         // use replace to avoid keeping the previous page in history
