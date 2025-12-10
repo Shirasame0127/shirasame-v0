@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { db } from "@/lib/db/storage"
 import { getCurrentUser } from "@/lib/auth"
+import apiFetch from '@/lib/api-client'
 import { Plus, Trash2, Calendar } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
 import type { AmazonSaleSchedule } from "@/lib/db/schema"
