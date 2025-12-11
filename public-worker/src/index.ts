@@ -896,6 +896,7 @@ app.get('/tags', zValidator('query', listQuery.partial()), async (c) => {
 
 // /amazon-sale-schedules
 app.get('/amazon-sale-schedules', async (c) => {
+  console.log('[ROUTE DEBUG]', { path: c.req.url, method: c.req.method, matched: '/amazon-sale-schedules' })
   const supabase = getSupabase(c.env)
   const key = `amazon-sale-schedules`
   return cacheJson(c, key, async () => {
@@ -917,12 +918,59 @@ app.get('/amazon-sale-schedules', async (c) => {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }))
+      console.log('[ROUTE DEBUG]', { path: c.req.url, method: c.req.method, matched: '/amazon-sale-schedules', resultCount: mapped.length })
       return new Response(JSON.stringify({ data: mapped }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     } catch (e: any) {
+      console.log('[ROUTE DEBUG] /amazon-sale-schedules error', String(e?.message || e))
       return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     }
   })
 })
+
+// Mirror admin-prefixed route so admin-origin requests to /api/amazon-sale-schedules work
+app.get('/api/amazon-sale-schedules', async (c) => mirrorGet(c, async (c2) => {
+  console.log('[ROUTE DEBUG]', { path: c2.req.url, method: c2.req.method, matched: '/api/amazon-sale-schedules (mirror)' })
+  const supabase = getSupabase(c2.env)
+  const key = `amazon-sale-schedules`
+  return cacheJson(c2, key, async () => {
+    try {
+      const ctx = await resolveRequestUserContext(c2)
+      if (!ctx.trusted) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        console.log('[ROUTE DEBUG] /api/amazon-sale-schedules unauthenticated')
+        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      }
+      let query = supabase.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true }).eq('user_id', ctx.userId)
+      const { data = [], error } = await query
+      if (error) {
+        console.log('[ROUTE DEBUG] /api/amazon-sale-schedules supabase error', String(error.message || error))
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        return new Response(JSON.stringify({ data: [] }), { headers: merged })
+      }
+      const mapped = (data || []).map((row: any) => ({
+        id: row.id,
+        userId: row.user_id,
+        saleName: row.sale_name,
+        startDate: row.start_date,
+        endDate: row.end_date,
+        collectionId: row.collection_id,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }))
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      console.log('[ROUTE DEBUG]', { path: c2.req.url, method: c2.req.method, matched: '/api/amazon-sale-schedules (mirror)', resultCount: mapped.length })
+      return new Response(JSON.stringify({ data: mapped }), { headers: merged })
+    } catch (e: any) {
+      console.log('[ROUTE DEBUG] /api/amazon-sale-schedules handler error', String(e?.message || e))
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
+    }
+  })
+}))
 
 // /site-settings
 app.get('/site-settings', async (c) => {
