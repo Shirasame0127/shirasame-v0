@@ -33,6 +33,8 @@ export type Env = {
 
 const app = new Hono<{ Bindings: Env }>()
 
+// (ハンドラ自動ラップは危険な互換性リスクがあるため差し替え済み)
+
 // Admin authentication middleware: enforce JWT <-> X-User-Id matching
 app.use('/api/admin/*', async (c, next) => {
   try {
@@ -176,12 +178,11 @@ app.use('*', async (c, next) => {
     } catch {}
     return res
   } catch (e: any) {
-    const body: any = { error: e?.message || String(e) }
-    try {
-      if ((c.env as any).DEBUG_WORKER === 'true') body.stack = e?.stack || null
-    } catch {}
+    try { console.error('❌ 未処理例外（グローバルミドルウェア）:', { url: c.req.url, method: c.req.method, error: e, stack: e?.stack }) } catch {}
+    const body: any = { error: 'サーバーエラー発生（詳細はコンソール参照）', message: e?.message || String(e) }
+    try { body.stack = e?.stack || null } catch {}
     const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-      headers['X-Served-By'] = 'public-worker'
+    headers['X-Served-By'] = 'public-worker'
     headers['Content-Type'] = 'application/json; charset=utf-8'
     return new Response(JSON.stringify(body), { status: 500, headers })
   }
@@ -953,6 +954,445 @@ app.get('/site-settings', async (c) => {
       return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
     }
   })
+})
+
+// Also expose `/api/site-settings` explicitly so admin-origin requests
+// that hit `/api/site-settings` are handled directly (avoids proxy edge cases).
+app.get('/api/site-settings', async (c) => {
+  try {
+    const internal = upstream(c, '/api/site-settings')
+    const ctx = await resolveRequestUserContext(c)
+
+    // If an internal upstream is configured, proxy to it (maintain headers)
+    if (internal) {
+      const headers = makeUpstreamHeaders(c)
+      if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
+      const res = await fetch(internal, { method: 'GET', headers })
+      const json = await res.json().catch(() => ({ data: {} }))
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify(json), { status: res.status, headers: merged })
+    }
+
+    // Fallback: read from Supabase anon client and return key/value map
+    const supabase = getSupabase(c.env)
+    const { data, error } = await supabase.from('site_settings').select('key, value').limit(100)
+    if (error) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify({ data: {} }), { headers: merged })
+    }
+    const rows = Array.isArray(data) ? data : []
+    const out: Record<string, any> = {}
+    for (const r of rows) {
+      try {
+        if (r && typeof r.key === 'string') out[r.key] = r.value
+      } catch {}
+    }
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ data: out }), { headers: merged })
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ data: {} }), { status: 500, headers: merged })
+  }
+})
+
+// Mirror common public endpoints under /api/* so admin-origin requests
+// that include the /api prefix are handled consistently.
+const mirrorGet = async (c: any, handler: (c: any) => Promise<Response>) => {
+  try {
+    return await handler(c)
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ data: {} }), { status: 500, headers: merged })
+  }
+}
+
+app.get('/api/collections', async (c) => mirrorGet(c, async (c2) => {
+  // Reuse existing collections logic (same as /collections)
+  const supabase = getSupabase(c2.env)
+  const q = c2.req.query()
+  const limit = q.limit ? Math.max(0, parseInt(q.limit)) : null
+  const offset = q.limit ? Math.max(0, parseInt(q.offset || '0')) : 0
+  const wantCount = q.count === 'true'
+  const key = `collections${c2.req.url.includes('?') ? c2.req.url.substring(c2.req.url.indexOf('?')) : ''}`
+  return cacheJson(c2, key, async () => {
+    try {
+      const ctx = await resolveRequestUserContext(c2)
+      if (!ctx.trusted) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      }
+      const reqUserId = ctx.userId
+      let collections: any[] = []
+      let total: number | null = null
+      if (limit && limit > 0) {
+        if (wantCount) {
+          let query: any = supabase.from('collections').select('*', { count: 'exact' }).order('created_at', { ascending: false })
+          if (reqUserId) query = query.eq('user_id', reqUserId)
+          else {
+            const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
+            if (ownerId) query = query.eq('user_id', ownerId)
+            else query = query.eq('visibility', 'public')
+          }
+          const res = await query.range(offset, offset + Math.max(0, limit - 1))
+          collections = res.data || []
+          // @ts-ignore
+          total = typeof res.count === 'number' ? res.count : null
+        } else {
+          let query: any = supabase.from('collections').select('*').order('created_at', { ascending: false })
+          if (reqUserId) query = query.eq('user_id', reqUserId)
+          else {
+            const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
+            if (ownerId) query = query.eq('user_id', ownerId)
+            else query = query.eq('visibility', 'public')
+          }
+          const res = await query.range(offset, offset + Math.max(0, limit - 1))
+          collections = res.data || []
+        }
+      } else {
+        let query: any = supabase.from('collections').select('*').order('created_at', { ascending: false })
+        if (reqUserId) query = query.eq('user_id', reqUserId)
+        else {
+          const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
+          if (ownerId) query = query.eq('user_id', ownerId)
+          else query = query.eq('visibility', 'public')
+        }
+        const res = await query
+        collections = res.data || []
+      }
+
+      if (!collections || collections.length === 0) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        return new Response(JSON.stringify({ data: [], meta: total != null ? { total, limit, offset } : undefined }), { headers: merged })
+      }
+
+      const collectionIds = collections.map((c3: any) => c3.id)
+      const { data: items = [] } = await supabase.from('collection_items').select('*').in('collection_id', collectionIds)
+      const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id)))
+      let products: any[] = []
+      if (productIds.length > 0) {
+        const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
+        let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('published', true)
+        if (reqUserId) prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('user_id', reqUserId)
+        else {
+          const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
+          if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
+        }
+        const { data: prods = [] } = await prodQuery
+        products = prods || []
+      }
+      const productMap = new Map<string, any>()
+      for (const p of products) productMap.set(p.id, p)
+      const transformed = collections.map((col: any) => {
+        const thisItems = (items || []).filter((it: any) => it.collection_id === col.id)
+        const thisProducts = thisItems.map((it: any) => productMap.get(it.product_id)).filter(Boolean)
+        return {
+          id: col.id,
+          userId: col.user_id,
+          title: col.title,
+          description: col.description,
+          visibility: col.visibility,
+          createdAt: col.created_at,
+          updatedAt: col.updated_at,
+          products: thisProducts.map((p: any) => ({ id: p.id, userId: p.user_id, title: p.title, slug: p.slug }))
+        }
+      })
+      const meta = total != null ? { total, limit, offset } : undefined
+      const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ data: transformed, meta }), { headers: merged })
+    } catch (e: any) {
+      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
+  })
+}))
+
+app.get('/api/profile', async (c) => mirrorGet(c, async (c2) => {
+  const supabase = getSupabase(c2.env)
+  const key = `profile`
+  return cacheJson(c2, key, async () => {
+    try {
+      const ownerEmail = (c2.env.PUBLIC_PROFILE_EMAIL || '').toString() || ''
+      if (!ownerEmail) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        return new Response(JSON.stringify({ data: null }), { headers: merged })
+      }
+      const { data, error } = await supabase.from('users').select('*').eq('email', ownerEmail).limit(1)
+      if (error) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        return new Response(JSON.stringify({ data: null }), { headers: merged })
+      }
+      const user = Array.isArray(data) && data.length > 0 ? data[0] : null
+      if (!user) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        return new Response(JSON.stringify({ data: null }), { headers: merged })
+      }
+      const transformed = { id: user.id, name: user.name || null, displayName: user.display_name || user.displayName || user.name || null, email: user.email || null, avatarUrl: user.avatar_url || user.profile_image || null }
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ data: transformed }), { headers: merged })
+    } catch (e: any) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ data: null }), { status: 500, headers: merged })
+    }
+  })
+}))
+
+app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
+  // reuse /recipes logic by invoking same query path
+  // For brevity, call the existing handler logic by constructing a request to the internal path
+  const upstreamUrl = upstream(c2, '/api/recipes')
+  if (upstreamUrl) {
+    const res = await fetch(upstreamUrl, { method: 'GET', headers: makeUpstreamHeaders(c2) })
+    const json = await res.json().catch(() => ({ data: [] }))
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify(json), { status: res.status, headers: merged })
+  }
+  // Fallback: call existing /recipes logic by fetching local path (should be handled by same worker)
+  const res = await fetch(new URL(c2.req.url.replace('/api/', '/')), { method: 'GET', headers: makeUpstreamHeaders(c2) })
+  const buf = await res.arrayBuffer()
+  const outHeaders: Record<string, string> = {}
+  try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
+  const origin = c2.req.header('Origin') || ''
+  const mergedHeaders = Object.assign({}, computeCorsHeaders(origin, c2.env), outHeaders)
+  return new Response(buf, { status: res.status, headers: mergedHeaders })
+}))
+
+// Mirror admin products GET to canonical /products handlers so admin UI
+// requests to `/api/admin/products` are served by this worker.
+app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
+  try {
+    const ob = { path: c2.req.path || (new URL(c2.req.url)).pathname, method: c2.req.method }
+    try {
+      const cookie = (c2.req.header('cookie') || '').toString()
+      const hasCookie = !!cookie
+      const m = cookie.match(/(?:^|; )sb-access-token=([^;]+)/)
+      const tokenLen = m && m[1] ? decodeURIComponent(m[1]).length : 0
+      const xu = (c2.req.header('x-user-id') || c2.req.header('X-User-Id') || '').toString()
+      try { console.log('dbg:/api/admin/products incoming', Object.assign({}, ob, { hasCookie, tokenLen, xUserId: xu ? xu.slice(0,8) + '...' : '' })) } catch {}
+    } catch {}
+  } catch {}
+  const internal = upstream(c2, '/api/admin/products')
+  if (internal) {
+    const headers = makeUpstreamHeaders(c2)
+    try { const xu = c2.req.header('x-user-id') || c2.req.header('X-User-Id'); if (xu) headers['x-user-id'] = xu.toString() } catch {}
+    const res = await fetch(internal, { method: 'GET', headers })
+    const json = await res.json().catch(() => ({ data: [] }))
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify(json), { status: res.status, headers: merged })
+  }
+
+  // Fallback: rewrite to /products. If the rewritten URL would target the
+  // same host, route to the worker's public host to avoid fetching the
+  // origin (which may return HTML). This mirrors proxy-loop avoidance logic.
+  let targetUrl = new URL(c2.req.url.replace('/api/admin/products', '/products'))
+  try {
+    const reqHost = (new URL(c2.req.url)).hostname
+    const targetHost = targetUrl.hostname
+    if (reqHost === targetHost) {
+      const workerHostRaw = ((c2.env.WORKER_PUBLIC_HOST as string) || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
+      try {
+        const wh = new URL(workerHostRaw)
+        wh.pathname = targetUrl.pathname
+        wh.search = targetUrl.search
+        targetUrl = wh
+      } catch {}
+    }
+  } catch {}
+
+  const res = await fetch(targetUrl.toString(), { method: 'GET', headers: makeUpstreamHeaders(c2) })
+  const buf = await res.arrayBuffer()
+  const outHeaders: Record<string, string> = {}
+  let ct = ''
+  try { ct = (res.headers.get('content-type') || '').toString() } catch {}
+  // If upstream returned HTML (Next.js/host page), don't forward raw HTML to client
+  const startsWithHtml = (() => {
+    try {
+      const prefix = new TextDecoder().decode(new Uint8Array(buf.slice(0, 64)))
+      return /^\s*<!(doctype|html)|^\s*<html/i.test(prefix)
+    } catch { return false }
+  })()
+  if (ct.indexOf('text/html') !== -1 || startsWithHtml) {
+    try { console.error('public-worker: upstream returned HTML for', targetUrl.toString(), 'status=', res.status) } catch {}
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify({ error: 'upstream_returned_html', message: 'Upstream returned HTML instead of JSON' }), { status: 502, headers: merged })
+  }
+  try { outHeaders['Content-Type'] = ct || 'application/json; charset=utf-8' } catch {}
+  const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
+  return new Response(buf, { status: res.status, headers: merged })
+}))
+
+// Mirror admin product detail: /api/admin/products/:id -> /products? or /products/:id
+app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
+  try {
+    const ob = { path: c2.req.path || (new URL(c2.req.url)).pathname, method: c2.req.method }
+    try {
+      const cookie = (c2.req.header('cookie') || '').toString()
+      const hasCookie = !!cookie
+      const m = cookie.match(/(?:^|; )sb-access-token=([^;]+)/)
+      const tokenLen = m && m[1] ? decodeURIComponent(m[1]).length : 0
+      const xu = (c2.req.header('x-user-id') || c2.req.header('X-User-Id') || '').toString()
+      try { console.log('dbg:/api/admin/products/* incoming', Object.assign({}, ob, { hasCookie, tokenLen, xUserId: xu ? xu.slice(0,8) + '...' : '' })) } catch {}
+    } catch {}
+  } catch {}
+  const internal = upstream(c2, c2.req.path)
+  if (internal) {
+    const headers = makeUpstreamHeaders(c2)
+    try { const xu = c2.req.header('x-user-id') || c2.req.header('X-User-Id'); if (xu) headers['x-user-id'] = xu.toString() } catch {}
+    const res = await fetch(internal, { method: 'GET', headers })
+    const buf = await res.arrayBuffer()
+    const outHeaders: Record<string, string> = {}
+    try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
+    return new Response(buf, { status: res.status, headers: merged })
+  }
+  // Rewrite /api/admin/products/<id> -> /products/<id>. If target would
+  // resolve to same host, use WORKER_PUBLIC_HOST so the worker handles it.
+  let targetUrl = new URL(c2.req.url.replace('/api/admin/products/', '/products/'))
+  try {
+    const reqHost = (new URL(c2.req.url)).hostname
+    const targetHost = targetUrl.hostname
+    if (reqHost === targetHost) {
+      const workerHostRaw = ((c2.env.WORKER_PUBLIC_HOST as string) || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
+      try {
+        const wh = new URL(workerHostRaw)
+        wh.pathname = targetUrl.pathname
+        wh.search = targetUrl.search
+        targetUrl = wh
+      } catch {}
+    }
+  } catch {}
+
+  const res = await fetch(targetUrl.toString(), { method: 'GET', headers: makeUpstreamHeaders(c2) })
+  const buf = await res.arrayBuffer()
+  const outHeaders: Record<string, string> = {}
+  let ct = ''
+  try { ct = (res.headers.get('content-type') || '').toString() } catch {}
+  const startsWithHtml = (() => {
+    try {
+      const prefix = new TextDecoder().decode(new Uint8Array(buf.slice(0, 64)))
+      return /^\s*<!(doctype|html)|^\s*<html/i.test(prefix)
+    } catch { return false }
+  })()
+  if (ct.indexOf('text/html') !== -1 || startsWithHtml) {
+    try { console.error('public-worker: upstream returned HTML for', targetUrl.toString(), 'status=', res.status) } catch {}
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify({ error: 'upstream_returned_html', message: 'Upstream returned HTML instead of JSON' }), { status: 502, headers: merged })
+  }
+  try { outHeaders['Content-Type'] = ct || 'application/json; charset=utf-8' } catch {}
+  const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
+  return new Response(buf, { status: res.status, headers: merged })
+}))
+
+app.get('/api/tag-groups', async (c) => mirrorGet(c, async (c2) => {
+  return (await fetch(new URL(c2.req.url.replace('/api/', '/')))).ok ? await fetch(new URL(c2.req.url.replace('/api/', '/'))) : new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+}))
+
+app.get('/api/tags', async (c) => mirrorGet(c, async (c2) => {
+  return (await fetch(new URL(c2.req.url.replace('/api/', '/')))).ok ? await fetch(new URL(c2.req.url.replace('/api/', '/'))) : new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+}))
+
+app.get('/api/products', async (c) => mirrorGet(c, async (c2) => {
+  // proxy to local path '/products'
+  const res = await fetch(new URL(c2.req.url.replace('/api/', '/')))
+  const buf = await res.arrayBuffer()
+  const outHeaders: Record<string, string> = {}
+  try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
+  const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
+  return new Response(buf, { status: res.status, headers: merged })
+}))
+
+app.get('/api/recipe-pins', async (c) => mirrorGet(c, async (c2) => {
+  const supabase = getSupabase(c2.env)
+  try {
+    const ctx = await resolveRequestUserContext(c2)
+    if (!ctx.trusted) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+    }
+    const { data = [], error } = await supabase.from('recipe_pins').select('*').eq('user_id', ctx.userId)
+    if (error) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ error: error.message || 'db_error' }), { status: 500, headers: merged })
+    }
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify({ data }), { headers: merged })
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+  }
+}))
+
+app.get('/api/custom-fonts', async (c) => mirrorGet(c, async (c2) => {
+  const base = { 'Content-Type': 'application/json; charset=utf-8' }
+  const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+  return new Response(JSON.stringify({ data: [] }), { headers: merged })
+}))
+
+// Mirror images wildcard
+app.get('/api/images/*', async (c) => {
+  // Rewrite to /images/* and let existing handler serve it
+  try {
+    const newUrl = new URL(c.req.url.replace('/api/images/', '/images/'))
+    const res = await fetch(newUrl.toString(), { method: 'GET' })
+    const buf = await res.arrayBuffer()
+    const outHeaders: Record<string, string> = {}
+    try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), outHeaders)
+    return new Response(buf, { status: res.status, headers: merged })
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+  }
+})
+
+// Mirror POST for site-settings (admin writes)
+app.post('/api/site-settings', async (c) => {
+  try {
+    // mimic /site-settings POST behavior
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+    const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'not_configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const body = await c.req.json().catch(() => null)
+    if (!body || typeof body.key !== 'string') return new Response(JSON.stringify({ error: 'bad_request' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const valueRaw = body.value === undefined ? null : body.value
+    const value = typeof valueRaw === 'string' ? valueRaw : JSON.stringify(valueRaw)
+    const upUrl = `${supabaseUrl}/rest/v1/site_settings?on_conflict=key`
+    const res = await fetch(upUrl, {
+      method: 'POST',
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify({ key: body.key, value })
+    })
+    if (!res.ok) return new Response(JSON.stringify({ error: 'upsert_failed' }), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const j = await res.json().catch(() => null)
+    const outVal = j && Array.isArray(j) && j.length > 0 ? j[0].value : null
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ data: { [body.key]: outVal } }), { headers: merged })
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
 })
 
 // Allow admin clients to update a single site setting via POST /site-settings
@@ -2025,24 +2465,11 @@ async function handleUploadImage(c: any) {
   }
 }
 
-// Register upload handler under multiple paths for compatibility with
-// different proxying conventions (`/upload-image`, `/images/upload`, `/api/images/upload`).
-app.post('/upload-image', handleUploadImage)
-app.post('/images/upload', handleUploadImage)
+// Register canonical upload handler under `/api/images/upload`.
+// Legacy aliases removed — clients should call the `/api/*` path.
 app.post('/api/images/upload', handleUploadImage)
 
-// Compatibility alias: some clients call `/images/save` for metadata persist.
-// Forward to the canonical `/api/images/complete` so older clients keep working.
-app.post('/images/save', async (c) => {
-  try {
-    // Call the canonical handler directly to avoid re-entering the `/api/*` proxy
-    return await handleImagesComplete(c)
-  } catch (e: any) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
-  }
-})
+// Legacy `/images/save` alias removed — use `/api/images/complete`.
 
 // images/complete: Persist uploaded image metadata (key-only policy)
 // Extracted into a reusable function so compatibility aliases can call
@@ -2399,54 +2826,7 @@ app.post('/api/auth/session', async (c) => {
   }
 })
 
-// Compatibility: also accept `/auth/*` (no `/api` prefix) for older client calls
-// These mirror the `/api/auth/*` endpoints so that requests sent to a host
-// like `https://api.shirasame.com/auth/*` continue to work even if the
-// worker is mounted at that hostname without an `/api` prefix.
-app.post('/auth/session', async (c) => {
-  try {
-    const payload = await c.req.json().catch(() => ({}))
-    const access = payload?.access_token || ''
-    const refresh = payload?.refresh_token || ''
-    if (!access) return new Response(JSON.stringify({ ok: false, error: 'missing_access_token' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-
-    const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
-    const cookieOpts = 'Path=/; HttpOnly; Secure; SameSite=None; Domain=.shirasame.com'
-    headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(access)}; ${cookieOpts}`)
-    if (refresh) headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(refresh)}; ${cookieOpts}`)
-
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
-  } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-  }
-})
-
-app.post('/auth/logout', async (c) => {
-  try {
-    const headers = new Headers(Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env)))
-    headers.set('Content-Type', 'application/json; charset=utf-8')
-    // Include Expires in addition to Max-Age for broader browser compatibility
-    headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Domain=.shirasame.com`)
-    headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Domain=.shirasame.com`)
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
-  } catch (e: any) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
-  }
-})
-
-app.get('/auth/whoami', async (c) => {
-  try {
-    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
-    if (!supabaseUrl) return new Response(JSON.stringify({ ok: false }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-    const user = await getUserFromRequest(c)
-    if (!user) return new Response(JSON.stringify({ ok: false }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-    return new Response(JSON.stringify({ ok: true, user }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-  } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-  }
-})
+// Legacy non-`/api` auth aliases removed. Use `/api/auth/*` endpoints.
 
 // Refresh access token using sb-refresh-token cookie
 app.post('/api/auth/refresh', async (c) => {
@@ -2789,7 +3169,7 @@ app.all('/api/*', async (c) => {
       }
     } catch (e) {}
 
-    const res = await fetch(url.toString(), { method, headers, body })
+    const res = await fetch(targetUrl.toString(), { method, headers, body })
     const buf = await res.arrayBuffer()
     const outHeaders: Record<string, string> = {}
     try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
@@ -2827,11 +3207,32 @@ app.all('*', async (c) => {
     headers['Content-Type'] = 'text/plain; charset=utf-8'
     return new Response('Not Found', { status: 404, headers })
   } catch (e: any) {
+    try { console.error('❌ app.all catch 未処理例外:', e, e?.stack) } catch {}
     const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
     headers['Content-Type'] = 'application/json; charset=utf-8'
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers })
+    const out: any = { error: 'サーバーエラー発生（詳細はコンソール参照）', message: e?.message || String(e) }
+    try { out.stack = e?.stack || null } catch {}
+    return new Response(JSON.stringify(out), { status: 500, headers })
   }
 })
 
   // Export app at the end of the module
+  // 最上位の fetch ハンドラを安全ラップして、例外時は常に JSON を返す
+  addEventListener('fetch', (event: any) => {
+    event.respondWith((async () => {
+      try {
+        // delegate to Hono app
+        return await app.fetch(event.request, event)
+      } catch (err: any) {
+        try { console.error('❌ 予期せぬエラー発生:', { requestUrl: event.request && event.request.url, error: err, stack: err?.stack }) } catch {}
+        const headers: Record<string,string> = computeCorsHeaders(null, {})
+        headers['Content-Type'] = 'application/json; charset=utf-8'
+        headers['X-Served-By'] = 'public-worker'
+        const body: any = { error: 'サーバーエラー発生（詳細はコンソール参照）', message: err instanceof Error ? err.message : String(err) }
+        try { body.stack = err?.stack || null } catch {}
+        return new Response(JSON.stringify(body), { status: 500, headers })
+      }
+    })())
+  })
+
   export default app

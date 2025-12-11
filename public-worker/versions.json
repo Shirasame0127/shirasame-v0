@@ -1,0 +1,157 @@
+{
+  "result": {
+    "items": [
+      {
+        "id": "f018deeb-835b-4f4b-911d-5a874b0e593e",
+        "number": 473,
+        "metadata": {
+          "created_on": "2025-12-11T07:44:37.561984Z",
+          "source": "wrangler",
+          "author_id": "6938a5f4b6541bd9c532807dfc6c8fd7",
+          "author_email": "shirasame.official@gmail.com",
+          "has_preview": true
+        },
+        "annotations": {
+          "workers/triggered_by": "version_upload"
+        }
+      },
+      {
+        "id": "661817bb-d5a6-4d0d-af11-6ba5ed04b32d",
+        "number": 472,
+        "metadata": {
+          "created_on": "2025-12-11T07:44:26.271942Z",
+          "source": "wrangler",
+          "author_id": "6938a5f4b6541bd9c532807dfc6c8fd7",
+          "author_email": "shirasame.official@gmail.com",
+          "has_preview": true
+        },
+        "annotations": {
+          "workers/triggered_by": "version_upload"
+        }
+      },
+      {
+        "id": "e3f4bb68-7296-4e36-b737-392c5dccc0e5",
+        "number": 471,
+        "metadata": {
+          "created_on": "2025-12-11T07:39:17.269266Z",
+          "source": "wrangler",
+          "author_id": "6938a5f4b6541bd9c532807dfc6c8fd7",
+          "author_email": "shirasame.official@gmail.com",
+          "has_preview": true
+        },
+        "annotations": {
+          "workers/triggered_by": "upload"
+        }
+      },
+      {
+        "id": "f4e1ad29-34d0-4372-871b-31eeded83304",
+        "number": 470,
+        "metadata": {
+          "created_on": "2025-12-11T07:23:50.124837Z",
+          "source": "wrangler",
+          "author_id": "6938a5f4b6541bd9c532807dfc6c8fd7",
+          "author_email": "shirasame.official@gmail.com",
+          "has_preview": true
+        },
+        "annotations": {
+          "workers/triggered_by": "upload"
+        }
+      },
+      {
+        "id": "f3c36575-eec6-4451-80a4-7c8fbe02f3d2",
+        "number": 469,
+        "metadata": {
+          "created_on": "2025-12-10T16:04:16.327189Z",
+          "source": "wrangler",
+          "author_id": "6938a5f4b6541bd9c532807dfc6c8fd7",
+          "author_email": "shirasame.official@gmail.com",
+          "has_preview": false
+        },
+        "annotations": {
+          "workers/message": "yarinaoshi",
+          "workers/rollback_from": "5bd67e26-ca30-4363-82f0-b0757fad4586",
+          "workers/triggered_by": "rollback"
+        }
+      },
+      {
+        "id": "6710071e-0504-4994-8d6c-2166b26c45dd",
+        "number": 468,
+        "metadata": {
+          "created_on": "2025-12-10T15:34:05.674507Z",
+          "source": "wrangler",
+          "author_id": "6938a5f4b6541bd9c532807dfc6c8fd7",
+          "author_email": "shirasame.official@gmail.com",
+          "has_preview": true
+        },
+        "annotations": {
+          "workers/triggered_by": "upload"
+        }
+      },
+      {
+        "id": "2849f9b3-1270-4742-8e18-08944ab0addb",
+        "number": 467,
+        "metadata": {
+          "created_on": "2025-12-10T15:33:52.292841Z",
+          "source": "wrangler",
+          "author_id": "6938a5f4b6541bd9c532807dfc6c8fd7",
+          "author_email": "shirasame.official@gmail.com",
+          "has_preview": true
+        },
+        "annotations": {
+          "workers/triggered_by": "upload"
+        }
+      },
+      {
+        "id": "e002a928-f621-4161-b2a1-b2e6428f9dd3",
+        "number": 466,
+        "metadata": {
+          "created_on": "2025-12-10T15:23:55.029323Z",
+          "source": "wrangler",
+          "author_id": "6938a5f4b6541bd9c532807dfc6c8fd7",
+          "author_email": "shirasame.official@gmail.com",
+          "has_preview": true
+        },
+        "annotations": {
+          "workers/triggered_by": "upload"
+        }
+      },
+      {
+        "id": "b0b833f5-e532-45d1-ab71-4c6a9234f73d",
+        "number": 465,
+        "metadata": {
+          "created_on": "2025-12-10T15:21:53.762814Z",
+          "source": "wrangler",
+          "author_id": "6938a5f4b6541bd9c532807dfc6c8fd7",
+          "author_email": "shirasame.official@gmail.com",
+          "has_preview": true
+        },
+        "annotations": {
+          "workers/triggered_by": "upload"
+        }
+      },
+      {
+        "id": "0ef4b247-8919-4b31-97f6-2453b90ae37e",
+        "number": 464,
+        "metadata": {
+          "created_on": "2025-12-10T15:07:34.682432Z",
+          "source": "wrangler",
+          "author_id": "6938a5f4b6541bd9c532807dfc6c8fd7",
+          "author_email": "shirasame.official@gmail.com",
+          "has_preview": true
+        },
+        "annotations": {
+          "workers/triggered_by": "upload"
+        }
+      }
+    ]
+  },
+  "success": true,
+  "errors": null,
+  "messages": null,
+  "result_info": {
+    "page": 1,
+    "per_page": 10,
+    "count": 10,
+    "total_count": 473
+  }
+}
