@@ -1242,45 +1242,31 @@ app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
     return new Response(JSON.stringify(json), { status: res.status, headers: merged })
   }
 
-  // Fallback: rewrite to /products. If the rewritten URL would target the
-  // same host, route to the worker's public host to avoid fetching the
-  // origin (which may return HTML). This mirrors proxy-loop avoidance logic.
-  let targetUrl = new URL(c2.req.url.replace('/api/admin/products', '/products'))
+  // Fallback: avoid proxy/fetch edge cases by performing the product
+  // listing directly against Supabase when no internal upstream is configured.
   try {
-    const reqHost = (new URL(c2.req.url)).hostname
-    const targetHost = targetUrl.hostname
-    if (reqHost === targetHost) {
-      const workerHostRaw = ((c2.env.WORKER_PUBLIC_HOST as string) || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
-      try {
-        const wh = new URL(workerHostRaw)
-        wh.pathname = targetUrl.pathname
-        wh.search = targetUrl.search
-        targetUrl = wh
-      } catch {}
+    const ctx = await resolveRequestUserContext(c2)
+    if (!ctx.trusted) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
     }
-  } catch {}
-
-  const res = await fetch(targetUrl.toString(), { method: 'GET', headers: makeUpstreamHeaders(c2) })
-  const buf = await res.arrayBuffer()
-  const outHeaders: Record<string, string> = {}
-  let ct = ''
-  try { ct = (res.headers.get('content-type') || '').toString() } catch {}
-  // If upstream returned HTML (Next.js/host page), don't forward raw HTML to client
-  const startsWithHtml = (() => {
-    try {
-      const prefix = new TextDecoder().decode(new Uint8Array(buf.slice(0, 64)))
-      return /^\s*<!(doctype|html)|^\s*<html/i.test(prefix)
-    } catch { return false }
-  })()
-  if (ct.indexOf('text/html') !== -1 || startsWithHtml) {
-    try { console.error('public-worker: upstream returned HTML for', targetUrl.toString(), 'status=', res.status) } catch {}
+    const supabase = getSupabase(c2.env)
+    const q = supabase.from('products').select('id,user_id,title,slug,short_description,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)').eq('user_id', ctx.userId).order('created_at', { ascending: false })
+    const { data = [], error } = await q
+    if (error) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
+    }
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ error: 'upstream_returned_html', message: 'Upstream returned HTML instead of JSON' }), { status: 502, headers: merged })
+    return new Response(JSON.stringify({ data }), { headers: merged })
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
   }
-  try { outHeaders['Content-Type'] = ct || 'application/json; charset=utf-8' } catch {}
-  const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
-  return new Response(buf, { status: res.status, headers: merged })
 }))
 
 // Mirror admin product detail: /api/admin/products/:id -> /products? or /products/:id
@@ -1314,16 +1300,27 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
     const reqHost = (new URL(c2.req.url)).hostname
     const targetHost = targetUrl.hostname
     if (reqHost === targetHost) {
-      const workerHostRaw = ((c2.env.WORKER_PUBLIC_HOST as string) || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
+      let workerHostRaw = ''
+      try { workerHostRaw = ((c2.env.WORKER_PUBLIC_HOST as string) || '').toString().replace(/\/$/, '') } catch {}
+      if (!workerHostRaw) workerHostRaw = 'https://public-worker.shirasame-official.workers.dev'
       try {
         const wh = new URL(workerHostRaw)
         wh.pathname = targetUrl.pathname
         wh.search = targetUrl.search
         targetUrl = wh
-      } catch {}
+        try { console.log('[ROUTE DEBUG] /api/admin/products/* rewrite to worker host', { workerHostRaw, target: targetUrl.toString() }) } catch {}
+      } catch (e) {
+        try { console.error('[ROUTE DEBUG] /api/admin/products/* rewrite failed, using default', String(e?.message || e)) } catch {}
+        try {
+          const wh = new URL('https://public-worker.shirasame-official.workers.dev')
+          wh.pathname = targetUrl.pathname
+          wh.search = targetUrl.search
+          targetUrl = wh
+        } catch {}
+      }
     }
   } catch {}
-
+  try { console.log('[ROUTE DEBUG] /api/admin/products/* fetching', { target: targetUrl.toString() }) } catch {}
   const res = await fetch(targetUrl.toString(), { method: 'GET', headers: makeUpstreamHeaders(c2) })
   const buf = await res.arrayBuffer()
   const outHeaders: Record<string, string> = {}
