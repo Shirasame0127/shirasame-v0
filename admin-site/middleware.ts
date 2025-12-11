@@ -18,9 +18,17 @@ export async function middleware(req: NextRequest) {
       return new NextResponse(JSON.stringify({ error: 'API_BASE origin is not configured on admin-site. /api/* must be proxied to public-worker.' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
     }
 
-    // Normalize: strip leading /api so that public-worker (which hosts
-    // routes at root like /tag-groups) receives the expected path.
-    const incomingPath = req.nextUrl.pathname.replace(/^\/api(?=\/|$)/, '')
+    // Normalize: for most routes strip leading `/api` so that public-worker
+    // (which hosts routes at root like `/tag-groups`) receives the expected
+    // path. However, preserve `/api/admin/*` paths: these are implemented
+    // on the public-worker under the `/api/admin/*` namespace and must be
+    // proxied with the `/api` prefix intact.
+    let incomingPath: string
+    if (req.nextUrl.pathname.startsWith('/api/admin/')) {
+      incomingPath = req.nextUrl.pathname // keep /api/admin/...
+    } else {
+      incomingPath = req.nextUrl.pathname.replace(/^\/api(?=\/|$)/, '')
+    }
     const destUrl = destOrigin.replace(/\/$/, '') + incomingPath + req.nextUrl.search
 
     // Build proxy headers from scratch to avoid Next/Cloudflare dropping Cookie
