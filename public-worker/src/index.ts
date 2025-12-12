@@ -1058,6 +1058,13 @@ app.get('/api/amazon-sale-schedules', async (c) => mirrorGet(c, async (c2) => {
       const { data = [], error } = await query
       if (error) {
         console.log('[ROUTE DEBUG] /api/amazon-sale-schedules supabase error', String(error.message || error))
+
+    // Debug log endpoint (no-op) — keep silent and return 204 to avoid 404 noise
+    app.post('/api/debug/log', async (c) => {
+      const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
+      // intentionally do not record or echo payload from browser to avoid leaking URLs
+      return new Response(null, { status: 204, headers })
+    })
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
         return new Response(JSON.stringify({ data: [] }), { headers: merged })
@@ -1390,22 +1397,166 @@ app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
       return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
     }
     const supabase = getSupabase(c2.env)
-    const q = supabase.from('products').select('id,user_id,title,slug,short_description,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)').eq('user_id', ctx.userId).order('created_at', { ascending: false })
-    const { data = [], error } = await q
-    if (error) {
+    try {
+      const url = new URL(c2.req.url)
+      const limit = url.searchParams.get('limit') ? Math.max(0, parseInt(url.searchParams.get('limit') || '0')) : null
+      const offset = url.searchParams.get('offset') ? Math.max(0, parseInt(url.searchParams.get('offset') || '0')) : 0
+      const wantCount = url.searchParams.get('count') === 'true'
+      const shallow = url.searchParams.get('shallow') === 'true' || url.searchParams.get('list') === 'true'
+
+      const selectShallow = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
+      const selectFull = '*,images:product_images(id,product_id,key,width,height,role),related_links,notes,show_price'
+
+      // Build query
+      let query: any
+      if (wantCount) {
+        // Optimization: if caller only wants count, perform a minimal select to reduce payload.
+        // If limit specified and >0, still perform range to fetch rows + count. If limit is null or 0, fetch range(0,0) to get count only.
+        if (!limit || limit === 0) {
+          // minimal select to obtain exact count without returning large rows
+          const res = await supabase.from('products').select('id', { count: 'exact' }).eq('user_id', ctx.userId).order('created_at', { ascending: false }).range(0, 0)
+          const data = res.data || []
+          const total = typeof (res as any).count === 'number' ? (res as any).count : null
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+          const meta = total != null ? { total, limit: 0, offset } : undefined
+          return new Response(JSON.stringify({ data: [], meta }), { headers: merged })
+        } else {
+          // fetch rows + exact count
+          const res = await supabase.from('products').select(shallow ? selectShallow : selectFull, { count: 'exact' }).eq('user_id', ctx.userId).order('created_at', { ascending: false }).range(offset, offset + Math.max(0, limit - 1))
+          const data = res.data || []
+          const total = typeof (res as any).count === 'number' ? (res as any).count : null
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+          const meta = total != null ? { total, limit, offset } : undefined
+          return new Response(JSON.stringify({ data, meta }), { headers: merged })
+        }
+      }
+
+      if (limit && limit > 0) {
+        query = supabase.from('products').select(shallow ? selectShallow : selectFull).eq('user_id', ctx.userId).order('created_at', { ascending: false }).range(offset, offset + Math.max(0, limit - 1))
+      } else {
+        query = supabase.from('products').select(shallow ? selectShallow : selectFull).eq('user_id', ctx.userId).order('created_at', { ascending: false })
+      }
+
+      const res = await query
+      const data = res.data || []
+      const total = null
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
+      const meta = total != null ? { total, limit, offset } : undefined
+      return new Response(JSON.stringify({ data, meta }), { headers: merged })
+    } catch (e: any) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ data: [], error: String(e?.message || e) }), { status: 500, headers: merged })
     }
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ data }), { headers: merged })
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
   }
 }))
+
+// Admin: create product
+app.post('/api/admin/products', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+    const targetUserId = body.userId ? String(body.userId) : actingUser
+    if (body.userId && body.userId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    const insertBody: any = {
+      id: body.id || undefined,
+      user_id: targetUserId,
+      title: body.title || null,
+      slug: body.slug || null,
+      short_description: body.short_description || body.shortDescription || null,
+      body: body.body || null,
+      tags: Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null),
+      price: typeof body.price !== 'undefined' ? body.price : null,
+      published: typeof body.published !== 'undefined' ? !!body.published : false,
+      related_links: Array.isArray(body.related_links) ? body.related_links : (Array.isArray(body.relatedLinks) ? body.relatedLinks : null),
+      notes: body.notes || null,
+      show_price: typeof body.show_price !== 'undefined' ? !!body.show_price : false,
+    }
+
+    const { data: ins, error: insErr } = await supabase.from('products').insert(insertBody).select('*')
+    if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+    return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    const detail = (e && (e.stack || e.message)) ? (e.stack || e.message) : String(e)
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品作成中にサーバーエラーが発生しました', detail, 'server_error', 500)
+  }
+})
+
+// Admin: update product
+app.put('/api/admin/products/*', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const path = c.req.path || (new URL(c.req.url)).pathname
+    const id = path.replace('/api/admin/products/', '')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品IDが必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+
+    // If caller tries to update another user's product and is not admin, deny
+    const { data: existing = [], error: existErr } = await supabase.from('products').select('user_id').eq('id', id).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+    const ownerId = existing && existing[0] ? existing[0].user_id : null
+    if (ownerId && ownerId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    const updates: any = {}
+    if (typeof body.title !== 'undefined') updates.title = body.title
+    if (typeof body.slug !== 'undefined') updates.slug = body.slug
+    if (typeof body.short_description !== 'undefined') updates.short_description = body.short_description
+    if (typeof body.body !== 'undefined') updates.body = body.body
+    if (typeof body.tags !== 'undefined') updates.tags = Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null)
+    if (typeof body.price !== 'undefined') updates.price = body.price
+    if (typeof body.published !== 'undefined') updates.published = !!body.published
+    if (typeof body.related_links !== 'undefined') updates.related_links = Array.isArray(body.related_links) ? body.related_links : (Array.isArray(body.relatedLinks) ? body.relatedLinks : null)
+    if (typeof body.notes !== 'undefined') updates.notes = body.notes
+    if (typeof body.show_price !== 'undefined') updates.show_price = !!body.show_price
+
+    const { data: up, error: upErr } = await supabase.from('products').update(updates).eq('id', id).select('*')
+    if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の更新に失敗しました', upErr.message || upErr, 'db_error', 500)
+    return new Response(JSON.stringify({ ok: true, data: up && up[0] ? up[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品更新中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: delete product
+app.delete('/api/admin/products/*', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const path = c.req.path || (new URL(c.req.url)).pathname
+    const id = path.replace('/api/admin/products/', '')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品IDが必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+
+    const { data: existing = [], error: existErr } = await supabase.from('products').select('user_id').eq('id', id).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+    const ownerId = existing && existing[0] ? existing[0].user_id : null
+    if (ownerId && ownerId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    const { error: delErr } = await supabase.from('products').delete().eq('id', id)
+    if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品削除に失敗しました', delErr.message || delErr, 'db_error', 500)
+    return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品削除中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
 
 // Mirror admin product detail: /api/admin/products/:id -> /products? or /products/:id
 app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
@@ -1523,7 +1674,8 @@ app.post('/api/admin/tags/save', async (c) => {
   try {
     const supabase = getSupabase(c.env)
     const body = await c.req.json().catch(() => ({}))
-    const incomingTags = Array.isArray(body.tags) ? body.tags : []
+    // Defensive: ensure incomingTags is an array of objects to avoid null/primitive items
+    const incomingTags = Array.isArray(body.tags) ? body.tags.filter((t: any) => t && typeof t === 'object') : []
     const ctx = await resolveRequestUserContext(c)
     if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
     const actingUser = ctx.userId
@@ -1576,7 +1728,8 @@ app.post('/api/admin/tags/custom', async (c) => {
   try {
     const supabase = getSupabase(c.env)
     const body = await c.req.json().catch(() => ({}))
-    const incomingTags = Array.isArray(body.tags) ? body.tags : []
+    // Defensive: ensure incomingTags is an array of objects to avoid null/primitive items
+    const incomingTags = Array.isArray(body.tags) ? body.tags.filter((t: any) => t && typeof t === 'object') : []
     const ctx = await resolveRequestUserContext(c)
     if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
     const actingUser = ctx.userId
@@ -1610,7 +1763,9 @@ app.post('/api/admin/tags/custom', async (c) => {
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
     return new Response(JSON.stringify({ ok: true, data: insRes }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
-    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'カスタムタグ作成中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+    // Include stack in detail temporarily to aid debugging of null-ref
+    const detail = (e && (e.stack || e.message)) ? (e.stack || e.message) : String(e)
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'カスタムタグ作成中にサーバーエラーが発生しました', detail, 'server_error', 500)
   }
 })
 
