@@ -1348,45 +1348,39 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
 }))
 
 app.get('/api/tag-groups', async (c) => mirrorGet(c, async (c2) => {
+  const supabase = getSupabase(c2.env)
   try {
-    // Ensure we call this worker's public host so we hit the local handlers
-    let workerHost = ''
-    try { workerHost = ((c2.env.WORKER_PUBLIC_HOST as string) || '').toString().replace(/\/$/, '') } catch {}
-    if (!workerHost) workerHost = 'https://public-worker.shirasame-official.workers.dev'
-    const reqUrl = new URL(c2.req.url)
-    const pathOnly = reqUrl.pathname.replace(/^\/api\//, '/')
-    const target = new URL(pathOnly, workerHost)
-    const res = await fetch(target.toString(), { method: 'GET', headers: makeUpstreamHeaders(c2) })
-    const buf = await res.arrayBuffer()
-    const outHeaders: Record<string,string> = {}
-    try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
-    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
-    return new Response(buf, { status: res.status, headers: merged })
+    const ctx = await resolveRequestUserContext(c2)
+    if (!ctx.trusted) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+    }
+    const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ctx.userId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
+    if (res.error) return makeErrorResponse(c2, 'タググループの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
+    return new Response(JSON.stringify({ data: res.data || [] }), { headers: Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
+    return makeErrorResponse(c2, 'タググループの取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
 }))
 
 app.get('/api/tags', async (c) => mirrorGet(c, async (c2) => {
+  const supabase = getSupabase(c2.env)
   try {
-    let workerHost = ''
-    try { workerHost = ((c2.env.WORKER_PUBLIC_HOST as string) || '').toString().replace(/\/$/, '') } catch {}
-    if (!workerHost) workerHost = 'https://public-worker.shirasame-official.workers.dev'
-    const reqUrl = new URL(c2.req.url)
-    const pathOnly = reqUrl.pathname.replace(/^\/api\//, '/')
-    const target = new URL(pathOnly, workerHost)
-    const res = await fetch(target.toString(), { method: 'GET', headers: makeUpstreamHeaders(c2) })
-    const buf = await res.arrayBuffer()
-    const outHeaders: Record<string,string> = {}
-    try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
-    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
-    return new Response(buf, { status: res.status, headers: merged })
+    const ctx = await resolveRequestUserContext(c2)
+    if (!ctx.trusted) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+    }
+    let query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
+    query = query.eq('user_id', ctx.userId)
+    const res = await query
+    if (res.error) return makeErrorResponse(c2, 'タグの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
+    const mapped = (res.data || []).map((row: any) => ({ id: row.id, name: row.name, group: row.group ?? undefined, linkUrl: row.link_url ?? undefined, linkLabel: row.link_label ?? undefined, userId: row.user_id ?? undefined, sortOrder: row.sort_order ?? 0, createdAt: row.created_at }))
+    return new Response(JSON.stringify({ data: mapped }), { headers: Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
+    return makeErrorResponse(c2, 'タグ取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
 }))
 
