@@ -55,7 +55,18 @@ app.use('/api/*', async (c, next) => {
     const reqUrl = new URL(c.req.url)
     const qUser = reqUrl.searchParams.get('user_id')
     const hUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
-    const userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
+    let userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
+
+    // If no userId from header/query, try to resolve from token cookie/Authorization
+    if (!userId) {
+      try {
+        const ctx = await resolveRequestUserContext(c)
+        if (ctx && ctx.trusted && ctx.userId) {
+          userId = ctx.userId
+        }
+      } catch {}
+    }
+
     if (!userId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
