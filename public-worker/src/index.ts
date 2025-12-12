@@ -1348,11 +1348,42 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
 }))
 
 app.get('/api/tag-groups', async (c) => mirrorGet(c, async (c2) => {
-  return (await fetch(new URL(c2.req.url.replace('/api/', '/')))).ok ? await fetch(new URL(c2.req.url.replace('/api/', '/'))) : new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  try {
+    // Ensure we call this worker's public host so we hit the local handlers
+    let workerHost = ''
+    try { workerHost = ((c2.env.WORKER_PUBLIC_HOST as string) || '').toString().replace(/\/$/, '') } catch {}
+    if (!workerHost) workerHost = 'https://public-worker.shirasame-official.workers.dev'
+    const target = new URL(c2.req.url.replace('/api/', '/'), workerHost)
+    const res = await fetch(target.toString(), { method: 'GET', headers: makeUpstreamHeaders(c2) })
+    const buf = await res.arrayBuffer()
+    const outHeaders: Record<string,string> = {}
+    try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
+    return new Response(buf, { status: res.status, headers: merged })
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
+  }
 }))
 
 app.get('/api/tags', async (c) => mirrorGet(c, async (c2) => {
-  return (await fetch(new URL(c2.req.url.replace('/api/', '/')))).ok ? await fetch(new URL(c2.req.url.replace('/api/', '/'))) : new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  try {
+    let workerHost = ''
+    try { workerHost = ((c2.env.WORKER_PUBLIC_HOST as string) || '').toString().replace(/\/$/, '') } catch {}
+    if (!workerHost) workerHost = 'https://public-worker.shirasame-official.workers.dev'
+    const target = new URL(c2.req.url.replace('/api/', '/'), workerHost)
+    const res = await fetch(target.toString(), { method: 'GET', headers: makeUpstreamHeaders(c2) })
+    const buf = await res.arrayBuffer()
+    const outHeaders: Record<string,string> = {}
+    try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
+    return new Response(buf, { status: res.status, headers: merged })
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
+  }
 }))
 
 // Admin write endpoints for tags: save (upsert) and custom (create custom tags).
