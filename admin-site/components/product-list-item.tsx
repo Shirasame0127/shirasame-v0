@@ -62,11 +62,14 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
             </div>
 
             <div className="flex items-center gap-2 mb-3">
-              {product.tags?.slice(0, 2).map((tag) => (
-                <Badge key={tag} variant="outline" className="text-xs">
-                  {tag}
-                </Badge>
-              ))}
+              {(() => {
+                const tags = Array.isArray(product?.tags) ? product.tags.slice(0, 2) : []
+                return tags.map((tag) => (
+                  <Badge key={tag} variant="outline" className="text-xs">
+                    {tag}
+                  </Badge>
+                ))
+              })()}
               {/* 価格は管理画面の一覧カードでは非表示 */}
             </div>
 

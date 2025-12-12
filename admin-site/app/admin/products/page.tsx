@@ -109,9 +109,15 @@ export default function AdminProductsPage() {
 
   const allTags = useMemo(() => {
     const tags = new Set<string>()
-    products.forEach((product) => {
-      product.tags.forEach((tag) => tags.add(tag))
-    })
+    try {
+      (products || []).forEach((product) => {
+        try {
+          if (Array.isArray(product?.tags)) {
+            product.tags.forEach((tag) => tags.add(tag))
+          }
+        } catch (e) {}
+      })
+    } catch (e) {}
     return Array.from(tags).sort()
   }, [products])
 
@@ -122,13 +128,13 @@ export default function AdminProductsPage() {
   const clearTags = () => setSelectedTags([])
 
   const filteredAndSortedProducts = useMemo(() => {
-    const filtered = products.filter((product) => {
+    const filtered = (products || []).filter((product) => {
       const q = searchQuery.toLowerCase().trim()
       const matchesSearch =
         !q ||
         product.title.toLowerCase().includes(q) ||
         (product.shortDescription && product.shortDescription.toLowerCase().includes(q))
-      const matchesTags = selectedTags.length === 0 || selectedTags.some((tag) => product.tags.includes(tag))
+      const matchesTags = selectedTags.length === 0 || selectedTags.some((tag) => Array.isArray(product?.tags) && product.tags.includes(tag))
       return matchesSearch && matchesTags
     })
 
