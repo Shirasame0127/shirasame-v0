@@ -868,10 +868,10 @@ app.get('/tag-groups', zValidator('query', listQuery.partial()), async (c) => {
         // 管理用途のタグ群は認証必須
         if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
         const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ctx.userId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
-        if (res.error) return new Response(JSON.stringify({ data: [] }))
-        return new Response(JSON.stringify({ data: res.data || [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+        if (res.error) return makeErrorResponse(c, 'タググループの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
+        return new Response(JSON.stringify({ data: res.data || [] }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
     } catch (e: any) {
-      return new Response(JSON.stringify({ data: [] }))
+      return makeErrorResponse(c, 'タググループの取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
     }
   })
 })
@@ -889,11 +889,11 @@ app.get('/tags', zValidator('query', listQuery.partial()), async (c) => {
       let query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
       query = query.eq('user_id', ctx.userId)
       const res = await query
-      if (res.error) return new Response(JSON.stringify({ data: [] }))
+      if (res.error) return makeErrorResponse(c, 'タグの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
       const mapped = (res.data || []).map((row: any) => ({ id: row.id, name: row.name, group: row.group ?? undefined, linkUrl: row.link_url ?? undefined, linkLabel: row.link_label ?? undefined, userId: row.user_id ?? undefined, sortOrder: row.sort_order ?? 0, createdAt: row.created_at }))
-      return new Response(JSON.stringify({ data: mapped }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      return new Response(JSON.stringify({ data: mapped }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
     } catch (e: any) {
-      return new Response(JSON.stringify({ data: [] }))
+      return makeErrorResponse(c, 'タグ取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
     }
   })
 })
@@ -1448,6 +1448,122 @@ app.post('/api/admin/tags/custom', async (c) => {
     return new Response(JSON.stringify({ ok: true, data: insRes }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'カスタムタグ作成中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: create tag-group
+app.post('/api/admin/tag-groups', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const name = body.name ? String(body.name).trim() : ''
+    const label = body.label ? String(body.label).trim() : name
+    if (!name) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'グループ名が必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const targetUser = body.userId ? String(body.userId) : ctx.userId
+    const isAdminUser = isAdmin(ctx.userId, c.env)
+    if (body.userId && body.userId !== ctx.userId && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    // Duplicate check
+    const { data: existing = [], error: existErr } = await supabase.from('tag_groups').select('id').eq('user_id', targetUser).eq('name', name).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+    if (existing && existing.length > 0) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '重複するタググループが存在します', null, 'duplicate_group', 400)
+
+    const insertBody = { name, label, user_id: targetUser }
+    const { data: ins, error: insErr } = await supabase.from('tag_groups').insert(insertBody).select('*')
+    if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+    return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ作成中にサーバーエラー', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: rename tag-group (and optionally update tags referencing it)
+app.put('/api/admin/tag-groups', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const name = body.name ? String(body.name).trim() : ''
+    const newName = body.newName ? String(body.newName).trim() : ''
+    const label = body.label ? String(body.label).trim() : newName
+    if (!name || !newName) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '元の名前と新しい名前が必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const targetUser = body.userId ? String(body.userId) : ctx.userId
+    const isAdminUser = isAdmin(ctx.userId, c.env)
+    if (body.userId && body.userId !== ctx.userId && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    // update tag_groups row
+    const { data: upd, error: updErr } = await supabase.from('tag_groups').update({ name: newName, label }).eq('user_id', targetUser).eq('name', name).select('*')
+    if (updErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループの更新に失敗しました', updErr.message || updErr, 'db_error', 500)
+
+    // update tags that reference this group
+    const { error: tagUpdErr } = await supabase.from('tags').update({ group: newName }).eq('user_id', targetUser).eq('group', name)
+    if (tagUpdErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの参照更新に失敗しました', tagUpdErr.message || tagUpdErr, 'db_error', 500)
+
+    return new Response(JSON.stringify({ ok: true, data: upd }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ更新中にサーバーエラー', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: reorder tag-groups
+app.post('/api/admin/tag-groups/reorder', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const groups = Array.isArray(body.groups) ? body.groups : []
+    if (groups.length === 0) return new Response(JSON.stringify({ ok: true, data: [] }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const targetUser = body.userId ? String(body.userId) : ctx.userId
+    const isAdminUser = isAdmin(ctx.userId, c.env)
+    if (body.userId && body.userId !== ctx.userId && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    // perform updates in sequence
+    for (const g of groups) {
+      const name = g.name ? String(g.name) : null
+      const order = typeof g.order !== 'undefined' ? Number(g.order) : null
+      if (!name) continue
+      const { error: upErr } = await supabase.from('tag_groups').update({ sort_order: order }).eq('user_id', targetUser).eq('name', name)
+      if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ並び替えに失敗しました', upErr.message || upErr, 'db_error', 500)
+    }
+
+    return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ並び替え中にサーバーエラー', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: reorder tags
+app.post('/api/admin/tags/reorder', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const tagsArr = Array.isArray(body.tags) ? body.tags : []
+    if (tagsArr.length === 0) return new Response(JSON.stringify({ ok: true, data: [] }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const targetUser = body.userId ? String(body.userId) : ctx.userId
+    const isAdminUser = isAdmin(ctx.userId, c.env)
+    if (body.userId && body.userId !== ctx.userId && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    for (const t of tagsArr) {
+      const id = t.id ? String(t.id) : null
+      const order = typeof t.order !== 'undefined' ? Number(t.order) : null
+      const group = typeof t.group !== 'undefined' ? t.group : null
+      if (!id) continue
+      const updates: any = {}
+      if (order !== null) updates.sort_order = order
+      if (group !== null) updates.group = group
+      const { error: upErr } = await supabase.from('tags').update(updates).eq('id', id).eq('user_id', targetUser)
+      if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ並び替えに失敗しました', upErr.message || upErr, 'db_error', 500)
+    }
+
+    return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ並び替え中にサーバーエラー', e?.message || String(e), 'server_error', 500)
   }
 })
 
