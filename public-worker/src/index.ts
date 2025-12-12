@@ -1589,7 +1589,7 @@ app.post('/api/admin/tag-groups', async (c) => {
     if (body.userId && body.userId !== ctx.userId && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
 
     // Duplicate check
-    const { data: existing = [], error: existErr } = await supabase.from('tag_groups').select('id').eq('user_id', targetUser).eq('name', name).limit(1)
+    const { data: existing = [], error: existErr } = await supabase.from('tag_groups').select('name').eq('user_id', targetUser).eq('name', name).limit(1)
     if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ検索に失敗しました', existErr.message || existErr, 'db_error', 500)
     if (existing && existing.length > 0) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '重複するタググループが存在します', null, 'duplicate_group', 400)
 
