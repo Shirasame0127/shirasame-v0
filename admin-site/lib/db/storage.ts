@@ -220,7 +220,10 @@ export const db = {
     // Refresh recipes from server and update cache. Returns the fresh list.
     refresh: async (userId?: string) => {
       try {
-        const data = await apiFetch("GET", "/api/recipes")
+        // Include user_id in query when available so the public-worker
+        // can trust and return only this user's recipes (avoids 401s).
+        const path = userId ? `/api/recipes?user_id=${encodeURIComponent(userId)}` : '/api/recipes'
+        const data = await apiFetch("GET", path)
         let items: any = []
         if (data != null) {
           if (typeof data === "object" && data !== null && "data" in data) {
