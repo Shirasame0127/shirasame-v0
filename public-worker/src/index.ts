@@ -41,8 +41,10 @@ const app = new Hono<{ Bindings: Env }>()
 // and set it on the context so downstream handlers can filter by user.
 app.use('/api/*', async (c, next) => {
   try {
-    if (c.req.method !== 'GET') return await next()
-    // Allow auth endpoints (whoami, token refresh, etc.) to handle cookie/token themselves
+    const method = ((c.req.method || '') as string).toUpperCase()
+    // Only enforce user_id requirement for CRUD methods; allow auth endpoints to handle tokens
+    const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
+    if (!crudMethods.includes(method)) return await next()
     try {
       const reqPath = (new URL(c.req.url)).pathname || ''
       if (reqPath.startsWith('/api/auth')) {
@@ -73,12 +75,37 @@ app.use('/api/admin/*', async (c, next) => {
   try {
     const env = c.env as any
     const debug = env.DEBUG_WORKER === 'true'
+    const method = ((c.req.method || '') as string).toUpperCase()
+    const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
+
+    // For CRUD methods, accept user_id via header or query and treat it as authoritative
+    if (crudMethods.includes(method)) {
+      try {
+        const reqUrl = new URL(c.req.url)
+        const qUser = reqUrl.searchParams.get('user_id')
+        const hUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
+        const userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
+        if (!userId) {
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+          return new Response(JSON.stringify({ error: 'missing_user_id' }), { status: 400, headers: merged })
+        }
+        try { c.set && c.set('userId', userId) } catch {}
+        return await next()
+      } catch (e) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
+      }
+    }
+
+    // Non-CRUD methods: keep existing token-based behavior
     // Extract header user id
     const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
     // Extract token from Authorization or cookie
     const token = await getTokenFromRequest(c)
     if (debug) {
-      try { console.log('admin-auth middleware: headerUser=', headerUser, 'tokenPresent=', !!token) } catch {}
+      try { console.log('admin-auth middleware (non-CRUD): headerUser=', headerUser, 'tokenPresent=', !!token) } catch {}
     }
     // If headerUser is present, require token and ensure match.
     const verified = token ? await verifyTokenWithSupabase(token, c) : null
@@ -547,9 +574,11 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
     } catch (e) {}
     try { console.log('resolveRequestUserContext: cookie=', c.req.header('cookie')) } catch (e) {}
     try { console.log('resolveRequestUserContext: x-user-id=', c.req.header('x-user-id') || c.req.header('X-User-Id')) } catch (e) {}
-    // For GET /api/* requests, allow trusting a provided user_id via query or header.
+    // For CRUD requests (GET/POST/PUT/DELETE), allow trusting a provided user_id via query or header.
     try {
-      if ((c.req.method || '').toUpperCase() === 'GET') {
+      const method = ((c.req.method || '') as string).toUpperCase()
+      const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
+      if (crudMethods.includes(method)) {
         try {
           const reqUrl = new URL(c.req.url || '')
           const qUser = reqUrl.searchParams.get('user_id')
@@ -561,35 +590,14 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
         } catch (e) {}
       }
     } catch (e) {}
-    // NEW BEHAVIOR: 管理ページから渡される `X-User-Id` ヘッダが存在する場合は
-    // その user_id を権威あるユーザー識別子として扱います（/api/auth/* エンドポイントは除く）。
-    // これは管理ページプロキシが信頼できる前提での運用向けの挙動です。
+    // If an admin UI provided X-User-Id, and the request is a CRUD operation, treat it as authoritative
     try {
       const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
-      // Path を取り出す（c.req.path があれば利用、なければ URL を解析）
       const reqPath = (typeof c.req.path === 'string' && c.req.path) ? c.req.path : (new URL(c.req.url || '', 'http://localhost')).pathname
-      if (headerUser && !reqPath.startsWith('/api/auth')) {
-          // If an admin UI provided X-User-Id, require a valid token and ensure they match.
-          try {
-            const token = await getTokenFromRequest(c)
-            if (!token) {
-              try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: X-User-Id present but no token found -> unauthenticated') } catch {}
-              return { userId: null, authType: 'none', trusted: false }
-            }
-            const viaSupabase = await verifyTokenWithSupabase(token, c)
-            if (!viaSupabase) {
-              try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: token verification failed for headerUser=', headerUser) } catch {}
-              return { userId: null, authType: 'none', trusted: false }
-            }
-            if (viaSupabase !== headerUser) {
-              try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: token user mismatch header=', headerUser, 'tokenUser=', viaSupabase) } catch {}
-              return { userId: null, authType: 'none', trusted: false }
-            }
-            try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: header and token match, user=', headerUser) } catch {}
-            return { userId: headerUser, authType: 'user-token', trusted: true }
-          } catch (e) {
-            return { userId: null, authType: 'none', trusted: false }
-          }
+      const method = ((c.req.method || '') as string).toUpperCase()
+      const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
+      if (headerUser && crudMethods.includes(method) && !reqPath.startsWith('/api/auth')) {
+        return { userId: headerUser, authType: 'user-token', trusted: true }
       }
     } catch (e) {}
     // 1) Check bearer token or sb-access-token cookie first
