@@ -42,6 +42,14 @@ const app = new Hono<{ Bindings: Env }>()
 app.use('/api/*', async (c, next) => {
   try {
     if (c.req.method !== 'GET') return await next()
+    // Allow auth endpoints (whoami, token refresh, etc.) to handle cookie/token themselves
+    try {
+      const reqPath = (new URL(c.req.url)).pathname || ''
+      if (reqPath.startsWith('/api/auth')) {
+        return await next()
+      }
+    } catch {}
+
     const reqUrl = new URL(c.req.url)
     const qUser = reqUrl.searchParams.get('user_id')
     const hUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
