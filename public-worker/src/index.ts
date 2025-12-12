@@ -1353,7 +1353,9 @@ app.get('/api/tag-groups', async (c) => mirrorGet(c, async (c2) => {
     let workerHost = ''
     try { workerHost = ((c2.env.WORKER_PUBLIC_HOST as string) || '').toString().replace(/\/$/, '') } catch {}
     if (!workerHost) workerHost = 'https://public-worker.shirasame-official.workers.dev'
-    const target = new URL(c2.req.url.replace('/api/', '/'), workerHost)
+    const reqUrl = new URL(c2.req.url)
+    const pathOnly = reqUrl.pathname.replace(/^\/api\//, '/')
+    const target = new URL(pathOnly, workerHost)
     const res = await fetch(target.toString(), { method: 'GET', headers: makeUpstreamHeaders(c2) })
     const buf = await res.arrayBuffer()
     const outHeaders: Record<string,string> = {}
@@ -1372,7 +1374,9 @@ app.get('/api/tags', async (c) => mirrorGet(c, async (c2) => {
     let workerHost = ''
     try { workerHost = ((c2.env.WORKER_PUBLIC_HOST as string) || '').toString().replace(/\/$/, '') } catch {}
     if (!workerHost) workerHost = 'https://public-worker.shirasame-official.workers.dev'
-    const target = new URL(c2.req.url.replace('/api/', '/'), workerHost)
+    const reqUrl = new URL(c2.req.url)
+    const pathOnly = reqUrl.pathname.replace(/^\/api\//, '/')
+    const target = new URL(pathOnly, workerHost)
     const res = await fetch(target.toString(), { method: 'GET', headers: makeUpstreamHeaders(c2) })
     const buf = await res.arrayBuffer()
     const outHeaders: Record<string,string> = {}
