@@ -118,15 +118,23 @@ app.use('/api/admin/*', async (c, next) => {
 // This intentionally requires Supabase token-based auth for admin-origin requests.
 app.use('*', async (c, next) => {
   try {
-    if (c.req.method === 'OPTIONS') return await next()
-    const origin = c.req.header('Origin') || ''
-    const isAdminOrigin = origin === 'https://admin.shirasame.com' || origin.endsWith('.admin.shirasame.com')
-    if (!isAdminOrigin) return await next()
+    if ((c.req.method || '').toUpperCase() !== 'GET') return await next()
+    // Allow auth endpoints to handle token/cookie themselves (e.g. /api/auth/whoami)
+    try {
+      const reqPath = (new URL(c.req.url)).pathname || ''
+      if (reqPath.startsWith('/api/auth')) {
+        return await next()
+      }
+    } catch {}
 
-    const sensitivePrefixes = [
-      '/products',
-      '/collections',
-      '/recipes',
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify({ error: 'missing_user_id' }), { status: 400, headers: merged })
+    }
+    try { c.set && c.set('userId', ctx.userId) } catch {}
+    return await next()
       '/site-settings',
       '/admin/settings',
       '/api/admin/settings',
