@@ -43,8 +43,13 @@ export default function AdminProductsPage() {
         }
         const res = await apiFetch(`/api/admin/products`)
         if (!res.ok) throw new Error('Failed to fetch products')
-        const data = await res.json()
-        const list = Array.isArray(data) ? data : data.products || []
+        const data = await res.json().catch(() => null)
+        let list: any[] = []
+        if (!data) list = []
+        else if (Array.isArray(data)) list = data
+        else if (Array.isArray(data.data)) list = data.data
+        else if (Array.isArray((data as any).products)) list = (data as any).products
+        else list = []
         setProducts(list)
       } catch (error) {
         console.error(error)

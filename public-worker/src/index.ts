@@ -89,13 +89,26 @@ app.use('/api/admin/*', async (c, next) => {
     const method = ((c.req.method || '') as string).toUpperCase()
     const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
 
-    // For CRUD methods, accept user_id via header or query and treat it as authoritative
+    // For CRUD methods, prefer user_id via header or query, but FALLBACK to
+    // verified token (cookie/Authorization) when header/query is absent so
+    // browser sessions that rely on HttpOnly cookies still work.
     if (crudMethods.includes(method)) {
       try {
         const reqUrl = new URL(c.req.url)
         const qUser = reqUrl.searchParams.get('user_id')
         const hUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
-        const userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
+        let userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
+
+        // If no header/query user id, try resolving from token (cookie or Authorization)
+        if (!userId) {
+          try {
+            const ctx = await resolveRequestUserContext(c)
+            if (ctx && ctx.trusted && ctx.userId) {
+              userId = ctx.userId
+            }
+          } catch {}
+        }
+
         if (!userId) {
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
