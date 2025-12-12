@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { makeWeakEtag } from './utils/etag'
 import { getSupabase } from './supabase'
+import { isAdmin, makeErrorResponse } from './helpers'
 import { getPublicImageUrl, buildResizedImageUrl, responsiveImageForUsage } from '../../shared/lib/image-usecases'
 
 export type Env = {
@@ -179,12 +180,15 @@ app.use('*', async (c, next) => {
     return res
   } catch (e: any) {
     try { console.error('❌ 未処理例外（グローバルミドルウェア）:', { url: c.req.url, method: c.req.method, error: e, stack: e?.stack }) } catch {}
-    const body: any = { error: 'サーバーエラー発生（詳細はコンソール参照）', message: e?.message || String(e) }
-    try { body.stack = e?.stack || null } catch {}
-    const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-    headers['X-Served-By'] = 'public-worker'
-    headers['Content-Type'] = 'application/json; charset=utf-8'
-    return new Response(JSON.stringify(body), { status: 500, headers })
+    // Use makeErrorResponse helper to produce consistent JSON errors and CORS headers.
+    try {
+      return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'サーバーエラー発生（詳細はコンソール参照）', e?.message || String(e), 'server_error', 500)
+    } catch (e2) {
+      const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
+      headers['X-Served-By'] = 'public-worker'
+      headers['Content-Type'] = 'application/json; charset=utf-8'
+      return new Response(JSON.stringify({ ok: false, message: 'サーバーエラー', detail: String(e2) }), { status: 500, headers })
+    }
   }
 })
 
@@ -1350,6 +1354,102 @@ app.get('/api/tag-groups', async (c) => mirrorGet(c, async (c2) => {
 app.get('/api/tags', async (c) => mirrorGet(c, async (c2) => {
   return (await fetch(new URL(c2.req.url.replace('/api/', '/')))).ok ? await fetch(new URL(c2.req.url.replace('/api/', '/'))) : new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 }))
+
+// Admin write endpoints for tags: save (upsert) and custom (create custom tags).
+app.post('/api/admin/tags/save', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const incomingTags = Array.isArray(body.tags) ? body.tags : []
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+    // If caller supplied a userId in body, ensure acting user is same or an admin
+    const targetUserId = body.userId ? String(body.userId) : actingUser
+    if (body.userId && body.userId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    const results: any[] = []
+    for (const t of incomingTags) {
+      const tagName = (t && (t.name || t.text || t.title)) ? String(t.name || t.text || t.title).trim() : ''
+      const tagGroup = t && typeof t.group !== 'undefined' ? t.group : null
+      if (!tagName) continue
+
+      // check duplicate (same user_id + name + group)
+      const { data: existing = [], error: existErr } = await supabase.from('tags').select('id,group').eq('user_id', targetUserId).eq('name', tagName).limit(1)
+      if (existErr) {
+        return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+      }
+      if (existing && existing.length > 0) {
+        const ex = existing[0]
+        const exGroup = ex.group ?? null
+        const tg = tagGroup ?? null
+        if ((exGroup === tg) || (exGroup == null && tg == null)) {
+          return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, `重複するタグが存在します: ${tagName}`, null, 'duplicate_tag', 400)
+        }
+      }
+
+      // upsert behavior: if id present -> update, else insert
+      if (t && t.id) {
+        const updateBody: any = { name: tagName, group: tagGroup, link_url: t.linkUrl || t.link_url || null, link_label: t.linkLabel || t.link_label || null, sort_order: typeof t.sortOrder !== 'undefined' ? t.sortOrder : null }
+        const { data: up, error: upErr } = await supabase.from('tags').update(updateBody).eq('id', t.id)
+        if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの更新に失敗しました', upErr.message || upErr, 'db_error', 500)
+        results.push(up && up[0] ? up[0] : null)
+      } else {
+        const insertBody: any = { name: tagName, group: tagGroup, link_url: t.linkUrl || t.link_url || null, link_label: t.linkLabel || t.link_label || null, sort_order: typeof t.sortOrder !== 'undefined' ? t.sortOrder : null, user_id: targetUserId }
+        const { data: ins, error: insErr } = await supabase.from('tags').insert(insertBody).select('*')
+        if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+        results.push(ins && ins[0] ? ins[0] : null)
+      }
+    }
+
+    return new Response(JSON.stringify({ ok: true, data: results }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ保存時にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+app.post('/api/admin/tags/custom', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const incomingTags = Array.isArray(body.tags) ? body.tags : []
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+    const targetUserId = body.userId ? String(body.userId) : actingUser
+    if (body.userId && body.userId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    const inserts: any[] = []
+    for (const t of incomingTags) {
+      const tagName = (t && (t.name || t.text || t.title)) ? String(t.name || t.text || t.title).trim() : ''
+      const tagGroup = t && typeof t.group !== 'undefined' ? t.group : null
+      if (!tagName) continue
+
+      const { data: existing = [], error: existErr } = await supabase.from('tags').select('id,group').eq('user_id', targetUserId).eq('name', tagName).limit(1)
+      if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+      if (existing && existing.length > 0) {
+        const ex = existing[0]
+        const exGroup = ex.group ?? null
+        const tg = tagGroup ?? null
+        if ((exGroup === tg) || (exGroup == null && tg == null)) {
+          return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, `重複するタグが存在します: ${tagName}`, null, 'duplicate_tag', 400)
+        }
+      }
+
+      inserts.push({ name: tagName, group: tagGroup, link_url: t.linkUrl || t.link_url || null, link_label: t.linkLabel || t.link_label || null, sort_order: typeof t.sortOrder !== 'undefined' ? t.sortOrder : null, user_id: targetUserId })
+    }
+
+    if (inserts.length === 0) return new Response(JSON.stringify({ ok: true, data: [] }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+
+    const { data: insRes = [], error: insErr } = await supabase.from('tags').insert(inserts).select('*')
+    if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+    return new Response(JSON.stringify({ ok: true, data: insRes }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'カスタムタグ作成中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
 
 app.get('/api/products', async (c) => mirrorGet(c, async (c2) => {
   // proxy to local path '/products'

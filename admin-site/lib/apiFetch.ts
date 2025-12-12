@@ -54,10 +54,40 @@ export async function apiFetch(input: RequestInfo, init: RequestInit = {}) {
   }
 
   const headers = new Headers(init.headers || {})
-  if (userId) headers.set('X-User-Id', userId)
-  if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  const res = await fetch(input, { ...init, headers, credentials: 'include' })
+  // Security change: prefer cookie-based auth from the browser and
+  // avoid attaching Authorization automatically from localStorage.
+  // Only forward Authorization/X-User-Id if the caller explicitly
+  // provided an Authorization header in `init.headers`.
+  const callerProvidedAuth = !!(headers.get('authorization') || headers.get('Authorization'))
+  if (callerProvidedAuth) {
+    // If caller provided Authorization we respect it and also set X-User-Id
+    if (userId) headers.set('X-User-Id', userId)
+  } else {
+    // Do not add Authorization header automatically. Rely on HttpOnly
+    // cookie (credentials: 'include') to authenticate the request.
+    // However, if consumer explicitly sets a flag `useLocalToken: true`
+    // in init (non-standard), we will attach the local token for backward
+    // compatibility.
+    try {
+      // @ts-ignore
+      if ((init as any).useLocalToken === true && token) {
+        headers.set('Authorization', `Bearer ${token}`)
+        if (userId) headers.set('X-User-Id', userId)
+      }
+    } catch {}
+  }
+
+  // Ensure credentials included so HttpOnly cookies are sent
+  const finalInit: RequestInit = { credentials: 'include', ...init, headers }
+  // Default browser cache behavior for admin endpoints: prefer fresh
+  // responses unless caller explicitly sets cache in init.
+  try {
+    // @ts-ignore
+    if (!('cache' in finalInit) || !(finalInit as any).cache) (finalInit as any).cache = 'no-store'
+  } catch {}
+
+  const res = await fetch(input, finalInit)
   return res
 }
 
