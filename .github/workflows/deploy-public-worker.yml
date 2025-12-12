@@ -1,0 +1,52 @@
+name: Deploy public-worker
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  publish:
+    name: Publish public-worker to Cloudflare
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: public-worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+        - name: Debug: show runner info
+          run: |
+            echo "=== runner info ==="
+            uname -a || true
+            node -v || true
+            pnpm -v || true
+            echo "PWD:" $(pwd)
+            echo "Listing root:"; ls -la
+            echo "Listing public-worker:"; ls -la public-worker || true
+
+        - name: Fallback: install root dependencies (no-frozen-lockfile)
+          run: |
+            echo "Attempting root pnpm install --no-frozen-lockfile (will not fail workflow)"
+            pnpm install --no-frozen-lockfile || true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install public-worker dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Install wrangler CLI
+        run: pnpm dlx --package @cloudflare/wrangler@3 --yes true -- pw --version || npm install -g wrangler@3
+
+      - name: Publish with wrangler CLI
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: npx --yes @cloudflare/wrangler@3 publish --verbose

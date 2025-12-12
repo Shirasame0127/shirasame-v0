@@ -55,25 +55,23 @@ export async function apiFetch(input: RequestInfo, init: RequestInit = {}) {
 
   const headers = new Headers(init.headers || {})
 
-  // Security change: prefer cookie-based auth from the browser and
-  // avoid attaching Authorization automatically from localStorage.
-  // Only forward Authorization/X-User-Id if the caller explicitly
-  // provided an Authorization header in `init.headers`.
-  const callerProvidedAuth = !!(headers.get('authorization') || headers.get('Authorization'))
-  if (callerProvidedAuth) {
-    // If caller provided Authorization we respect it and also set X-User-Id
+  // Change: always set X-User-Id when we can derive it from a local token.
+  // The system uses the user_id passed from the client to the Worker as
+  // the source of truth for GET requests. We still avoid auto-attaching
+  // Authorization unless explicitly requested (useLocalToken), but ensure
+  // the X-User-Id header is present so the Worker can trust and use it.
+  try {
     if (userId) headers.set('X-User-Id', userId)
-  } else {
-    // Do not add Authorization header automatically. Rely on HttpOnly
-    // cookie (credentials: 'include') to authenticate the request.
-    // However, if consumer explicitly sets a flag `useLocalToken: true`
-    // in init (non-standard), we will attach the local token for backward
-    // compatibility.
+  } catch {}
+
+  // Respect caller-provided Authorization if present. Otherwise only attach
+  // the local token when `useLocalToken: true` is set in init.
+  const callerProvidedAuth = !!(headers.get('authorization') || headers.get('Authorization'))
+  if (!callerProvidedAuth) {
     try {
       // @ts-ignore
       if ((init as any).useLocalToken === true && token) {
         headers.set('Authorization', `Bearer ${token}`)
-        if (userId) headers.set('X-User-Id', userId)
       }
     } catch {}
   }

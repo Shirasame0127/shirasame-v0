@@ -36,6 +36,30 @@ const app = new Hono<{ Bindings: Env }>()
 
 // (ハンドラ自動ラップは危険な互換性リスクがあるため差し替え済み)
 
+// Short-circuit GET /api/* requests to accept user_id from header/query.
+// For GET requests we will trust the provided `user_id` (query or X-User-Id)
+// and set it on the context so downstream handlers can filter by user.
+app.use('/api/*', async (c, next) => {
+  try {
+    if (c.req.method !== 'GET') return await next()
+    const reqUrl = new URL(c.req.url)
+    const qUser = reqUrl.searchParams.get('user_id')
+    const hUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
+    const userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
+    if (!userId) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify({ error: 'missing_user_id' }), { status: 400, headers: merged })
+    }
+    try { c.set && c.set('userId', userId) } catch {}
+    return await next()
+  } catch (e) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ error: 'server_error', detail: String(e) }), { status: 500, headers: merged })
+  }
+})
+
 // Admin authentication middleware: enforce JWT <-> X-User-Id matching
 app.use('/api/admin/*', async (c, next) => {
   try {
@@ -165,6 +189,28 @@ app.use('*', async (c, next) => {
     // mark response as served by this worker for easy tracing
     headers['X-Served-By'] = 'public-worker'
     return new Response(null, { status: 204, headers })
+  }
+
+  // Short-circuit speculative prefetch requests for admin pages.
+  // Browsers / CDN speculative prefetches may arrive with `Sec-Purpose: prefetch`.
+  // For admin routes (authenticated, dynamic) it's best to avoid doing full
+  // rendering or heavy auth verification for prefetches — return 204 No Content
+  // and include Vary on Sec-Purpose so caches do not mix prefetch vs navigate.
+  try {
+    const secPurpose = (c.req.header('sec-purpose') || c.req.header('Sec-Purpose') || '').toString().trim()
+    if (secPurpose === 'prefetch') {
+      const reqPath = (typeof c.req.path === 'string' && c.req.path) ? c.req.path : (new URL(c.req.url || '', 'http://localhost')).pathname
+      // treat admin UI pages and admin API prefetched requests specially
+      if (reqPath.startsWith('/admin') || reqPath.startsWith('/api/admin') || reqPath === '/admin' ) {
+        const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
+        headers['Vary'] = (headers['Vary'] ? String(headers['Vary']) + ', Sec-Purpose' : 'Sec-Purpose')
+        headers['X-Served-By'] = 'public-worker'
+        headers['Cache-Control'] = 'no-store'
+        return new Response(null, { status: 204, headers })
+      }
+    }
+  } catch (e) {
+    // non-fatal: fall through to normal handling
   }
 
   try {
@@ -484,6 +530,20 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
     } catch (e) {}
     try { console.log('resolveRequestUserContext: cookie=', c.req.header('cookie')) } catch (e) {}
     try { console.log('resolveRequestUserContext: x-user-id=', c.req.header('x-user-id') || c.req.header('X-User-Id')) } catch (e) {}
+    // For GET /api/* requests, allow trusting a provided user_id via query or header.
+    try {
+      if ((c.req.method || '').toUpperCase() === 'GET') {
+        try {
+          const reqUrl = new URL(c.req.url || '')
+          const qUser = reqUrl.searchParams.get('user_id')
+          const hUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
+          const userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
+          if (userId) {
+            return { userId, authType: 'user-token', trusted: true }
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
     // NEW BEHAVIOR: 管理ページから渡される `X-User-Id` ヘッダが存在する場合は
     // その user_id を権威あるユーザー識別子として扱います（/api/auth/* エンドポイントは除く）。
     // これは管理ページプロキシが信頼できる前提での運用向けの挙動です。
@@ -1250,6 +1310,15 @@ app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
   // listing directly against Supabase when no internal upstream is configured.
   try {
     const ctx = await resolveRequestUserContext(c2)
+    // Debug helper: if caller requests ?debug=1 return resolved auth context
+    try {
+      const url = new URL(c2.req.url)
+      if (url.searchParams.get('debug') === '1') {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        return new Response(JSON.stringify({ debug: true, ctx: { userId: ctx.userId, authType: ctx.authType, trusted: ctx.trusted } }), { status: 200, headers: merged })
+      }
+    } catch {}
     if (!ctx.trusted) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
@@ -3380,6 +3449,31 @@ app.get('/custom-fonts', async (c) => {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
     return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
+  }
+})
+
+// Debug: echo selected incoming headers for troubleshooting header delivery
+app.get('/api/debug/echo-headers', async (c) => {
+  try {
+    const hdr = (name: string) => {
+      try { const v = c.req.header(name); return typeof v === 'undefined' ? null : v }
+      catch { return null }
+    }
+    const headersToEcho: Record<string, string | null> = {
+      'x-user-id': hdr('x-user-id') || hdr('X-User-Id'),
+      'authorization': hdr('authorization') || hdr('Authorization'),
+      'cookie': hdr('cookie') || null,
+      'origin': hdr('origin') || hdr('Origin') || null,
+      'sec-purpose': hdr('sec-purpose') || hdr('Sec-Purpose') || null,
+      'user-agent': hdr('user-agent') || null,
+    }
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ ok: true, headers: headersToEcho }), { status: 200, headers: merged })
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: merged })
   }
 })
 
