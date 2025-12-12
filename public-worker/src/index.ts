@@ -1320,8 +1320,24 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
     return new Response(JSON.stringify(json), { status: res.status, headers: merged })
   }
-  // Fallback: call existing /recipes logic by fetching local path (should be handled by same worker)
-  const res = await fetch(new URL(c2.req.url.replace('/api/', '/')), { method: 'GET', headers: makeUpstreamHeaders(c2) })
+  // Fallback: call existing /recipes logic by fetching local path.
+  // Prefer the configured public worker host when available so the
+  // request is handled by this worker's public hostname instead of
+  // accidentally fetching the origin/admin server which returns HTML.
+  let res: Response
+  try {
+    const workerHost = (c2.env && (c2.env.WORKER_PUBLIC_HOST || c2.env.WORKER_PUBLIC_HOST === '') ) ? (c2.env.WORKER_PUBLIC_HOST as string) : ''
+    if (workerHost) {
+      const p = c2.req.url.replace('/api/', '/')
+      const target = workerHost.replace(/\/$/, '') + p
+      res = await fetch(target, { method: 'GET', headers: makeUpstreamHeaders(c2) })
+    } else {
+      res = await fetch(new URL(c2.req.url.replace('/api/', '/')), { method: 'GET', headers: makeUpstreamHeaders(c2) })
+    }
+  } catch (e) {
+    // If the fetch to the worker host fails, fall back to origin fetch.
+    res = await fetch(new URL(c2.req.url.replace('/api/', '/')), { method: 'GET', headers: makeUpstreamHeaders(c2) })
+  }
   const buf = await res.arrayBuffer()
   const outHeaders: Record<string, string> = {}
   try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
