@@ -223,7 +223,11 @@ export const db = {
         // Include user_id in query when available so the public-worker
         // can trust and return only this user's recipes (avoids 401s).
         const path = userId ? `/api/recipes?user_id=${encodeURIComponent(userId)}` : '/api/recipes'
+        try {
+          console.log('[v0] recipes.refresh: fetching', path)
+        } catch (e) {}
         const data = await apiFetch("GET", path)
+        try { console.log('[v0] recipes.refresh: fetched', Array.isArray(data) ? data.length : (data && data.data ? (Array.isArray(data.data) ? data.data.length : 1) : 0)) } catch (e) {}
         let items: any = []
         if (data != null) {
           if (typeof data === "object" && data !== null && "data" in data) {
