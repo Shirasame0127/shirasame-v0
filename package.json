@@ -9,12 +9,6 @@
     "build:admin": "cd admin-site && pnpm install && pnpm run build",
     "test:e2e": "playwright test tests/e2e --config=playwright.config.ts"
   },
-  "devDependencies": {
-    "@playwright/test": "^1.40.0"
-  },
-  "scripts": {
-    "test:e2e": "playwright test tests/e2e --config=playwright.config.ts"
-  },
   "engines": {
     "node": ">=22.16.0"
   },
