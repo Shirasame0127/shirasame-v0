@@ -39,9 +39,9 @@ try {
 # 2) List products (user scope)
 $list = safeInvoke -method 'GET' -url "https://admin.shirasame.com/api/admin/products"
 
-# 3) Get by id (query style)
+# 3) Get by id (path style)
 if ($prodId) {
-  $getq = safeInvoke -method 'GET' -url "https://admin.shirasame.com/api/products?id=$($prodId)"
+  $getq = safeInvoke -method 'GET' -url "https://admin.shirasame.com/api/admin/products/$($prodId)"
 } else { Write-Host "Skipping GET by id (no id)" }
 
 # 4) Update product

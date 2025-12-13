@@ -1707,6 +1707,42 @@ app.delete('/api/admin/products/*', async (c) => {
   }
 })
 
+// Admin: product detail by id (explicit route) to avoid upstream proxy/html
+app.get('/api/admin/products/:id', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const id = c.req.param('id')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品IDが必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const { data: resData, error: resErr } = await supabase.from('products').select('*, images:product_images(id,product_id,key,width,height,role), affiliateLinks:affiliate_links(*)').eq('id', id).limit(1).maybeSingle()
+    if (resErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の取得に失敗しました', resErr.message || resErr, 'db_error', 500)
+    const p = resData || null
+    if (!p) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品が見つかりません', null, 'not_found', 404)
+    const transformed = {
+      id: p.id,
+      userId: p.user_id,
+      title: p.title,
+      slug: p.slug,
+      shortDescription: p.short_description,
+      body: p.body,
+      tags: p.tags,
+      price: p.price,
+      published: p.published,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at,
+      showPrice: p.show_price,
+      notes: p.notes,
+      relatedLinks: p.related_links,
+      images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, key: img.key ?? null, url: getPublicImageUrl(img.key, c.env.IMAGES_DOMAIN) || img.url || null, width: img.width, height: img.height, aspect: img.aspect, role: img.role, basePath: deriveBasePath(c, img.key || img.url), })) : [],
+      affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : []
+    }
+    return new Response(JSON.stringify({ data: transformed }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
 // Mirror admin product detail: /api/admin/products/:id -> /products? or /products/:id
 app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
   try {
@@ -1720,6 +1756,56 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
       try { console.log('dbg:/api/admin/products/* incoming', Object.assign({}, ob, { hasCookie, tokenLen, xUserId: xu ? xu.slice(0,8) + '...' : '' })) } catch {}
     } catch {}
   } catch {}
+  // If this looks like a direct detail request /api/admin/products/<id>
+  // where <id> is a single path segment, handle it directly via Supabase
+  // to avoid proxying to the origin which may return HTML or errors.
+  try {
+    const reqUrl = new URL(c2.req.url)
+    const tailRaw = reqUrl.pathname.replace('/api/admin/products/', '').replace(/\/+$/, '')
+    const tailId = tailRaw && tailRaw.length > 0 && tailRaw.indexOf('/') === -1 ? tailRaw : null
+    try { console.log('[DBG] admin products detail handler tailRaw=', tailRaw, 'tailId=', tailId, 'url=', c2.req.url) } catch {}
+    if (tailId) {
+      try {
+        const ctx = await resolveRequestUserContext(c2)
+        if (!ctx.trusted) {
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+          return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+        }
+        const supabase = getSupabase(c2.env)
+        const res = await supabase.from('products').select('*, images:product_images(id,product_id,key,width,height,role), affiliateLinks:affiliate_links(*)').eq('id', tailId).limit(1).maybeSingle()
+        if (res.error) return makeErrorResponse({ env: c2.env, computeCorsHeaders, req: c2.req }, '商品取得に失敗しました', res.error.message || res.error, 'db_error', 500)
+        const p = res.data || null
+        if (!p) {
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+          return new Response(JSON.stringify({ error: 'not_found' }), { status: 404, headers: merged })
+        }
+        const transformed = {
+          id: p.id,
+          userId: p.user_id,
+          title: p.title,
+          slug: p.slug,
+          shortDescription: p.short_description,
+          body: p.body,
+          tags: p.tags,
+          price: p.price,
+          published: p.published,
+          createdAt: p.created_at,
+          updatedAt: p.updated_at,
+          showPrice: p.show_price,
+          notes: p.notes,
+          relatedLinks: p.related_links,
+          images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, key: img.key ?? null, url: getPublicImageUrl(img.key, c2.env.IMAGES_DOMAIN) || img.url || null, width: img.width, height: img.height, aspect: img.aspect, role: img.role, basePath: deriveBasePath(c2, img.key || img.url), })) : [],
+          affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : []
+        }
+        const headers = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8' })
+        return new Response(JSON.stringify({ data: transformed }), { headers })
+      } catch (e) {
+        // fall through to upstream handling below
+      }
+    }
+  } catch (e) {}
   const internal = upstream(c2, c2.req.path)
   if (internal) {
     const headers = makeUpstreamHeaders(c2)
@@ -1731,9 +1817,31 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
     return new Response(buf, { status: res.status, headers: merged })
   }
-  // Rewrite /api/admin/products/<id> -> /products/<id>. If target would
-  // resolve to same host, use WORKER_PUBLIC_HOST so the worker handles it.
-  let targetUrl = new URL(c2.req.url.replace('/api/admin/products/', '/products/'))
+  // Rewrite /api/admin/products/<id> -> /products?id=<id> when the tail
+  // looks like a single id segment. This avoids fetching path-style
+  // /products/<id> which is not implemented and can route to the origin
+  // returning HTML or an error. Fall back to path-style rewrite otherwise.
+  let targetUrl: URL
+  try {
+    const reqUrlObj = new URL(c2.req.url)
+    const tail = reqUrlObj.pathname.replace('/api/admin/products/', '')
+    // If tail is a single segment (no additional slashes) and non-empty,
+    // rewrite to /products?id=<tail> so the /products handler treats it as an id.
+    if (tail && tail.indexOf('/') === -1) {
+      const baseHost = ((c2.env && (c2.env.WORKER_PUBLIC_HOST as string)) || '').toString().replace(/\/$/, '') || 'https://public-worker.shirasame-official.workers.dev'
+      const t = new URL(baseHost)
+      t.pathname = '/products'
+      // preserve existing search params and append id param
+      const existing = reqUrlObj.search ? reqUrlObj.search.replace(/^\?/, '') + '&' : ''
+      t.search = '?' + existing + 'id=' + encodeURIComponent(tail)
+      targetUrl = t
+    } else {
+      targetUrl = new URL(c2.req.url.replace('/api/admin/products/', '/products/'))
+    }
+  } catch (e) {
+    // Fallback to previous behavior on any error
+    targetUrl = new URL(c2.req.url.replace('/api/admin/products/', '/products/'))
+  }
   try {
     const reqHost = (new URL(c2.req.url)).hostname
     const targetHost = targetUrl.hostname
