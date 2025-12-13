@@ -122,21 +122,7 @@ export default function AdminLayout({
     )
   }
 
-  // Be defensive: render the standard shell for any /admin subpath
-  // except the explicit login/reset pages. This avoids cases where
-  // client-side routing or bfcache restores an unexpected fragment
-  // and hides the sidebar. We also log state to help diagnose
-  // intermittent hydration/mounting issues in the wild.
-  const useStandardShell = (typeof pathname === 'string' && pathname.startsWith('/admin')) && !isLoginPage
-
-  try {
-    // Lightweight debug logging to help triage cases where the shell
-    // is unexpectedly not rendered in production. These logs are safe
-    // and will appear in the Console during client-side hydration.
-    // Remove or guard these logs later if noisy.
-    // eslint-disable-next-line no-console
-    console.log('[AdminLayout] pathname=', pathname, 'isLoading=', isLoading, 'isAuthenticated=', isAuthenticated, 'isRecipeEditPage=', isRecipeEditPage, 'isLoginPage=', isLoginPage, 'useStandardShell=', useStandardShell)
-  } catch (e) {}
+  const useStandardShell = !isRecipeEditPage && !isLoginPage
 
   return (
     <div className={`min-h-screen bg-muted/30 ${isRecipeEditPage ? 'overflow-hidden' : ''}`}>

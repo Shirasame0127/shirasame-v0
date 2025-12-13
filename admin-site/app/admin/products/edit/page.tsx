@@ -39,22 +39,14 @@ type AttachmentSlot = {
   url: string
 }
 
-export default function ProductEditPage({ params }: { params: any }) {
+export default function ProductEditPageQuery() {
   const router = useRouter()
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(true)
 
-  // `params` is provided by Next.js as a plain object in client pages.
-  // Avoid using the server-only `use()` utility here — read `params` directly.
-  const id = params?.id
   const search = useSearchParams()
-  const maybeUserId = (() => {
-    try {
-      const s = search?.get ? search.get('user_id') : null
-      return s || null
-    } catch (e) { return null }
-  })()
-  
+  const id = search?.get ? search.get('id') : null
+
   const [title, setTitle] = useState("")
   const [shortDescription, setShortDescription] = useState("")
   const [body, setBody] = useState("")
@@ -390,14 +382,6 @@ export default function ProductEditPage({ params }: { params: any }) {
       toast({ variant: 'destructive', title: 'エラー', description: e.message || '商品更新中にエラーが発生しました' })
     }
   }
-
-  // NOTE:
-  // Do not block the entire page render while loading product data.
-  // Render the edit UI immediately (with empty state / disabled actions)
-  // and let the client-side effect populate the form when the API
-  // call completes. This prevents the dashboard-only shell from
-  // appearing and ensures the AdminLayout (whoami) controls only
-  // authentication, not individual page data fetching.
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">

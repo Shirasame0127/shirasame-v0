@@ -98,13 +98,11 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
             </div>
 
             <div className="flex gap-2">
-              {product?.id ? (
+                {product?.id ? (
                 <Button size="sm" variant="outline" onClick={() => {
-                  // Prefer explicit user_id propagation so the public-worker can
-                  // trust the caller when resolving owner-scoped admin APIs.
-                    // do not propagate user_id in query; authentication is
-                    // handled by cookies and server-side whoami in middleware
-                    router.push(`/admin/products/${product.id}/edit`)
+                  // Use query-based editor to avoid relying on dynamic route params
+                  // which can be unreliable in some deployed environments.
+                  router.push(`/admin/products/edit?id=${product.id}`)
                 }}>
                   <Edit className="w-4 h-4 mr-1" />
                   編集
