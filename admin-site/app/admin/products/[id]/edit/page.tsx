@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import AdminLoading from '@/components/admin-loading'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -44,8 +44,9 @@ export default function ProductEditPage({ params }: { params: any }) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(true)
 
-  const resolvedParams = use(params as Promise<any>)
-  const id = resolvedParams?.id ?? params?.id
+  // `params` is provided by Next.js as a plain object in client pages.
+  // Avoid using the server-only `use()` utility here — read `params` directly.
+  const id = params?.id
   const search = useSearchParams()
   const maybeUserId = (() => {
     try {
@@ -416,7 +417,7 @@ export default function ProductEditPage({ params }: { params: any }) {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/admin/products">
+            <Link href="/admin/products" prefetch={false}>
               <ArrowLeft className="w-5 h-5" />
             </Link>
           </Button>
