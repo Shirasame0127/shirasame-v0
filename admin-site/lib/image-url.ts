@@ -6,7 +6,7 @@ import {
   ImageUsage,
 } from '../../shared/lib/image-usecases'
 
-const DEFAULT_IMAGES_DOMAIN = (typeof process !== 'undefined' && (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN || 'https://images.shirasame.com')) || 'https://images.shirasame.com'
+const DEFAULT_IMAGES_DOMAIN = (typeof process !== 'undefined' && (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN || process.env?.IMAGES_DOMAIN)) || null
 
 export function getPublicImageUrl(raw?: string | null, domainOverride?: string | null) {
   const domain = domainOverride ?? DEFAULT_IMAGES_DOMAIN
