@@ -44,6 +44,10 @@ export default function ProductEditPage({ params }: { params: any }) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(true)
 
+  useEffect(() => {
+    try { console.log('[ProductEditPage] mounted, id=', params?.id) } catch (e) {}
+  }, [params?.id])
+
   // `params` is provided by Next.js as a plain object in client pages.
   // Avoid using the server-only `use()` utility here — read `params` directly.
   const id = params?.id
