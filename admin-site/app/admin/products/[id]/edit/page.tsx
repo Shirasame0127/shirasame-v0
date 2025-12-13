@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Save, Plus, Trash2, X, Clipboard } from 'lucide-react'
 import Link from "next/link"
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
@@ -46,6 +46,13 @@ export default function ProductEditPage({ params }: { params: any }) {
 
   const resolvedParams = use(params as Promise<any>)
   const id = resolvedParams?.id ?? params?.id
+  const search = useSearchParams()
+  const maybeUserId = (() => {
+    try {
+      const s = search?.get ? search.get('user_id') : null
+      return s || null
+    } catch (e) { return null }
+  })()
   
   const [title, setTitle] = useState("")
   const [shortDescription, setShortDescription] = useState("")
@@ -71,9 +78,13 @@ export default function ProductEditPage({ params }: { params: any }) {
     const fetchData = async () => {
       try {
         if (!id) throw new Error('Invalid product id')
-        const res = await apiFetch(`/api/admin/products/${id}`)
+        // Include explicit user_id when available so the worker can trust the
+        // request and return owner-scoped data without relying solely on cookies.
+        const suffix = maybeUserId ? `?user_id=${encodeURIComponent(maybeUserId)}` : ''
+        const res = await apiFetch(`/api/admin/products/${id}${suffix}`)
         if (!res.ok) throw new Error("Failed to fetch product")
-        const data = await res.json()
+        const json = await res.json().catch(() => null)
+        const data = json && typeof json === 'object' && 'data' in json ? json.data : json
 
         setTitle(data.title || "")
         setShortDescription(data.shortDescription || "")
@@ -103,20 +114,21 @@ export default function ProductEditPage({ params }: { params: any }) {
         }
         else {
             try {
-            const pubRes = await apiFetch(`/api/products?id=${id}`)
-            if (pubRes.ok) {
-              const pubJson = await pubRes.json().catch(() => ({}))
-              const pubData = Array.isArray(pubJson?.data) ? pubJson.data[0] : pubJson?.data
-              if (pubData && Array.isArray(pubData.images) && pubData.images.length > 0) {
-                const main = pubData.images.find((img: any) => img.role === 'main') || pubData.images[0]
-                if (main && main.url) setMainImageUrl(main.url)
-                const attachments = pubData.images.filter((img: any) => img !== main)
-                setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, url: img.url || '' })))
+              const pubSuffix = maybeUserId ? `?user_id=${encodeURIComponent(maybeUserId)}` : ''
+              const pubRes = await apiFetch(`/api/products?id=${id}${pubSuffix}`)
+              if (pubRes.ok) {
+                const pubJson = await pubRes.json().catch(() => ({}))
+                const pubData = Array.isArray(pubJson?.data) ? pubJson.data[0] : pubJson?.data
+                if (pubData && Array.isArray(pubData.images) && pubData.images.length > 0) {
+                  const main = pubData.images.find((img: any) => img.role === 'main') || pubData.images[0]
+                  if (main && main.url) setMainImageUrl(main.url)
+                  const attachments = pubData.images.filter((img: any) => img !== main)
+                  setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, url: img.url || '' })))
+                }
               }
+            } catch (e) {
+              console.warn('fallback public product fetch failed', e)
             }
-          } catch (e) {
-            console.warn('fallback public product fetch failed', e)
-          }
         }
 
       } catch (error) {
