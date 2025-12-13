@@ -90,6 +90,40 @@ admin サイト（`admin-site`）から呼び出せるように、public-worker 
 
 ---
 
+## 2.1) 商品を作成する API（新規登録）
+- 実装場所：`public-worker/src/index.ts` — `POST /api/admin/products`（管理者用）
+- 目的：管理画面の「新規登録」画面から呼び出される API。管理者/所有者の認証が必要。
+- 呼び出し（admin クライアント経由）:
+  - URL: `POST https://admin.shirasame.com/api/admin/products`
+  - ヘッダ: `Content-Type: application/json`。セッション cookie を利用（HttpOnly）。
+  - ボディ（JSON）: 新規商品オブジェクト（例を下に示す）。
+
+- 推奨フィールド（フロント側の `new` 画面が送る想定）:
+  - `id` (optional): 任意。指定がない場合は worker 側で `prod-<timestamp>` を生成する。
+  - `userId` (optional): 所有者ユーザー ID。指定がない場合はリクエスト発行者のユーザー ID が使われる。
+  - `title` (required)
+  - `slug` (optional)
+  - `shortDescription` または `short_description` (optional)
+  - `body` (optional)
+  - `tags` (optional): 配列。未指定時は `[]` が設定される。
+  - `price` (optional)
+  - `published` (optional): boolean。未指定時は `false` が既定。
+  - `relatedLinks` または `related_links` (optional): 配列。未指定時は `[]` が設定される。
+  - `notes` (optional)
+  - `showPrice` または `show_price` (optional): boolean
+  - `images` (optional): 画像配列（管理画面では通常 ImageUpload により事前にアップロード済みのキー/URL を渡すことを想定）。
+  - `affiliateLinks` (optional)
+  - `createdAt` / `created_at`, `updatedAt` / `updated_at` (optional): ワーカーが未指定時に現在時刻で埋める。
+
+- 注意点（画像・添付について）:
+  - 管理画面の `ImageUpload` コンポーネントは選択時にワーカーの画像アップロード API を呼び出し、`mainImageUrl`（公開 URL またはキー）を返します。新規作成時は `images` 配列ではなく、アップロード時に `productId` を渡して `product_images` テーブルに紐付けるか、事前にアップロード済みの `mainImageUrl` を本 API に含めてください。
+  - ワーカーは `POST /api/admin/products` で product レコードのみを作成し、画像の永続化は別エンドポイント（画像アップロード / assign=product）で行う設計です。フロントは画像を先にアップロードしてからこの作成 API を呼ぶことを推奨します。
+
+- 返却:
+  - 成功: `{ ok: true, data: <created_product> }`（作成された product オブジェクト）
+  - 失敗: エラー JSON（`makeErrorResponse` 形式）
+
+
 ## 3.1) 公開ステータス切替 API（一覧でのトグル用）
 - 実装場所：`public-worker/src/index.ts` — 新規追加 `PUT /api/admin/products/<id>/published`（管理者用）
 - 目的：商品一覧のトグルスイッチから即時に `published` フラグを切り替える。管理画面で即時反映・監査が必要なため専用の軽量エンドポイントを用意。
