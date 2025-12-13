@@ -1165,98 +1165,7 @@ app.get('/site-settings', async (c) => {
 
 // Also expose `/api/site-settings` explicitly so admin-origin requests
 // that hit `/api/site-settings` are handled directly (avoids proxy edge cases).
-app.get('/api/site-settings', async (c) => {
-  try {
-    const internal = upstream(c, '/api/site-settings')
-    const ctx = await resolveRequestUserContext(c)
-
-    // If an internal upstream is configured, proxy to it (maintain headers)
-    if (internal) {
-      const headers = makeUpstreamHeaders(c)
-      if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
-      const res = await fetch(internal, { method: 'GET', headers })
-      const json = await res.json().catch(() => ({ data: {} }))
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify(json), { status: res.status, headers: merged })
-    }
-
-    // Fallback: read from Supabase anon client and return key/value map
-    const supabase = getSupabase(c.env)
-    const { data, error } = await supabase.from('site_settings').select('key, value').limit(100)
-    if (error) {
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ data: {} }), { headers: merged })
-    }
-    const rows = Array.isArray(data) ? data : []
-    const out: Record<string, any> = {}
-    for (const r of rows) {
-      try {
-        if (r && typeof r.key === 'string') out[r.key] = r.value
-      } catch {}
-    }
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: out }), { headers: merged })
-  } catch (e: any) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: {} }), { status: 500, headers: merged })
-  }
-})
-
-// Mirror common public endpoints under /api/* so admin-origin requests
-// that include the /api prefix are handled consistently.
-const mirrorGet = async (c: any, handler: (c: any) => Promise<Response>) => {
-  try {
-    return await handler(c)
-  } catch (e: any) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: {} }), { status: 500, headers: merged })
-  }
-}
-
-app.get('/api/collections', async (c) => mirrorGet(c, async (c2) => {
-  // Reuse existing collections logic (same as /collections)
-  const supabase = getSupabase(c2.env)
-  const q = c2.req.query()
-  const limit = q.limit ? Math.max(0, parseInt(q.limit)) : null
-  const offset = q.limit ? Math.max(0, parseInt(q.offset || '0')) : 0
-  const wantCount = q.count === 'true'
-  const key = `collections${c2.req.url.includes('?') ? c2.req.url.substring(c2.req.url.indexOf('?')) : ''}`
-  return cacheJson(c2, key, async () => {
-    try {
-      const ctx = await resolveRequestUserContext(c2)
-      if (!ctx.trusted) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
-      }
-      const reqUserId = ctx.userId
-      let collections: any[] = []
-      let total: number | null = null
-      if (limit && limit > 0) {
-        if (wantCount) {
-          let query: any = supabase.from('collections').select('*', { count: 'exact' }).order('created_at', { ascending: false })
-          if (reqUserId) query = query.eq('user_id', reqUserId)
-          else {
-            const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
-            if (ownerId) query = query.eq('user_id', ownerId)
-            else query = query.eq('visibility', 'public')
-          }
-          const res = await query.range(offset, offset + Math.max(0, limit - 1))
-          collections = res.data || []
-          // @ts-ignore
-          total = typeof res.count === 'number' ? res.count : null
-        } else {
-          let query: any = supabase.from('collections').select('*').order('created_at', { ascending: false })
-          if (reqUserId) query = query.eq('user_id', reqUserId)
-          else {
-            const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
-            if (ownerId) query = query.eq('user_id', ownerId)
-            else query = query.eq('visibility', 'public')
+*** End Patch
           }
           const res = await query.range(offset, offset + Math.max(0, limit - 1))
           collections = res.data || []
@@ -4060,6 +3969,95 @@ app.all('/api/*', async (c) => {
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
   }
+})
+
+// Ensure admin-facing recipes API is handled directly (avoid upstream proxy errors)
+app.get('/api/recipes', zValidator('query', listQuery.partial()), async (c) => {
+  const supabase = getSupabase(c.env)
+  const key = `recipes${c.req.url.includes('?') ? c.req.url.substring(c.req.url.indexOf('?')) : ''}`
+  return cacheJson(c, key, async () => {
+    try {
+      const ctx = await resolveRequestUserContext(c)
+      if (!ctx.trusted) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      }
+
+      const { data: recipes = [], error: recipesErr } = await supabase.from('recipes').select('*').order('created_at', { ascending: false }).eq('user_id', ctx.userId)
+      if (recipesErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピの取得に失敗しました', recipesErr.message || recipesErr, 'db_error', 500)
+
+      const recipeIds = (recipes || []).map((r: any) => r.id)
+      const { data: pins = [] } = await supabase.from('recipe_pins').select('*').in('recipe_id', recipeIds)
+      const pinsByRecipe = new Map<string, any[]>()
+      for (const p of (pins || [])) {
+        const mapped = {
+          id: p.id,
+          recipeId: p.recipe_id,
+          productId: p.product_id,
+          userId: p.user_id,
+          tagDisplayText: p.tag_display_text ?? p.tag_text ?? null,
+          dotXPercent: Number(p.dot_x_percent ?? p.dot_x ?? 0),
+          dotYPercent: Number(p.dot_y_percent ?? p.dot_y ?? 0),
+          tagXPercent: Number(p.tag_x_percent ?? p.tag_x ?? 0),
+          tagYPercent: Number(p.tag_y_percent ?? p.tag_y ?? 0),
+          dotSizePercent: Number(p.dot_size_percent ?? p.dot_size ?? 0),
+          tagFontSizePercent: Number(p.tag_font_size_percent ?? p.tag_font_size ?? 0),
+          lineWidthPercent: Number(p.line_width_percent ?? p.line_width ?? 0),
+          tagPaddingXPercent: Number(p.tag_padding_x_percent ?? p.tag_padding_x ?? 0),
+          tagPaddingYPercent: Number(p.tag_padding_y_percent ?? p.tag_padding_y ?? 0),
+          tagBorderRadiusPercent: Number(p.tag_border_radius_percent ?? p.tag_border_radius ?? 0),
+          tagBorderWidthPercent: Number(p.tag_border_width_percent ?? p.tag_border_width ?? 0),
+          dotColor: p.dot_color ?? null,
+          dotShape: p.dot_shape ?? null,
+          tagText: p.tag_text ?? null,
+          tagFontFamily: p.tag_font_family ?? null,
+          tagFontWeight: p.tag_font_weight ?? null,
+          tagTextColor: p.tag_text_color ?? null,
+          tagTextShadow: p.tag_text_shadow ?? null,
+          tagBackgroundColor: p.tag_background_color ?? null,
+          tagBackgroundOpacity: Number(p.tag_background_opacity ?? 0),
+          tagBorderColor: p.tag_border_color ?? null,
+          tagShadow: p.tag_shadow ?? null,
+          lineType: p.line_type ?? null,
+          lineColor: p.line_color ?? null,
+          createdAt: p.created_at || null,
+          updatedAt: p.updated_at || null,
+        }
+        const arr = pinsByRecipe.get(mapped.recipeId) || []
+        arr.push(mapped)
+        pinsByRecipe.set(mapped.recipeId, arr)
+      }
+
+      const transformed = (recipes || []).map((r: any) => {
+        const imgsRaw = Array.isArray(r.images) ? r.images : []
+        const mappedImages = imgsRaw.map((img: any) => ({ id: img.id, recipeId: r.id, key: img.key ?? null, url: (img.key ? getPublicImageUrl(img.key, c.env.IMAGES_DOMAIN) : (img.url || null)), width: img.width, height: img.height }))
+        if (r.base_image_id && mappedImages.length > 1) {
+          const idx = mappedImages.findIndex((mi: any) => mi.id === r.base_image_id)
+          if (idx > 0) {
+            const [base] = mappedImages.splice(idx, 1)
+            mappedImages.unshift(base)
+          }
+        }
+        const mappedPins = pinsByRecipe.get(r.id) || []
+        return {
+          id: r.id,
+          userId: r.user_id,
+          title: r.title,
+          published: !!r.published,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+          images: mappedImages,
+          imageDataUrl: r.image_data_url || (mappedImages.length > 0 ? mappedImages[0].url : null) || null,
+          pins: mappedPins,
+        }
+      })
+
+      return new Response(JSON.stringify({ data: transformed }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    } catch (e: any) {
+      return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+    }
+  })
 })
 
 app.all('*', async (c) => {
