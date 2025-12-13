@@ -239,16 +239,12 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
   // If server reports unauthenticated for admin requests, handle centrally:
   if (res.status === 401) {
-    try {
-      if (typeof window !== 'undefined') {
-        try {
-          // Show user-facing toast
-          try { globalToast({ title: 'ログイン情報が見つけられなかったよ' }) } catch {}
-          // Clear local session and perform logout flow which redirects to /admin/login
-          try { console.warn('[apiFetch] 401 を検出しました — auth.logout を実行します'); auth.logout().catch(() => {}) } catch {}
-        } catch (e) {}
-      }
-    } catch (e) {}
+    try { console.warn('[apiFetch] 401 response for', url) } catch (e) {}
+    // NOTE: do not perform auth.logout() or automatic redirects here. Calling
+    // logout during an in-progress navigation can interrupt the navigation and
+    // cause the wrong HTML to be mounted (observed as dashboard HTML appearing
+    // when navigating to edit pages). Let callers (for example the admin
+    // layout whoami check) decide how to handle unauthenticated responses.
     throw new Error('unauthenticated')
   }
   try { console.log('[apiFetch] レスポンス受信:', url, 'status=', res.status) } catch (e) {}

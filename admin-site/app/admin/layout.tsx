@@ -89,7 +89,7 @@ export default function AdminLayout({
       setIsAuthenticated(true)
       setIsLoading(false)
     }
-  }, [pathname, isLoginPage])
+  }, [])
 
   // Redirect to login when unauthenticated to prevent viewing admin UI
   useEffect(() => {
