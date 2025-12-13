@@ -71,7 +71,36 @@ export async function forwardToPublicWorker(req: Request) {
       redirect: 'manual',
     }
 
-    const resp = await fetch(dest, init)
+    let resp = null
+    try {
+      resp = await fetch(dest, init)
+    } catch (e) {
+      // Attempt a conservative fallback to the canonical public-worker host
+      // if an explicit API base failed (network glitch / DNS / routing).
+      try {
+        const fallbackBase = 'https://public-worker.shirasame-official.workers.dev'
+        const url = new URL(req.url)
+        const incomingPath = url.pathname
+        const fallbackDest = fallbackBase.replace(/\/$/, '') + incomingPath + url.search
+        resp = await fetch(fallbackDest, init)
+      } catch (e2) {
+        return new Response(JSON.stringify({ ok: false, error: 'proxy_fetch_failed', detail: String(e2) }), { status: 502, headers: { 'Content-Type': 'application/json' } })
+      }
+    }
+
+    // If we got a server error from the worker, try a single fallback attempt
+    if (resp && resp.status >= 500) {
+      try {
+        const fallbackBase = 'https://public-worker.shirasame-official.workers.dev'
+        const url = new URL(req.url)
+        const incomingPath = url.pathname
+        const fallbackDest = fallbackBase.replace(/\/$/, '') + incomingPath + url.search
+        const tryResp = await fetch(fallbackDest, init)
+        if (tryResp && tryResp.ok) resp = tryResp
+      } catch (e) {
+        // ignore — we'll return the original resp below
+      }
+    }
 
     // Copy response headers. Append multiple Set-Cookie values instead of
     // overwriting so we don't lose sb-access-token or sb-refresh-token.
@@ -82,6 +111,13 @@ export async function forwardToPublicWorker(req: Request) {
     })
 
     const body = await resp.arrayBuffer()
+    // If the proxied worker returned an unhelpful Cloudflare error page (HTML),
+    // normalize to a JSON error so the admin client doesn't try to render HTML.
+    const ct = resp.headers.get('content-type') || ''
+    if ((ct.indexOf('text/html') !== -1) || (/^\s*<!(doctype|html)|^\s*<html/i.test(new TextDecoder().decode(new Uint8Array(body.slice(0, 128)))))) {
+      return new Response(JSON.stringify({ ok: false, error: 'upstream_html', status: resp.status }), { status: 502, headers: { 'Content-Type': 'application/json' } })
+    }
+
     return new Response(body, { status: resp.status, headers: respHeaders })
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { 'Content-Type': 'application/json' } })
