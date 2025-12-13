@@ -391,9 +391,13 @@ export default function ProductEditPage({ params }: { params: any }) {
     }
   }
 
-  if (isLoading) {
-    return <AdminLoading />
-  }
+  // NOTE:
+  // Do not block the entire page render while loading product data.
+  // Render the edit UI immediately (with empty state / disabled actions)
+  // and let the client-side effect populate the form when the API
+  // call completes. This prevents the dashboard-only shell from
+  // appearing and ensures the AdminLayout (whoami) controls only
+  // authentication, not individual page data fetching.
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
