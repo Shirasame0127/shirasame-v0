@@ -25,12 +25,16 @@ function safeInvoke($method, $url, $body=$null) {
 Write-Host "Starting PRODUCTS CRUD test for user: $uid"
 
 # 1) Create product
-$body1 = @{ title = $title; slug = $slug; userId = $uid; published = $false; __perform = $true }
+## Use normal POST (no debug flags) so response shape is { ok:true, data: <product> }
+$body1 = @{ title = $title; slug = $slug; userId = $uid; published = $false }
 $created = safeInvoke -method 'POST' -url 'https://admin.shirasame.com/api/admin/products' -body $body1
 
-# Extract created id
+# Extract created id (handle both normal and debug-perform shapes)
 $prodId = $null
-if ($created -and $created.data) { $prodId = $created.data.id }
+try {
+  if ($created -and $created.data) { $prodId = $created.data.id }
+  elseif ($created -and $created.supabase -and $created.supabase.data -and $created.supabase.data.Count -gt 0) { $prodId = $created.supabase.data[0].id }
+} catch { }
 
 # 2) List products (user scope)
 $list = safeInvoke -method 'GET' -url "https://admin.shirasame.com/api/admin/products"

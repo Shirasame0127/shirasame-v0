@@ -90,6 +90,20 @@ admin サイト（`admin-site`）から呼び出せるように、public-worker 
 
 ---
 
+## 3.1) 公開ステータス切替 API（一覧でのトグル用）
+- 実装場所：`public-worker/src/index.ts` — 新規追加 `PUT /api/admin/products/<id>/published`（管理者用）
+- 目的：商品一覧のトグルスイッチから即時に `published` フラグを切り替える。管理画面で即時反映・監査が必要なため専用の軽量エンドポイントを用意。
+- 呼び出し（admin クライアント経由）:
+  - URL: `PUT https://admin.shirasame.com/api/admin/products/<id>/published`
+  - ヘッダ: `Content-Type: application/json`。セッション cookie を利用（HttpOnly）。
+  - ボディ（JSON）: `{ "published": true|false }` — 指定した値に更新する。ボディ必須。
+- 権限: 呼び出しユーザーが対象 `product.user_id` と同一であるか、`isAdmin(user)` で管理者判定が真であれば実行可。そうでなければ 403 を返却。
+- 実装ノート: 実行時に対象商品の存在確認を行い、`updated_at` を現在時刻に更新する。成功時は更新済みオブジェクトを返却。
+- 返却:
+  - 成功: `{ ok: true, data: <updated_product> }`
+  - 失敗: エラー JSON（`makeErrorResponse` 形式）
+
+
 ## 4) 商品を削除する API
 - 実装場所：`public-worker/src/index.ts` にて `app.delete('/api/admin/products/*', ...)` を追加（このリポジトリ変更で実装済み）
 - 呼び出し:

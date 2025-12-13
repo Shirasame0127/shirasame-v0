@@ -81,6 +81,45 @@ app.use('/api/*', async (c, next) => {
   }
 })
 
+// Admin: toggle / set published state for a product (called from admin UI toggle)
+app.put('/api/admin/products/*/published', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const path = (new URL(c.req.url)).pathname || ''
+    const id = path.replace('/api/admin/products/', '').replace('/published', '').replace(/\/+$/,'')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '無効なIDです', null, 'invalid_id', 400)
+
+    let body: any = {}
+    try { body = await c.req.json() } catch { body = {} }
+    const published = typeof body.published !== 'undefined' ? !!body.published : null
+    if (published === null) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'published フィールドが必要です', null, 'invalid_body', 400)
+
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+
+    // Fetch product to verify ownership (and existence)
+    try {
+      const { data: rows, error: fetchErr } = await supabase.from('products').select('*').eq('id', id).limit(1).maybeSingle()
+      if (fetchErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品情報の取得に失敗しました', fetchErr.message || fetchErr, 'db_error', 500)
+      const prod = rows || null
+      if (!prod) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品が見つかりません', null, 'not_found', 404)
+      if (prod.user_id && prod.user_id !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+      const now = new Date().toISOString()
+      const { data: updated, error: updErr } = await supabase.from('products').update({ published: !!published, updated_at: now }).eq('id', id).select('*')
+      if (updErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '公開ステータスの更新に失敗しました', updErr.message || updErr, 'db_error', 500)
+
+      return new Response(JSON.stringify({ ok: true, data: updated && updated[0] ? updated[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    } catch (e) {
+      return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '公開切替中にサーバーエラーが発生しました', String(e), 'server_error', 500)
+    }
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '公開切替処理中に例外が発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
 // Admin authentication middleware: enforce JWT <-> X-User-Id matching
 app.use('/api/admin/*', async (c, next) => {
   try {
@@ -1492,10 +1531,10 @@ app.post('/api/admin/products', async (c) => {
       slug: safeEval('slug', () => body.slug || null),
       short_description: safeEval('short_description', () => body.short_description || body.shortDescription || null),
       body: safeEval('body', () => body.body || null),
-      tags: safeEval('tags', () => Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null)),
+      tags: safeEval('tags', () => Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : [])),
       price: safeEval('price', () => (typeof body.price !== 'undefined' ? body.price : null)),
       published: safeEval('published', () => (typeof body.published !== 'undefined' ? !!body.published : false)),
-      related_links: safeEval('related_links', () => Array.isArray(body.related_links) ? body.related_links : (Array.isArray(body.relatedLinks) ? body.relatedLinks : null)),
+      related_links: safeEval('related_links', () => Array.isArray(body.related_links) ? body.related_links : (Array.isArray(body.relatedLinks) ? body.relatedLinks : [])),
       notes: safeEval('notes', () => body.notes || null),
       show_price: safeEval('show_price', () => (typeof body.show_price !== 'undefined' ? !!body.show_price : false)),
     }
@@ -1504,6 +1543,13 @@ app.post('/api/admin/products', async (c) => {
     try { if (body && body.id) insertBody.id = body.id } catch {}
     try {
       if (!insertBody.id) insertBody.id = 'prod-' + String(Date.now())
+    } catch {}
+
+    // Ensure timestamps are present to avoid NULL created_at/updated_at
+    try {
+      const now = new Date().toISOString()
+      if (!insertBody.created_at) insertBody.created_at = now
+      if (!insertBody.updated_at) insertBody.updated_at = now
     } catch {}
 
     // Debug shortcut: if caller sets __debug=true in body, return the computed

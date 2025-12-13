@@ -2,7 +2,9 @@
 
 import { responsiveImageForUsage } from "@/lib/image-url"
 import apiFetch from '@/lib/api-client'
-import Link from "next/link"
+import { useRouter } from 'next/navigation'
+import { Switch } from '@/components/ui/switch'
+import { useState } from 'react'
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
@@ -15,6 +17,25 @@ interface ProductListItemProps {
 }
 
 export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
+  const router = useRouter()
+  const [publishedState, setPublishedState] = useState<boolean>(!!product.published)
+
+  const handleTogglePublished = async (newVal: boolean) => {
+    // optimistic
+    const prev = publishedState
+    setPublishedState(newVal)
+    try {
+      const res = await apiFetch(`/api/admin/products/${product.id}/published`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ published: newVal }) })
+      if (!res || !res.ok) {
+        throw new Error('Failed')
+      }
+      if (onUpdate) onUpdate()
+    } catch (e) {
+      console.error('公開切替失敗', e)
+      alert('公開ステータスの切替に失敗しました')
+      setPublishedState(prev)
+    }
+  }
   const mainImage = product.images?.find((img) => img.role === "main") || product.images?.[0]
 
   const handleDelete = async () => {
@@ -56,9 +77,12 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
                 <h3 className="font-semibold line-clamp-1">{product.title}</h3>
                 {/* 短い説明は管理画面カードでは表示しない */}
               </div>
-              <Badge variant={product.published ? "default" : "secondary"}>
-                {product.published ? "公開中" : "下書き"}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={publishedState ? "default" : "secondary"}>
+                  {publishedState ? "公開中" : "下書き"}
+                </Badge>
+                <Switch checked={publishedState} onCheckedChange={(v) => handleTogglePublished(!!v)} />
+              </div>
             </div>
 
             <div className="flex items-center gap-2 mb-3">
@@ -75,11 +99,9 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
 
             <div className="flex gap-2">
               {product?.id ? (
-                <Button size="sm" variant="outline" asChild>
-                  <Link href={`/admin/products/${product.id}/edit`}>
-                    <Edit className="w-4 h-4 mr-1" />
-                    編集
-                  </Link>
+                <Button size="sm" variant="outline" onClick={() => router.push(`/admin/products/${product.id}/edit`)}>
+                  <Edit className="w-4 h-4 mr-1" />
+                  編集
                 </Button>
               ) : (
                 <Button size="sm" variant="outline" disabled>
