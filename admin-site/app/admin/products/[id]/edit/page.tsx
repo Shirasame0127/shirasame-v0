@@ -79,10 +79,10 @@ export default function ProductEditPage({ params }: { params: any }) {
     const fetchData = async () => {
       try {
         if (!id) throw new Error('Invalid product id')
-        // Include explicit user_id when available so the worker can trust the
-        // request and return owner-scoped data without relying solely on cookies.
-        const suffix = maybeUserId ? `?user_id=${encodeURIComponent(maybeUserId)}` : ''
-        const res = await apiFetch(`/api/admin/products/${id}${suffix}`)
+        // Only call the authoritative admin API. Authentication is provided
+        // by HttpOnly cookies and validated server-side. Do NOT include
+        // user_id in the query string.
+        const res = await apiFetch(`/api/admin/products/${id}`)
         if (!res.ok) throw new Error("Failed to fetch product")
         const json = await res.json().catch(() => null)
         const data = json && typeof json === 'object' && 'data' in json ? json.data : json
@@ -113,24 +113,7 @@ export default function ProductEditPage({ params }: { params: any }) {
           }
           setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, url: img.url || '' })))
         }
-        else {
-            try {
-              const pubSuffix = maybeUserId ? `?user_id=${encodeURIComponent(maybeUserId)}` : ''
-              const pubRes = await apiFetch(`/api/products?id=${id}${pubSuffix}`)
-              if (pubRes.ok) {
-                const pubJson = await pubRes.json().catch(() => ({}))
-                const pubData = Array.isArray(pubJson?.data) ? pubJson.data[0] : pubJson?.data
-                if (pubData && Array.isArray(pubData.images) && pubData.images.length > 0) {
-                  const main = pubData.images.find((img: any) => img.role === 'main') || pubData.images[0]
-                  if (main && main.url) setMainImageUrl(main.url)
-                  const attachments = pubData.images.filter((img: any) => img !== main)
-                  setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, url: img.url || '' })))
-                }
-              }
-            } catch (e) {
-              console.warn('fallback public product fetch failed', e)
-            }
-        }
+        // No fallback to public API: admin UI must rely on admin API only.
 
       } catch (error) {
         console.error(error)

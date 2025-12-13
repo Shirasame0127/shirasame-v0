@@ -102,20 +102,9 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
                 <Button size="sm" variant="outline" onClick={() => {
                   // Prefer explicit user_id propagation so the public-worker can
                   // trust the caller when resolving owner-scoped admin APIs.
-                  try {
-                    let userId: string | null = null
-                    try {
-                      const raw = localStorage.getItem('auth_user')
-                      if (raw) userId = JSON.parse(raw)?.id || null
-                    } catch (e) {}
-                    if (!userId && typeof window !== 'undefined' && (window as any).__env__ && (window as any).__env__.USER_ID) {
-                      userId = (window as any).__env__.USER_ID
-                    }
-                    const q = userId ? `?user_id=${encodeURIComponent(userId)}` : ''
-                    router.push(`/admin/products/${product.id}/edit${q}`)
-                  } catch (e) {
+                    // do not propagate user_id in query; authentication is
+                    // handled by cookies and server-side whoami in middleware
                     router.push(`/admin/products/${product.id}/edit`)
-                  }
                 }}>
                   <Edit className="w-4 h-4 mr-1" />
                   編集
