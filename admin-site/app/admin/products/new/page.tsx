@@ -116,38 +116,9 @@ export default function ProductNewPage() {
       }
     })()
 
+    // Drafts disabled: do not load server-side saved drafts.
     if (!currentUser?.id || draftInitialized) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await apiFetch(`/api/admin/product-drafts`)
-        if (!res.ok) return
-        const json = await res.json()
-        if (!json?.data || cancelled) return
-        const data = json.data
-        setProductId(data.productId || `prod-${Date.now()}`)
-        setTitle(data.title || "")
-        setShortDescription(data.shortDescription || "")
-        setBody(data.body || "")
-        setNotes(data.notes || "")
-        setRelatedLinks(data.relatedLinks?.length ? data.relatedLinks : [""])
-        setPrice(data.price || "")
-        setShowPrice(typeof data.showPrice === "boolean" ? data.showPrice : true)
-        setTags(Array.isArray(data.tags) ? data.tags : [])
-        setPublished(typeof data.published === "boolean" ? data.published : true)
-        setAffiliateLinks(Array.isArray(data.affiliateLinks) && data.affiliateLinks.length > 0 ? data.affiliateLinks : [{ provider: "", url: "", label: "" }])
-        setMainImageUrl(data.mainImageUrl || "")
-        setAttachmentSlots(Array.isArray(data.attachmentUrls) ? data.attachmentUrls.map((url: string) => ({ file: null, url })) : [])
-      } catch (err) {
-        console.error("Failed to load product draft", err)
-      } finally {
-        if (!cancelled) setDraftInitialized(true)
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
+    setDraftInitialized(true)
   }, [currentUser?.id, draftInitialized])
 
   const draftState = useMemo(
@@ -169,36 +140,7 @@ export default function ProductNewPage() {
     [productId, title, shortDescription, body, notes, relatedLinks, price, showPrice, tags, published, affiliateLinks, mainImageUrl, attachmentSlots],
   )
 
-  useEffect(() => {
-    if (!currentUser?.id || !draftInitialized) return
-    const hasContent =
-      draftState.title ||
-      draftState.shortDescription ||
-      draftState.body ||
-      draftState.notes ||
-      draftState.relatedLinks?.some((link) => link.trim()) ||
-      draftState.tags?.length > 0 ||
-      draftState.affiliateLinks?.some((link) => link.url) ||
-      Boolean(draftState.mainImageUrl) ||
-      draftState.attachmentUrls?.length > 0
-
-    if (!hasContent) return
-
-    const controller = new AbortController()
-    const timeout = setTimeout(() => {
-      apiFetch('/api/admin/product-drafts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: draftState }),
-        signal: controller.signal,
-      }).catch((err) => console.warn('Draft save failed', err))
-    }, 1000)
-
-    return () => {
-      clearTimeout(timeout)
-      controller.abort()
-    }
-  }, [draftState, currentUser?.id, draftInitialized])
+  // Draft auto-save disabled.
 
   const addTag = (tag: string) => {
     const trimmedTag = tag.trim()
@@ -394,11 +336,7 @@ export default function ProductNewPage() {
 
       const created = json.data || json
 
-      await apiFetch('/api/admin/product-drafts', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id }),
-      }).catch(() => {})
+      // Draft cleanup disabled: no server-side draft endpoint call.
 
       toast({ title: '作成完了', description: '商品を追加しました' })
       router.push('/admin/products')
