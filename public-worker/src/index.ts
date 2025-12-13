@@ -1593,6 +1593,45 @@ app.post('/api/admin/products', async (c) => {
         try { console.error('[DBG] supabase insert error', insErr) } catch {}
         return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の作成に失敗しました', insErr.message || insErr, 'db_error', 500)
       }
+
+      // If affiliate links were provided in the incoming body, persist them
+      // to the `affiliate_links` table linked to the newly created product.
+      try {
+        const createdProduct = ins && ins[0] ? ins[0] : null
+        const affiliateRaw = body && (body.affiliateLinks || body.affiliate_links) ? (body.affiliateLinks || body.affiliate_links) : null
+        if (createdProduct && Array.isArray(affiliateRaw) && affiliateRaw.length > 0) {
+          try {
+            const now = new Date().toISOString()
+            const rows = affiliateRaw
+              .filter((a: any) => a && (a.url || a.provider))
+              .map((a: any) => ({
+                product_id: createdProduct.id,
+                provider: a.provider || null,
+                url: a.url || null,
+                label: a.label || null,
+                user_id: createdProduct.user_id || null,
+                created_at: now,
+              }))
+            if (rows.length > 0) {
+              try {
+                const { data: affData, error: affErr } = await supabase.from('affiliate_links').insert(rows).select('*')
+                if (affErr) {
+                  try { console.warn('[DBG] affiliate_links insert error', affErr) } catch {}
+                } else {
+                  try { console.log('[DBG] affiliate_links inserted count=', Array.isArray(affData) ? affData.length : 0) } catch {}
+                }
+              } catch (e) {
+                try { console.warn('[DBG] exception inserting affiliate_links', String(e)) } catch {}
+              }
+            }
+          } catch (e) {
+            try { console.warn('[DBG] affiliate_links processing error', String(e)) } catch {}
+          }
+        }
+      } catch (e) {
+        try { console.warn('[DBG] affiliate_links top-level error', String(e)) } catch {}
+      }
+
       return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
     } catch (e) {
       try { console.error('[DBG] exception during product insert handler', String(e), e && e.stack) } catch {}
