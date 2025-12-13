@@ -37,11 +37,10 @@ export default function AdminDashboard() {
       } catch (e) {
         console.warn('[v0] products.refresh warning', e)
       }
-      try {
-        await db.recipes.refresh(currentUser?.id)
-      } catch (e) {
-        console.warn('[v0] recipes.refresh warning', e)
-      }
+      // Avoid proactively refreshing recipes here to prevent unnecessary
+      // /api/recipes requests when users interact with dashboard controls
+      // (e.g. clicking the products stat). Recipes will be refreshed on the
+      // dedicated recipes page or when explicitly requested.
 
       // Determine owner/user scope: prefer explicit signed-in user, else fallback to cached owner
       const userId = currentUser?.id || (db.user.get() as any)?.id || undefined
