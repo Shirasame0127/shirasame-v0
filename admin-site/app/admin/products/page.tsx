@@ -168,13 +168,13 @@ export default function AdminProductsPage() {
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" asChild>
-            <Link href="/admin/tags">
+            <Link href="/admin/tags" prefetch={false}>
               <SlidersHorizontal className="w-4 h-4 mr-2" />
               タグ管理
             </Link>
           </Button>
           <Button size="lg" className="gap-2" asChild>
-            <Link href="/admin/products/new">
+            <Link href="/admin/products/new" prefetch={false}>
               <Plus className="w-4 h-4" />
               新規追加
             </Link>

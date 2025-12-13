@@ -11,6 +11,19 @@ export default function AdminLoading() {
     let mounted = true
     ;(async () => {
       try {
+        // Avoid calling /api/site-settings when on the public login page or
+        // before the local session mirror exists. This prevents unnecessary
+        // unauthenticated requests that may cause redirects or 401 handling.
+        let pathname = ''
+        try { pathname = typeof window !== 'undefined' ? window.location.pathname : '' } catch (e) { pathname = '' }
+        const isLoginPage = pathname === '/admin/login' || pathname.startsWith('/admin/reset')
+        let hasLocalToken = false
+        try { hasLocalToken = !!(localStorage.getItem('sb-access-token') || localStorage.getItem('auth_user')) } catch (e) { hasLocalToken = false }
+        if (isLoginPage && !hasLocalToken) {
+          // Skip site-settings fetch
+          return
+        }
+
         const res = await apiFetch('/api/site-settings')
         if (!res.ok) return
         const json = await res.json()

@@ -699,7 +699,7 @@ export default function AdminTagsPage() {
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/admin">
+            <Link href="/admin" prefetch={false}>
               <ArrowLeft className="w-5 h-5" />
             </Link>
           </Button>

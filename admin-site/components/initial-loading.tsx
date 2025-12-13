@@ -20,6 +20,20 @@ export default function InitialLoading() {
 
     ;(async () => {
       try {
+        // Avoid calling /api/site-settings from the public login page when
+        // the local token mirror is not present — this prevents unauthenticated
+        // fetches and potential logout/redirect churn while the client is
+        // still synchronizing the HttpOnly session cookie.
+        let pathname = ''
+        try { pathname = typeof window !== 'undefined' ? window.location.pathname : '' } catch (e) { pathname = '' }
+        const isLoginPage = pathname === '/admin/login' || pathname.startsWith('/admin/reset')
+        let hasLocalToken = false
+        try { hasLocalToken = !!(localStorage.getItem('sb-access-token') || localStorage.getItem('auth_user')) } catch (e) { hasLocalToken = false }
+        if (isLoginPage && !hasLocalToken) {
+          // Skip non-auth site-settings fetch on the public login page.
+          throw new Error('skip-site-settings-on-login')
+        }
+
         const res = await apiFetch('/api/site-settings')
         if (!res.ok) throw new Error('failed')
         const json = await res.json()

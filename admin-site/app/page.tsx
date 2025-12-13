@@ -149,7 +149,7 @@ export default function AdminDashboard() {
           )
 
           return stat.link ? (
-            <Link key={stat.title} href={stat.link}>
+            <Link key={stat.title} href={stat.link} prefetch={false}>
               {content}
             </Link>
           ) : (
@@ -160,13 +160,13 @@ export default function AdminDashboard() {
 
       <div className="grid grid-cols-2 gap-3 mb-4">
         <Button asChild variant="outline" className="h-auto py-4 bg-transparent">
-          <Link href="/admin/products/new" className="flex flex-col items-center gap-2">
+          <Link href="/admin/products/new" prefetch={false} className="flex flex-col items-center gap-2">
             <Plus className="w-5 h-5" />
             <span className="text-sm">商品を追加</span>
           </Link>
         </Button>
         <Button asChild variant="outline" className="h-auto py-4 bg-transparent">
-          <Link href="/admin/recipes/new" className="flex flex-col items-center gap-2">
+          <Link href="/admin/recipes/new" prefetch={false} className="flex flex-col items-center gap-2">
             <Plus className="w-5 h-5" />
             <span className="text-sm">レシピを作成</span>
           </Link>

@@ -77,7 +77,7 @@ export default function ThemeCustomizerPage() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/admin/settings">
+            <Link href="/admin/settings" prefetch={false}>
               <ArrowLeft className="w-5 h-5" />
             </Link>
           </Button>
