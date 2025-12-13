@@ -36,7 +36,7 @@ const KNOWN_AFFILIATE_TEMPLATES: Record<string, Partial<AffiliateTemplate>> = {
 
 type AttachmentSlot = {
   file: File | null
-  url: string
+  key: string
 }
 
 export default function ProductEditPageQuery() {
@@ -95,7 +95,7 @@ export default function ProductEditPageQuery() {
 
         if (Array.isArray(data.images) && data.images.length > 0) {
           const main = data.images.find((img: any) => img.role === 'main') || data.images[0]
-          if (main && main.url) setMainImageUrl(main.url)
+          if (main && (main.key || main.basePath || main.url)) setMainImageUrl(main.key || main.basePath || main.url || '')
           const attachmentsByRole = data.images.filter((img: any) => img.role === 'attachment')
           let attachments: any[] = []
           if (attachmentsByRole.length > 0) {
@@ -103,7 +103,7 @@ export default function ProductEditPageQuery() {
           } else {
             attachments = data.images.filter((img: any) => img !== main)
           }
-          setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, url: img.url || '' })))
+          setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, key: img.key || img.basePath || img.url || '' })))
         }
         // No fallback to public API: admin UI must rely on admin API only.
 
@@ -263,8 +263,9 @@ export default function ProductEditPageQuery() {
     }
     const json = await res.json().catch(() => ({}))
     const uploadedUrl = json?.result?.variants?.[0] || json?.result?.publicUrl || json?.result?.url
-    if (!uploadedUrl) throw new Error('upload did not return a URL')
-    return uploadedUrl
+    const uploadedKey = json?.result?.key || json?.key || undefined
+    if (!uploadedUrl && !uploadedKey) throw new Error('upload did not return a URL or key')
+    return { url: uploadedUrl, key: uploadedKey }
   }
 
   const addAttachmentSlot = () => {
@@ -300,21 +301,28 @@ export default function ProductEditPageQuery() {
     const images: any[] = []
 
     let finalMainUrl = mainImageUrl
+    let finalMainKey: string | undefined = undefined
     let finalAttachmentSlots = attachmentSlots
     try {
       if (mainFile) {
         const u = await uploadFile(mainFile)
-        finalMainUrl = u
-        setMainImageUrl(u)
+        finalMainUrl = u?.url || finalMainUrl
+        finalMainKey = (u as any)?.key || undefined
+        // update preview to use responsive helper when possible
+        try {
+          const usage = 'list'
+          const resp = responsiveImageForUsage(finalMainKey || finalMainUrl || '', usage as any)
+          if (resp?.src) setMainImageUrl(resp.src)
+        } catch (e) {}
         setMainFile(null)
       }
 
       const newAttachmentSlots = await Promise.all(
         attachmentSlots.map(async (slot) => {
-          if (slot.file && !slot.url) {
+              if (slot.file && !slot.key) {
             try {
-              const u = await uploadFile(slot.file)
-              return { file: null, url: u }
+                  const u = await uploadFile(slot.file)
+                  return { file: null, key: (u as any)?.key || (u as any)?.url }
             } catch (e) {
               console.error('attachment upload failed', e)
               return { ...slot }
@@ -332,15 +340,15 @@ export default function ProductEditPageQuery() {
     }
 
     images.push({
-      url: finalMainUrl,
+      key: finalMainKey || finalMainUrl,
       role: "main",
       aspect: "1:1",
     })
 
     finalAttachmentSlots.forEach((slot) => {
-      if (slot.url) {
+      if (slot.key) {
         images.push({
-          url: slot.url,
+          key: slot.key,
           role: "attachment",
           aspect: "1:1"
         })
@@ -573,14 +581,14 @@ export default function ProductEditPageQuery() {
             {attachmentSlots.map((slot, index) => (
               <div key={index} className="relative">
                 <ImageUpload
-                  value={getPublicImageUrl(slot.url) || ""}
+                  value={getPublicImageUrl(slot.key) || ""}
                   onChange={(f) => handleAttachmentChange(index, f)}
                   aspectRatioType="product"
-                  onUploadComplete={(url) =>
-                    url &&
+                  onUploadComplete={(keyOrUrl) =>
+                    keyOrUrl &&
                     setAttachmentSlots((prev) => {
                       const next = [...prev]
-                      if (next[index]) next[index] = { ...next[index], url }
+                      if (next[index]) next[index] = { ...next[index], key: keyOrUrl }
                       return next
                     })
                   }

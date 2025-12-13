@@ -65,12 +65,13 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
       <>
         <CardHeader className="p-0 relative">
             <div className="relative aspect-3/2 overflow-hidden bg-muted flex items-center justify-center">
-            {
-              (() => {
-                const resp = responsiveImageForUsage(mainImage?.url || null, 'list')
-                return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center" />
-              })()
-            }
+              {
+                (() => {
+                  const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || mainImage?.url || null
+                  const resp = responsiveImageForUsage(raw, 'list')
+                  return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center" />
+                })()
+              }
             {isOnSale && (
               <div className="absolute top-1 right-1 z-10">
                 <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 flex items-center gap-1">
@@ -111,7 +112,8 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
         <div className="relative aspect-3/2 overflow-hidden bg-muted flex items-center justify-center">
           {
             (() => {
-              const resp = responsiveImageForUsage(mainImage?.url || null, 'list')
+              const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || mainImage?.url || null
+              const resp = responsiveImageForUsage(raw, 'list')
               return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center transition-transform duration-300" />
             })()
           }

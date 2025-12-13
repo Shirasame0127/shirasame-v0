@@ -41,7 +41,7 @@ const AFFILIATE_LINK_TEMPLATES: Array<{
 
 type AttachmentSlot = {
   file: File | null
-  url: string
+  key: string
 }
 
 export default function ProductNewPage() {
@@ -226,7 +226,7 @@ export default function ProductNewPage() {
 
   const addAttachmentSlot = () => {
     if (attachmentSlots.length < 4) {
-      setAttachmentSlots([...attachmentSlots, { file: null, url: "" }])
+      setAttachmentSlots([...attachmentSlots, { file: null, key: "" }])
     }
   }
 
@@ -531,14 +531,14 @@ export default function ProductNewPage() {
             {attachmentSlots.map((slot, index) => (
               <div key={index} className="relative">
                 <ImageUpload
-                  value={getPublicImageUrl(slot.url) || ""}
+                  value={getPublicImageUrl(slot.key) || ""}
                   onChange={(f) => handleAttachmentChange(index, f)}
                   aspectRatioType="product"
-                  onUploadComplete={(url) =>
-                    url &&
+                  onUploadComplete={(keyOrUrl) =>
+                    keyOrUrl &&
                     setAttachmentSlots((prev) => {
                       const next = [...prev]
-                      if (next[index]) next[index] = { ...next[index], url }
+                      if (next[index]) next[index] = { ...next[index], key: keyOrUrl }
                       return next
                     })
                   }
