@@ -1462,7 +1462,13 @@ app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
 app.post('/api/admin/products', async (c) => {
   try {
     const supabase = getSupabase(c.env)
-    const body = await c.req.json().catch(() => ({}))
+    let body: any = {}
+    try {
+      body = await c.req.json()
+    } catch (e) {
+      try { console.warn('[DBG] failed to parse JSON body for POST /api/admin/products', String(e)) } catch {}
+      body = {}
+    }
     const ctx = await resolveRequestUserContext(c)
     if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
     const actingUser = ctx.userId
@@ -1470,24 +1476,82 @@ app.post('/api/admin/products', async (c) => {
     const targetUserId = body.userId ? String(body.userId) : actingUser
     if (body.userId && body.userId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
 
-    const insertBody: any = {
-      id: body.id || undefined,
-      user_id: targetUserId,
-      title: body.title || null,
-      slug: body.slug || null,
-      short_description: body.short_description || body.shortDescription || null,
-      body: body.body || null,
-      tags: Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null),
-      price: typeof body.price !== 'undefined' ? body.price : null,
-      published: typeof body.published !== 'undefined' ? !!body.published : false,
-      related_links: Array.isArray(body.related_links) ? body.related_links : (Array.isArray(body.relatedLinks) ? body.relatedLinks : null),
-      notes: body.notes || null,
-      show_price: typeof body.show_price !== 'undefined' ? !!body.show_price : false,
+    // Build insertBody defensively so any runtime exceptions are isolated and logged.
+    const safeEval = (name: string, fn: () => any) => {
+      try {
+        return fn()
+      } catch (e) {
+        try { console.error('[DBG] safeEval failed for', name, String(e)) } catch {}
+        return null
+      }
     }
 
-    const { data: ins, error: insErr } = await supabase.from('products').insert(insertBody).select('*')
-    if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の作成に失敗しました', insErr.message || insErr, 'db_error', 500)
-    return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    const insertBody: any = {
+      user_id: targetUserId,
+      title: safeEval('title', () => body.title || null),
+      slug: safeEval('slug', () => body.slug || null),
+      short_description: safeEval('short_description', () => body.short_description || body.shortDescription || null),
+      body: safeEval('body', () => body.body || null),
+      tags: safeEval('tags', () => Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null)),
+      price: safeEval('price', () => (typeof body.price !== 'undefined' ? body.price : null)),
+      published: safeEval('published', () => (typeof body.published !== 'undefined' ? !!body.published : false)),
+      related_links: safeEval('related_links', () => Array.isArray(body.related_links) ? body.related_links : (Array.isArray(body.relatedLinks) ? body.relatedLinks : null)),
+      notes: safeEval('notes', () => body.notes || null),
+      show_price: safeEval('show_price', () => (typeof body.show_price !== 'undefined' ? !!body.show_price : false)),
+    }
+    // Only include id when explicitly provided to avoid sending null which
+    // violates NOT NULL constraints on the DB side when omitted/defaults exist.
+    try { if (body && body.id) insertBody.id = body.id } catch {}
+    try {
+      if (!insertBody.id) insertBody.id = 'prod-' + String(Date.now())
+    } catch {}
+
+    // Debug shortcut: if caller sets __debug=true in body, return the computed
+    // insertBody without performing DB operations to inspect payload shape.
+    try {
+      if (body && body.__debug === true) {
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+        return new Response(JSON.stringify({ ok: true, debug: true, body, insertBody }), { headers: merged })
+      }
+    } catch {}
+
+    // Debug perform: if caller sets __perform=true, attempt the DB insert but
+    // return the raw supabase response (data + error) in JSON for diagnosis.
+    try {
+      if (body && body.__perform === true) {
+        const { data: ins, error: insErr } = await supabase.from('products').insert(insertBody).select('*')
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+        return new Response(JSON.stringify({ ok: true, debugPerform: true, supabase: { data: ins || null, error: insErr ? (insErr.message || insErr) : null } }), { headers: merged })
+      }
+    } catch (e) {
+      try { console.error('[DBG] exception during debug perform insert', e, e && e.stack) } catch {}
+      // fall through to normal insert path below
+    }
+
+    try {
+      try { console.log('[DBG] POST /api/admin/products body keys=', Object.keys(body || {})) } catch {}
+      try { console.log('[DBG] POST /api/admin/products insertBody=', JSON.stringify(insertBody)) } catch {}
+      // Perform insert inside try/catch and log supabase result details for diagnosis
+      let ins: any = null
+      let insErr: any = null
+      try {
+        const res = await supabase.from('products').insert(insertBody).select('*')
+        ins = res.data
+        insErr = res.error
+      } catch (e) {
+        try { console.error('[DBG] exception during supabase.insert call', String(e), e && e.stack) } catch {}
+        return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の作成に失敗しました (insert exception)', String(e), 'db_error', 500)
+      }
+
+      if (insErr) {
+        try { console.error('[DBG] supabase insert error', insErr) } catch {}
+        return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+      }
+      return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    } catch (e) {
+      try { console.error('[DBG] exception during product insert handler', String(e), e && e.stack) } catch {}
+      throw e
+    }
   } catch (e: any) {
     const detail = (e && (e.stack || e.message)) ? (e.stack || e.message) : String(e)
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品作成中にサーバーエラーが発生しました', detail, 'server_error', 500)

@@ -8,6 +8,7 @@ import { useEffect, useState, useCallback } from "react"
 import AdminLoading from '@/components/admin-loading'
 import { usePathname } from 'next/navigation'
 import { db } from "@/lib/db/storage"
+import apiFetch from '@/lib/api-client'
 import { auth } from "@/lib/auth"
 import type { Product, Recipe } from "@/lib/db/schema"
 import dynamic from 'next/dynamic'
@@ -18,6 +19,7 @@ export default function AdminDashboard() {
   const [products, setProducts] = useState<Product[]>([])
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [productCount, setProductCount] = useState<number | null>(null)
 
   const pathname = usePathname()
 
@@ -32,9 +34,9 @@ export default function AdminDashboard() {
       // Refresh caches from server so we rely on server-side session (cookies)
       // Pass user id where possible to allow server-side filtering if implemented
       try {
-        await db.products.refresh(currentUser?.id)
+        await db.products.refreshAdmin(currentUser?.id)
       } catch (e) {
-        console.warn('[v0] products.refresh warning', e)
+        console.warn('[v0] products.refreshAdmin warning', e)
       }
       try {
         await db.recipes.refresh(currentUser?.id)
@@ -47,6 +49,21 @@ export default function AdminDashboard() {
 
       const loadedProducts = db.products.getAll(userId)
       const loadedRecipes = db.recipes.getAll(userId)
+
+      // Fetch authoritative product count for dashboard (admin API)
+      try {
+        const cntRes = await apiFetch('/api/admin/products?count=true&limit=0')
+        if (cntRes && cntRes.ok) {
+          const cntJson = await cntRes.json().catch(() => null)
+          const total = cntJson?.meta?.total ?? (Array.isArray(cntJson?.data) ? cntJson.data.length : null)
+          setProductCount(typeof total === 'number' ? total : loadedProducts.length)
+        } else {
+          setProductCount(loadedProducts.length)
+        }
+      } catch (e) {
+        console.warn('[v0] failed to fetch product count', e)
+        setProductCount(loadedProducts.length)
+      }
 
       console.log("[v0] Dashboard: Products loaded:", loadedProducts.length)
       console.log("[v0] Dashboard: Recipes loaded:", loadedRecipes.length)
@@ -94,7 +111,7 @@ export default function AdminDashboard() {
   const stats = [
     {
       title: "商品数",
-      value: products.length,
+      value: productCount ?? products.length,
       icon: Package,
       description: `${products.filter((p) => p.published).length}件公開中`,
       link: "/admin/products",
@@ -103,7 +120,8 @@ export default function AdminDashboard() {
       title: "レシピ数",
       value: recipes.length,
       icon: Camera,
-      description: "デスクセットアップ",
+      // show published count similar to products
+      description: `${recipes.filter((r) => r.published).length}件公開中`,
       link: "/admin/recipes",
     },
     {

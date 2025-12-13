@@ -32,7 +32,8 @@ export default function AdminDashboard() {
       // Refresh caches from server so we rely on server-side session (cookies)
       // Pass user id where possible to allow server-side filtering if implemented
       try {
-        await db.products.refresh(currentUser?.id)
+        // Refresh using admin endpoint when on admin pages so cookies/X-User-Id are respected
+        await db.products.refreshAdmin(currentUser?.id)
       } catch (e) {
         console.warn('[v0] products.refresh warning', e)
       }

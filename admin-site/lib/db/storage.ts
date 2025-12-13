@@ -161,6 +161,44 @@ export const db = {
         return (caches.products || []).filter((p: any) => (userId ? p.userId === userId : true))
       }
     },
+    // Admin-specific refresh: use admin API endpoints which rely on server-side
+    // session cookies (HttpOnly) and admin routing. Prefer this in admin pages.
+    refreshAdmin: async (userId?: string) => {
+      try {
+        const path = userId ? `/api/admin/products?user_id=${encodeURIComponent(userId)}` : '/api/admin/products'
+        const res = await apiFetch("GET", path)
+        let items: any = []
+        if (res != null) {
+          if (typeof res === "object" && res !== null && "data" in res) {
+            items = res.data
+          } else {
+            items = res
+          }
+        }
+        if (!Array.isArray(items)) items = items ? [items] : []
+        caches.products = items
+        return userId ? items.filter((p: any) => p.userId === userId) : items
+      } catch (e) {
+        console.error('[v0] products.refreshAdmin failed', e)
+        return (caches.products || []).filter((p: any) => (userId ? p.userId === userId : true))
+      }
+    },
+    // Admin count helper: return total count via admin API (uses count=true)
+    countAdmin: async (userId?: string) => {
+      try {
+        const path = userId ? `/api/admin/products?count=true&limit=0&user_id=${encodeURIComponent(userId)}` : '/api/admin/products?count=true&limit=0'
+        const res = await apiFetch('GET', path)
+        if (!res) return null
+        try {
+          const json = await res.json().catch(() => null)
+          return json?.meta?.total ?? null
+        } catch (e) {
+          return null
+        }
+      } catch (e) {
+        return null
+      }
+    },
     getById: (id: string) => {
       return (caches.products || []).find((p: any) => p.id === id) || null
     },

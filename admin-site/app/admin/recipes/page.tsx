@@ -12,6 +12,40 @@ import { useRouter } from 'next/navigation'
 import { getCurrentUser } from '@/lib/auth'
 import apiFetch from '@/lib/api-client'
 
+// Normalize recipe records coming from various sources (server, cache, legacy fields)
+function parseJsonField(field: any) {
+  if (!field) return []
+  if (Array.isArray(field)) return field
+  try {
+    return JSON.parse(field)
+  } catch (e) {
+    return []
+  }
+}
+
+function normalizeRecipe(r: any) {
+  if (!r) return r
+  const normalized: any = { ...r }
+  // unify user id property name
+  if (!normalized.userId && normalized.user_id) normalized.userId = normalized.user_id
+  // parse JSON string fields
+  normalized.images = parseJsonField(normalized.images)
+  normalized.items = parseJsonField(normalized.items)
+  // legacy image fields normalization
+  if (!normalized.imageUrl && (normalized.base_image_id || normalized.image_data_url || normalized.image_data_url)) {
+    normalized.imageUrl = normalized.image_data_url || normalized.base_image_id || null
+  }
+  // ensure booleans/defaults
+  if (typeof normalized.published !== 'boolean') normalized.published = !!normalized.published
+  normalized.title = normalized.title || "無題のレシピ"
+  normalized.body = normalized.body || ""
+  return normalized
+}
+
+function normalizeRecipes(list: any[]) {
+  if (!Array.isArray(list)) return []
+  return list.map(normalizeRecipe)
+}
 /**
  * レシピ管理ページ
  *
@@ -41,20 +75,19 @@ export default function RecipesManagementPage() {
     const data = db.recipes.getAll(userId)
     if (!data || data.length === 0) {
       // If cache is empty, attempt a refresh from server
-          db.recipes
+      db.recipes
         .refresh(userId)
         .then((fresh: any) => {
-          console.log("[v0] Refreshed recipes from server:", (fresh || []).length)
+          const normalizedFresh = normalizeRecipes(fresh || [])
+          console.log("[v0] Refreshed recipes from server:", normalizedFresh.length)
           const payloadBase = { event: 'recipes.refresh', userId: userId || null, total: (fresh || []).length }
-          try {
-            apiFetch('/api/debug/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payloadBase, sample: (fresh || []).slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }) }).catch(() => {})
-          } catch (e) {}
+          // debug logging disabled in UI to avoid leaking endpoint URLs
           if (userId) {
             // When refresh provided userId, server filtering should already apply.
-            const visible = (fresh || []).filter((r: any) => r?.userId === userId)
+            const visible = (normalizedFresh || []).filter((r: any) => r?.userId === userId)
             setRecipes(visible)
           } else {
-            setRecipes(fresh || [])
+            setRecipes(normalizedFresh || [])
           }
         })
         .catch((e) => {
@@ -67,11 +100,10 @@ export default function RecipesManagementPage() {
 
     if (userId) {
       // Cache path: filter by current user
-      const visible = (data || []).filter((r: any) => r?.userId === userId)
+      const normalized = normalizeRecipes(data || [])
+      const visible = (normalized || []).filter((r: any) => r?.userId === userId)
       console.log("[v0] Loaded recipes:", visible.length)
-      try {
-        apiFetch('/api/debug/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'recipes.cache', userId, count: visible.length, sample: visible.slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }) }).catch(() => {})
-      } catch (e) {}
+      // debug logging disabled in UI to avoid leaking endpoint URLs
       setRecipes(visible)
       // Refresh pins only for this user's recipes to avoid fetching other users' pins
       try {
@@ -81,11 +113,34 @@ export default function RecipesManagementPage() {
       } catch (e) {}
     } else {
       // No signed-in user info — use cache as-is (preserves previous behaviour)
-      console.log("[v0] Loaded recipes (no user):", data.length)
-      try {
-        apiFetch('/api/debug/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'recipes.cache', userId: null, count: data.length, sample: (data || []).slice(0, 5).map((r: any) => ({ id: r.id, title: r.title })) }) }).catch(() => {})
-      } catch (e) {}
-      setRecipes(data)
+      const normalized = normalizeRecipes(data || [])
+      console.log("[v0] Loaded recipes (no user):", normalized.length)
+      // debug logging disabled in UI to avoid leaking endpoint URLs
+      // if cache is empty, try a local fallback sample so UI can render during dev
+      if ((normalized || []).length === 0) {
+        const fallback = [{
+          idx: 0,
+          id: 'recipe-1764910964954',
+          user_id: '7b9743e9-fb19-4fb7-9512-c6c24e1d5ef4',
+          title: 'テストデータ',
+          base_image_id: null,
+          image_data_url: null,
+          image_width: null,
+          image_height: null,
+          aspect_ratio: null,
+          pins: null,
+          published: false,
+          created_at: '2025-12-05 05:03:22.029+00',
+          updated_at: '2025-12-05 07:58:44.851+00',
+          body: null,
+          slug: null,
+          images: '[]',
+          items: '[]'
+        }]
+        setRecipes(normalizeRecipes(fallback))
+      } else {
+        setRecipes(normalized)
+      }
     }
     setLoading(false)
   }

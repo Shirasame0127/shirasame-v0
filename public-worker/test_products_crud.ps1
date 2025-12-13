@@ -25,7 +25,7 @@ function safeInvoke($method, $url, $body=$null) {
 Write-Host "Starting PRODUCTS CRUD test for user: $uid"
 
 # 1) Create product
-$body1 = @{ title = $title; slug = $slug; userId = $uid; published = $false }
+$body1 = @{ title = $title; slug = $slug; userId = $uid; published = $false; __perform = $true }
 $created = safeInvoke -method 'POST' -url 'https://admin.shirasame.com/api/admin/products' -body $body1
 
 # Extract created id

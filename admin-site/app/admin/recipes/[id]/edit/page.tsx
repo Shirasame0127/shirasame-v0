@@ -395,10 +395,10 @@ export default function RecipeEditPage() {
     if (!productsData || productsData.length === 0) {
       ;(async () => {
         try {
-          const fresh = await db.products.refresh(uid)
+          const fresh = await db.products.refreshAdmin(uid)
           if (fresh && fresh.length > 0) setProducts(fresh)
         } catch (e) {
-          console.warn("[v0] products refresh failed in loadData", e)
+          console.warn('[v0] products refresh failed in loadData', e)
         }
       })()
     }
