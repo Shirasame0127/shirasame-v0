@@ -4,7 +4,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
-import { getPublicImageUrl } from "@/lib/image-url"
+import { getPublicImageUrl, responsiveImageForUsage } from "@/lib/image-url"
 import { db } from "@/lib/db/storage"
 import { cn } from "@/lib/utils"
 import {
@@ -113,7 +113,13 @@ export function AdminNav() {
         let image: string | null = null
         const profileKey = data?.profile_image_key || data?.profileImageKey || (data?.profileImage ? extractKey(data.profileImage) : null)
         if (profileKey) {
-          image = getPublicImageUrl(db.images.getUpload(profileKey) || profileKey)
+          const candidate = db.images.getUpload(profileKey) || profileKey
+          try {
+            const resp = responsiveImageForUsage(candidate, 'avatar')
+            image = resp?.src || getPublicImageUrl(candidate)
+          } catch (e) {
+            image = getPublicImageUrl(candidate)
+          }
         } else {
           image = data?.avatarUrl || data?.profileImage || null
         }
