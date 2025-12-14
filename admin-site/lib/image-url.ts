@@ -25,10 +25,9 @@ export function buildSrcSet(raw?: string | null, widths: number[] = [200, 400], 
 
 export function responsiveImageForUsage(raw?: string | null, usage: ImageUsage = 'list', domainOverride?: string | null) {
   const domain = domainOverride ?? DEFAULT_IMAGES_DOMAIN
-  // For admin UI we always prefer the original image so previews/GIFs
-  // render the unmodified original. Ignore requested usage and force
-  // 'original' to avoid generating /cdn-cgi/image variants in admin.
-  return sharedResponsiveImageForUsage(raw, 'original', domain)
+  // Respect the requested usage so admin UI can request resized
+  // variants (via Cloudflare Image Resizing) when appropriate.
+  return sharedResponsiveImageForUsage(raw, usage, domain)
 }
 
 export type { ImageUsage }
