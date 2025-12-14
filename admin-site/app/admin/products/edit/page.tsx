@@ -89,6 +89,12 @@ export default function ProductEditPageQuery() {
         setShowPrice(typeof data.showPrice === "boolean" ? data.showPrice : true)
         setTags(Array.isArray(data.tags) ? data.tags : [])
         setPublished(typeof data.published === "boolean" ? data.published : true)
+        // Prefer new product-level column when present
+        if (data && data.main_image_key) {
+          const k = data.main_image_key || ''
+          setMainImageKey(k)
+          try { setMainImagePreview(getPublicImageUrl(k) || '') } catch (e) {}
+        }
         
         if (Array.isArray(data.affiliateLinks) && data.affiliateLinks.length > 0) {
           setAffiliateLinks(data.affiliateLinks)
@@ -102,8 +108,11 @@ export default function ProductEditPageQuery() {
             // read-time compatibility via `getPublicImageUrl` but MUST NOT
             // write `url` back to persistent state.
             const key = main.key || main.basePath || ''
-            setMainImageKey(key)
-            try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
+            // only set if main_image_key wasn't already preferred above
+            if (!data || !data.main_image_key) {
+              setMainImageKey(key)
+              try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
+            }
           }
           const attachmentsByRole = data.images.filter((img: any) => img.role === 'attachment')
           let attachments: any[] = []
@@ -114,6 +123,10 @@ export default function ProductEditPageQuery() {
           }
           // Persist attachments as key-only. Do not persist legacy `img.url`.
           setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, key: img.key || img.basePath || '' })))
+        }
+        // If product exposes attachment_image_keys use them as authoritative
+        if (data && Array.isArray(data.attachment_image_keys) && data.attachment_image_keys.length > 0) {
+          setAttachmentSlots((data.attachment_image_keys || []).slice(0,4).map((k: any) => ({ file: null, key: k || '' })))
         }
         // No fallback to public API: admin UI must rely on admin API only.
 
@@ -400,6 +413,9 @@ export default function ProductEditPageQuery() {
       price: price ? Number(price) : undefined,
       showPrice,
       published,
+      // persist authoritative keys when available
+      main_image_key: finalMainKey || mainImageKey,
+      attachment_image_keys: finalAttachmentSlots.map((s: any) => s.key).filter(Boolean),
     }
 
     try {
