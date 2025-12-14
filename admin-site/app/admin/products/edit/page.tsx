@@ -440,6 +440,8 @@ export default function ProductEditPageQuery() {
     }
   }
 
+  const mainImageValue = getPublicImageUrl(db.images.getUpload(mainImageKey) || mainImageKey) || mainImagePreview || ""
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-6">
@@ -601,7 +603,7 @@ export default function ProductEditPageQuery() {
           </CardHeader>
           <CardContent>
             <ImageUpload
-                value={mainImagePreview || getPublicImageUrl(mainImageKey || '') || ""}
+                value={mainImageValue}
                 onChange={(f) => setMainFile(f)}
                 aspectRatioType="product"
                 onUploadComplete={(key) => {
@@ -631,7 +633,7 @@ export default function ProductEditPageQuery() {
             {attachmentSlots.map((slot, index) => (
               <div key={index} className="relative">
                 <ImageUpload
-                  value={getPublicImageUrl(slot.key) || ""}
+                  value={getPublicImageUrl(db.images.getUpload(slot.key) || slot.key) || ""}
                   onChange={(f) => handleAttachmentChange(index, f)}
                   aspectRatioType="product"
                   onUploadComplete={(key) => {
