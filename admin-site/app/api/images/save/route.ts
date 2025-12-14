@@ -104,4 +104,5 @@ export async function POST(req: Request) {
   }
 }
 
-export const runtime = 'nodejs'
+// Use Edge runtime so this App Route can run on Cloudflare Pages / Edge environments.
+export const runtime = 'edge'
