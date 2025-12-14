@@ -98,15 +98,18 @@ export function AdminNav() {
         const json = await res.json().catch(() => null)
         const data = json?.data || null
         // Prefer profile image key => build public URL; fallback to avatarUrl or legacy profileImage
-        const extractKey = (u: any) => {
-          if (!u) return null
+        function extractKeyFromUrl(u: any): string | null {
+          if (!u || typeof u !== 'string') return null
           try {
             const url = new URL(u)
             let p = url.pathname.replace(/^\/+/, '')
+            // strip possible /cdn-cgi/image/.../ prefix
             p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
             return p || null
           } catch (e) {
-            return typeof u === 'string' && u.includes('/') ? u : null
+            // not a URL — maybe it's already a key
+            if (typeof u === 'string' && u.length > 0) return u
+            return null
           }
         }
 
@@ -114,12 +117,13 @@ export function AdminNav() {
         // Align with site-settings: prefer canonical key, prefer local upload cache,
         // then generate a public URL via `getPublicImageUrl` before calling
         // `responsiveImageForUsage` so admin-nav matches site-settings behavior.
-        const profileKey = data?.profile_image_key ?? data?.profileImageKey ?? (data?.profileImage ? extractKey(data.profileImage) : null)
+        const rawProfileCandidate = data?.profile_image_key ?? data?.profileImageKey ?? data?.profileImage ?? null
+        const profileKey = extractKeyFromUrl(rawProfileCandidate) || (rawProfileCandidate ? String(rawProfileCandidate) : null)
         if (profileKey) {
           const cached = db.images.getUpload(profileKey)
-          const raw = (typeof cached === 'string' && cached) ? cached : String(profileKey)
-          // try to normalize to a public base URL first
-          const publicBase = getPublicImageUrl(raw) || ((raw && (raw.startsWith('http') || raw.startsWith('/'))) ? raw : String(profileKey))
+          const baseInput = (typeof cached === 'string' && cached) ? cached : String(profileKey)
+          // generate public base from either cached preview or canonical key
+          const publicBase = getPublicImageUrl(baseInput) || ((baseInput && (baseInput.startsWith('http') || baseInput.startsWith('/'))) ? baseInput : String(profileKey))
           try {
             const resp = responsiveImageForUsage(publicBase, 'avatar')
             image = resp?.src || publicBase
