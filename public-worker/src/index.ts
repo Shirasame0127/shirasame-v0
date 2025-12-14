@@ -2310,8 +2310,12 @@ app.post('/api/admin/tags/reorder', async (c) => {
       const updates: any = {}
       if (order !== null) updates.sort_order = order
       if (group !== null) updates.group = group
-      const { error: upErr } = await supabase.from('tags').update(updates).eq('id', id).eq('user_id', targetUser)
+      const { data: upData, error: upErr } = await supabase.from('tags').update(updates).eq('id', id).eq('user_id', targetUser).select('id')
       if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ並び替えに失敗しました', upErr.message || upErr, 'db_error', 500)
+      // If no rows were updated, likely user/scoping mismatch — return explicit error
+      if (!upData || (Array.isArray(upData) && upData.length === 0)) {
+        return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグが見つからないか権限がありません', null, 'not_found_or_forbidden', 403)
+      }
     }
 
     return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
