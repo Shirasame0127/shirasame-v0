@@ -350,7 +350,7 @@ export default function AdminTagsPage() {
         const res = await apiFetch('/api/admin/tags/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tags: updated }),
+          body: JSON.stringify({ tags: updated, userId: getCurrentUser?.() ? getCurrentUser().id : undefined }),
         })
         if (!res.ok) throw new Error('save failed')
 
@@ -432,7 +432,7 @@ export default function AdminTagsPage() {
         const res = await apiFetch('/api/admin/tags/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tags: updated }),
+          body: JSON.stringify({ tags: updated, userId: getCurrentUser?.() ? getCurrentUser().id : undefined }),
         })
         if (!res.ok) throw new Error('save failed')
 
@@ -471,7 +471,7 @@ export default function AdminTagsPage() {
               const res = await apiFetch('/api/admin/tags/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tags: updated }),
+                body: JSON.stringify({ tags: updated, userId: getCurrentUser?.() ? getCurrentUser().id : undefined }),
               })
               if (!res.ok) throw new Error('delete failed')
 
@@ -577,11 +577,11 @@ export default function AdminTagsPage() {
 
     return (
       <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 flex items-center w-full">
-        <div className="flex-1 min-w-0 flex items-center gap-3">
-          <Badge variant="outline" className="gap-1">
+        <div className="flex-1 min-w-0 flex items-center gap-3 overflow-hidden">
+          <Badge variant="outline" className="gap-1 shrink-0">
             {tag.linkUrl && <LinkIcon className="w-3 h-3" />}
           </Badge>
-          <div className="truncate">
+          <div className="min-w-[120px] max-w-[260px]">
             <div className="text-sm font-medium truncate">{tag.name}</div>
           </div>
         </div>
