@@ -1144,6 +1144,58 @@ app.get('/api/amazon-sale-schedules', async (c) => mirrorGet(c, async (c2) => {
   })
 }))
 
+// Admin: read single tag or list (supports ?id= and optional ?userId= for admins)
+app.get('/api/admin/tags', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const url = new URL(c.req.url)
+    const id = url.searchParams.get('id')
+    const qUser = url.searchParams.get('userId')
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+    const targetUser = qUser ? String(qUser) : actingUser
+    if (qUser && qUser !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    if (id) {
+      const { data: rows = [], error } = await supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').eq('id', String(id)).eq('user_id', targetUser).limit(1)
+      if (error) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの取得に失敗しました', error.message || error, 'db_error', 500)
+      return new Response(JSON.stringify({ ok: true, data: rows && rows[0] ? rows[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    }
+
+    // list
+    let query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
+    query = query.eq('user_id', targetUser)
+    const res = await query
+    if (res.error) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
+    return new Response(JSON.stringify({ ok: true, data: res.data || [] }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: delete tags (accepts JSON body { id: '...', ids: ['...'] } )
+app.delete('/api/admin/tags', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const ids = Array.isArray(body.ids) ? body.ids.map(String) : (body.id ? [String(body.id)] : [])
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+    const targetUser = body.userId ? String(body.userId) : actingUser
+    if (body.userId && body.userId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+    if (!ids || ids.length === 0) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '削除するタグIDが指定されていません', null, 'invalid_request', 400)
+
+    const { data: delRes = [], error: delErr } = await supabase.from('tags').delete().in('id', ids).eq('user_id', targetUser).select('*')
+    if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの削除に失敗しました', delErr.message || delErr, 'db_error', 500)
+    return new Response(JSON.stringify({ ok: true, data: delRes }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ削除中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
 // /site-settings
 app.get('/site-settings', async (c) => {
   const upstreamUrl = upstream(c, '/api/site-settings')
