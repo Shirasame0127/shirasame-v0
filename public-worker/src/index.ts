@@ -1644,6 +1644,46 @@ app.post('/api/admin/products', async (c) => {
       } catch (e) {
         try { console.warn('[DBG] affiliate_links top-level error', String(e)) } catch {}
       }
+      // If images were provided in the incoming body, persist them to product_images
+      try {
+        const createdProduct = ins && ins[0] ? ins[0] : null
+        const imagesRaw = body && (body.images || body.images) ? (body.images || body.images) : null
+        if (createdProduct && Array.isArray(imagesRaw) && imagesRaw.length > 0) {
+          try {
+            const now = new Date().toISOString()
+            const rows = imagesRaw
+              .filter((img: any) => img && (img.key || img.url || img.basePath))
+              .map((img: any, idx: number) => ({
+                product_id: createdProduct.id,
+                key: img.key || img.basePath || (typeof img.url === 'string' ? img.url : null),
+                width: img.width || null,
+                height: img.height || null,
+                aspect: img.aspect || null,
+                role: img.role || (idx === 0 ? 'main' : 'attachment'),
+                caption: img.caption || null,
+                cf_id: img.cf_id || null,
+                created_at: now,
+                user_id: createdProduct.user_id || null,
+              }))
+            if (rows.length > 0) {
+              try {
+                const { data: imgData, error: imgErr } = await supabase.from('product_images').insert(rows).select('*')
+                if (imgErr) {
+                  try { console.warn('[DBG] product_images insert error', imgErr) } catch (e) {}
+                } else {
+                  try { console.log('[DBG] product_images inserted count=', Array.isArray(imgData) ? imgData.length : 0) } catch (e) {}
+                }
+              } catch (e) {
+                try { console.warn('[DBG] exception inserting product_images', String(e)) } catch (e) {}
+              }
+            }
+          } catch (e) {
+            try { console.warn('[DBG] product_images processing error', String(e)) } catch (e) {}
+          }
+        }
+      } catch (e) {
+        try { console.warn('[DBG] product_images top-level error', String(e)) } catch (e) {}
+      }
 
       return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
     } catch (e) {
