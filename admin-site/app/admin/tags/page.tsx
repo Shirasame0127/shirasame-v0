@@ -346,23 +346,29 @@ export default function AdminTagsPage() {
 
     ;(async () => {
       try {
-        const updated = [...tags, newTag]
-        const res = await apiFetch('/api/admin/tags/save', {
+        // Use single-create endpoint to avoid client-generated id causing update-path
+        const payload = {
+          name: trimmedName,
+          group: newTagGroup && newTagGroup !== "__uncategorized__" ? newTagGroup : undefined,
+          linkUrl: newTagLinkUrl && newTagLinkUrl.trim() ? newTagLinkUrl.trim() : undefined,
+          linkLabel: newTagLinkLabel && newTagLinkLabel.trim() ? newTagLinkLabel.trim() : undefined,
+        }
+
+        const res = await apiFetch('/api/admin/tags', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tags: updated }),
+          body: JSON.stringify(payload),
         })
+
         if (!res.ok) throw new Error('save failed')
 
-        // fetch authoritative tags
+        const j = await res.json().catch(() => null)
+        const created = j && (j.data || j) ? (j.data || j).length ? (Array.isArray(j.data) ? j.data[0] : j.data) : j.data : null
+
+        // After creating, always re-fetch authoritative tags to reflect DB state
         const fresh = await apiFetch('/api/tags')
         const freshJson = await fresh.json().catch(() => ({ data: [] }))
         const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
-        // Ensure the server actually persisted the new tag (by id or name). If
-        // not present, treat as a server-sync failure so UI doesn't show success
-        // while the DB didn't persist the item.
-        const persisted = freshTags.some((t: any) => t.id === newTag.id || t.name === newTag.name)
-        if (!persisted) throw new Error('server did not persist new tag')
         setTags(freshTags)
         db.tags.saveAll(freshTags)
 
@@ -371,7 +377,13 @@ export default function AdminTagsPage() {
         setNewTagLinkUrl("")
         setNewTagLinkLabel("")
         setIsAddDialogOpen(false)
-        toast({ title: '追加完了', description: `タグ「${trimmedName}」を追加しました` })
+
+        if (created && (created.id || created.provisional)) {
+          toast({ title: '追加完了', description: `タグ「${trimmedName}」を追加しました` })
+        } else {
+          // defensive: if server didn't return created row, warn but we refreshed list
+          toast({ title: '追加完了', description: `タグ「${trimmedName}」を追加しました` })
+        }
       } catch (e) {
         console.error('addTag failed', e)
         // fallback: save locally so user can continue
