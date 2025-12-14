@@ -1,4 +1,4 @@
-import supabaseAdmin from '@/lib/supabase'
+import getSupabaseAdmin from '@/lib/supabase'
 
 function parseCookies(cookieHeader: string | null) {
   const c: Record<string, string> = {}
@@ -18,6 +18,7 @@ export async function getUserIdFromCookieHeader(cookieHeader: string | null): Pr
     const cookies = parseCookies(cookieHeader)
     const token = cookies['sb-access-token'] || null
     if (!token) return null
+    const supabaseAdmin = getSupabaseAdmin()
     if (!supabaseAdmin) return null
     try {
       const authRes = await (supabaseAdmin as any).auth.getUser(token)
@@ -38,6 +39,7 @@ export async function getUserFromCookieHeader(cookieHeader: string | null): Prom
     const cookies = parseCookies(cookieHeader)
     const token = cookies['sb-access-token'] || null
     if (!token) return null
+    const supabaseAdmin = getSupabaseAdmin()
     if (!supabaseAdmin) return null
     try {
       const authRes = await (supabaseAdmin as any).auth.getUser(token)
