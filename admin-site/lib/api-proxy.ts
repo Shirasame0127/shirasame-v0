@@ -21,7 +21,15 @@ export async function forwardToPublicWorker(req: Request) {
   // Prefer an explicit PUBLIC_WORKER_API_BASE env var; fall back to older name.
   const apiBase = (process.env.PUBLIC_WORKER_API_BASE || process.env.API_BASE_ORIGIN || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
   try {
-    const url = new URL(req.url)
+    let url: URL
+    try {
+      url = new URL(req.url)
+    } catch (e) {
+      // Some callers construct `Request` with a relative path (eg. 
+      // '/api/images/complete'). In that case, resolve against the
+      // configured apiBase so we reliably compute the destination URL.
+      url = new URL(req.url, apiBase)
+    }
     // Preserve the incoming path when proxying to the public worker so
     // server routes defined with `/api/...` continue to match. Do not
     // strip the `/api` prefix here.
