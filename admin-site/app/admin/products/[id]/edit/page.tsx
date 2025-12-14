@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast"
 import { db } from "@/lib/db/storage"
 import apiFetch from '@/lib/api-client'
-import { getPublicImageUrl } from "@/lib/image-url"
+import { getPublicImageUrl, responsiveImageForUsage } from "@/lib/image-url"
 
 type AffiliateTemplate = {
   id: string
@@ -278,7 +278,7 @@ export default function ProductEditPage({ params }: { params: any }) {
 
   const addAttachmentSlot = () => {
     if (attachmentSlots.length < 4) {
-      setAttachmentSlots([...attachmentSlots, { file: null, url: "" }])
+      setAttachmentSlots([...attachmentSlots, { file: null, key: "" }])
     }
   }
 
@@ -309,6 +309,7 @@ export default function ProductEditPage({ params }: { params: any }) {
     const images: any[] = []
 
     let finalMainUrl = mainImageUrl
+    let finalMainKey: string | undefined = undefined
     let finalAttachmentSlots = attachmentSlots
     try {
       if (mainFile) {
