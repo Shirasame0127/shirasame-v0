@@ -350,7 +350,7 @@ export default function AdminTagsPage() {
         const res = await apiFetch('/api/admin/tags/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tags: updated, userId: getCurrentUser?.() ? getCurrentUser().id : undefined }),
+          body: JSON.stringify({ tags: updated }),
         })
         if (!res.ok) throw new Error('save failed')
 
@@ -358,6 +358,11 @@ export default function AdminTagsPage() {
         const fresh = await apiFetch('/api/tags')
         const freshJson = await fresh.json().catch(() => ({ data: [] }))
         const freshTags = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+        // Ensure the server actually persisted the new tag (by id or name). If
+        // not present, treat as a server-sync failure so UI doesn't show success
+        // while the DB didn't persist the item.
+        const persisted = freshTags.some((t: any) => t.id === newTag.id || t.name === newTag.name)
+        if (!persisted) throw new Error('server did not persist new tag')
         setTags(freshTags)
         db.tags.saveAll(freshTags)
 
@@ -432,8 +437,8 @@ export default function AdminTagsPage() {
         const res = await apiFetch('/api/admin/tags/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tags: updated, userId: getCurrentUser?.() ? getCurrentUser().id : undefined }),
-        })
+          body: JSON.stringify({ tags: updated }),
+              })
         if (!res.ok) throw new Error('save failed')
 
         const fresh = await apiFetch('/api/tags')
@@ -471,7 +476,7 @@ export default function AdminTagsPage() {
               const res = await apiFetch('/api/admin/tags/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tags: updated, userId: getCurrentUser?.() ? getCurrentUser().id : undefined }),
+                body: JSON.stringify({ tags: updated }),
               })
               if (!res.ok) throw new Error('delete failed')
 
