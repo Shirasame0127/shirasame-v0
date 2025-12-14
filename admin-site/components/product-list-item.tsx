@@ -1,6 +1,7 @@
 "use client"
 
-import { responsiveImageForUsage } from "@/lib/image-url"
+import { responsiveImageForUsage, getPublicImageUrl } from "@/lib/image-url"
+import { db } from "@/lib/db/storage"
 import apiFetch from '@/lib/api-client'
 import { useRouter } from 'next/navigation'
 import { Switch } from '@/components/ui/switch'
@@ -67,11 +68,14 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
           <div className="relative w-24 h-24 shrink-0 rounded-lg overflow-hidden bg-muted">
             {
               (() => {
-                // Try several candidate fields for image path (prefer key from `main_image_key`, then basePath, then legacy url)
+                // Resolve candidate similarly to `site-settings`: prefer canonical key -> client cache -> raw
                 const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || (mainImage as any)?.url || null
-                const resp = responsiveImageForUsage(raw, 'list')
+                const resolved = (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/')))
+                  ? raw
+                  : db.images.getUpload(raw) || String(raw || '')
+                const resp = responsiveImageForUsage(resolved || null, 'list')
                 const placeholder = "/placeholder.svg?height=200&width=200"
-                return <img src={resp.src || placeholder} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-cover" />
+                return <img src={resp.src || (getPublicImageUrl(String(raw)) || placeholder)} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-cover" />
               })()
             }
           </div>

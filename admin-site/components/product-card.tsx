@@ -3,7 +3,7 @@
 import type { MouseEvent } from "react"
 
 import Link from "next/link"
-import { responsiveImageForUsage } from "@/lib/image-url"
+import { responsiveImageForUsage, getPublicImageUrl } from "@/lib/image-url"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ExternalLink, Sparkles } from 'lucide-react'
@@ -72,8 +72,11 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
               {
                 (() => {
                   const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || mainImage?.url || null
-                  const resp = responsiveImageForUsage(raw, 'list')
-                  return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center" />
+                  const resolved = (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/')))
+                    ? raw
+                    : db.images.getUpload(raw) || String(raw || '')
+                  const resp = responsiveImageForUsage(resolved || null, 'list')
+                  return <img src={resp.src || (getPublicImageUrl(String(raw)) || "/placeholder.svg")} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center" />
                 })()
               }
             {isOnSale && (
@@ -117,8 +120,11 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
           {
             (() => {
               const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || mainImage?.url || null
-              const resp = responsiveImageForUsage(raw, 'list')
-              return <img src={resp.src || "/placeholder.svg"} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center transition-transform duration-300" />
+              const resolved = (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/')))
+                ? raw
+                : db.images.getUpload(raw) || String(raw || '')
+              const resp = responsiveImageForUsage(resolved || null, 'list')
+              return <img src={resp.src || (getPublicImageUrl(String(raw)) || "/placeholder.svg")} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center transition-transform duration-300" />
             })()
           }
           {isOnSale && (
