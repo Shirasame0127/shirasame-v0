@@ -111,19 +111,26 @@ export function AdminNav() {
         }
 
         let image: string | null = null
-        const profileKey = data?.profile_image_key || data?.profileImageKey || (data?.profileImage ? extractKey(data.profileImage) : null)
+        // Prefer canonical `profile_image_key` stored on the server. If present,
+        // build a public URL from that key (avoid using a possibly stale client-side cache).
+        const profileKey = data?.profile_image_key ?? data?.profileImageKey ?? (data?.profileImage ? extractKey(data.profileImage) : null)
         if (profileKey) {
-          // Try to prefer any client-side cached upload URL, else normalize the key
-          const rawCandidate = db.images.getUpload(profileKey) || String(profileKey)
-          // If rawCandidate already looks like an absolute URL or absolute path, use it
-          const normalized = (typeof rawCandidate === 'string' && (rawCandidate.startsWith('http') || rawCandidate.startsWith('/')))
-            ? rawCandidate
-            : getPublicImageUrl(rawCandidate) || String(rawCandidate)
+          let candidate: string
+          if (data?.profile_image_key) {
+            // If we have the canonical key, prefer creating a public URL from it.
+            candidate = getPublicImageUrl(String(profileKey)) || String(profileKey)
+          } else {
+            // Backwards compatibility: try client cache first, then normalize.
+            const cached = db.images.getUpload(profileKey)
+            const raw = (typeof cached === 'string' && cached) ? cached : String(profileKey)
+            candidate = (raw.startsWith('http') || raw.startsWith('/')) ? raw : (getPublicImageUrl(raw) || raw)
+          }
+
           try {
-            const resp = responsiveImageForUsage(normalized, 'avatar')
-            image = resp?.src || getPublicImageUrl(rawCandidate) || normalized
+            const resp = responsiveImageForUsage(candidate, 'avatar')
+            image = resp?.src || getPublicImageUrl(String(profileKey)) || candidate
           } catch (e) {
-            image = getPublicImageUrl(rawCandidate) || normalized
+            image = getPublicImageUrl(String(profileKey)) || candidate
           }
         } else {
           image = data?.avatarUrl || data?.profileImage || null

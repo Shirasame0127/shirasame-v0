@@ -6,7 +6,10 @@ import {
   ImageUsage,
 } from '../../shared/lib/image-usecases'
 
-const DEFAULT_IMAGES_DOMAIN = (typeof process !== 'undefined' && (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN || process.env?.IMAGES_DOMAIN)) || null
+// Prefer configured env var, otherwise fall back to the public images host so
+// admin UI generates absolute CDN URLs instead of relative `/cdn-cgi/...` paths
+// which break when `NEXT_PUBLIC_IMAGES_DOMAIN` isn't set in dev or CI.
+const DEFAULT_IMAGES_DOMAIN = (typeof process !== 'undefined' && (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN || process.env?.IMAGES_DOMAIN)) || 'https://images.shirasame.com'
 
 export function getPublicImageUrl(raw?: string | null, domainOverride?: string | null) {
   const domain = domainOverride ?? DEFAULT_IMAGES_DOMAIN
