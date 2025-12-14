@@ -135,7 +135,7 @@ export default function ProductNewPage() {
       published,
       affiliateLinks,
       mainImageUrl,
-      attachmentUrls: attachmentSlots.map((slot) => slot.url).filter(Boolean),
+      attachmentUrls: attachmentSlots.map((slot) => slot.key).filter(Boolean),
     }),
     [productId, title, shortDescription, body, notes, relatedLinks, price, showPrice, tags, published, affiliateLinks, mainImageUrl, attachmentSlots],
   )
@@ -275,11 +275,11 @@ export default function ProductNewPage() {
     const attachmentImages = await Promise.all(
       attachmentSlots
         .map((slot, idx) => ({ slot, idx }))
-        .filter(({ slot }) => slot.file || slot.url)
+        .filter(({ slot }) => slot.file || slot.key)
         .map(async ({ slot, idx }) => ({
           id: `img-attachment-${Date.now()}-${idx}`,
             productId: generatedProductId,
-            url: slot.url || (slot.file ? await fileToBase64(slot.file) : ""),
+            url: slot.key || (slot.file ? await fileToBase64(slot.file) : ""),
             aspect: "1:1",
             role: "attachment" as const,
         })),
