@@ -33,13 +33,13 @@ curl -v -X POST "https://public-worker.shirasame-official.workers.dev/api/images
 ```
 
 調査済み (リポジトリ側で確認したこと)
-- `admin-site/app/api/images/save/route.ts`:
-  - 受信ボディを JSON として解析し、`url` フィールドが含まれている場合は 400 を返す（key-only ポリシーの防衛）。
-  - JSON から `key` / `cf_id` 等を抽出して sanitized なペイロードを public-worker の `/api/images/complete` に転送する実装がある。
+`admin-site/app/api/images/complete/route.ts`:
+  - 管理 UI はアップロード後に `/api/images/complete` を呼ぶ（旧来の `/api/images/save` は互換的に存在するが非推奨）。admin プロキシが 404 を返すと、クライアントはフォールバックで public-worker への直接 POST を試行する仕組みを持つよう修正済み（ただし `X-User-Id` をクライアントから入れるのはテスト用で、本番ではサーバー側でのトークン検証が必須）。
+curl -v -X POST "https://admin.shirasame.com/api/images/complete" \
   - Cookie（`sb-access-token`）の JWT ペイロードから `sub` を抽出して `X-User-Id` ヘッダを付与するベストエフォートの処理があるが、実稼働環境で cookie が転送されていない経路や proxy の振る舞いで userId が欠落するケースが観測された。
 
-- `admin-site/lib/api-proxy.ts`:
-  - proxy 実装で `Request.url` が相対パスのケースに失敗する可能性があったため、相対 URL を `PUBLIC_WORKER_API_BASE` に対して解決する修正を適用済み。
+- `/api/images/complete` 経由で呼ぶと public-worker により `{ "key": "images/...." }` が返ること。
+`admin-site/app/api/images/complete/route.ts`: テスト用に `user_id` を JSON で受け取った場合に `X-User-Id` ヘッダへ変換して direct POST するフォールバックを追加（暫定）。
 
 - `public-worker/src/index.ts`:
   - `resolveRequestUserContext` により、`X-User-Id` ヘッダ、クエリの `user_id`、Cookie/Authorization の順で userId を解決する設計。userId が無ければ `{"error":"missing_user_id"}` を返す。

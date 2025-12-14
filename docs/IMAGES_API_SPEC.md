@@ -98,9 +98,10 @@
 3. アップロード成功後、クライアントは `POST /api/images/complete`（public-worker へ直接、または admin-proxy 経由）を呼ぶ:
   - Body には少なくとも `{ "key": "r2/or/cf/key", "filename": "...", "target": "profile" }` を送る。
   - ブラウザは HttpOnly の `sb-access-token` cookie を保持しているため、同一オリジンの admin-proxy 経由で呼ぶ場合は cookie が送信され、proxy が `X-User-Id` を付与して public-worker に転送する。
-4. `admin-site` の App Route (`/api/images/save`) は:
-   - リクエスト body をサニタイズ（`url` フィールドを拒否）し、`sb-access-token` を REST 経由で検証して userId を解決（`getUserIdFromCookieHeader` で `/auth/v1/user` を呼ぶ）。
-   - 有効ユーザーが得られれば `X-User-Id` を付与して `public-worker` の `/api/images/complete` に proxy する。
+4. `admin-site` の互換 App Route (`/api/images/save`) は（非推奨）:
+  - 注: クライアントは可能な限り直接 `POST /api/images/complete`（public-worker）を呼び出すことを推奨します。互換の `/api/images/save` は admin 側の proxy として一時的に残されています。
+  - リクエスト body をサニタイズ（`url` フィールドを拒否）し、`sb-access-token` を REST 経由で検証して userId を解決（`getUserIdFromCookieHeader` で `/auth/v1/user` を呼ぶ）。
+  - 有効ユーザーが得られれば `X-User-Id` を付与して `public-worker` の `/api/images/complete` に proxy する。
 5. `public-worker` の `/api/images/complete` は:
    - `key` を検査し、`resolveRequestUserContext` でトークンを検証した上で DB に upsert（service role key 必須）。
    - プロファイル割当 (`assign=users.profile` や `target=profile`) の場合は owner チェックを行い、必要なら `users` テーブルに `profile_image_key` を PATCH する。
