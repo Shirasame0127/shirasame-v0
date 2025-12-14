@@ -63,16 +63,10 @@ export async function POST(req: Request) {
       headers.set(k, v)
     }
 
-    // If client provided explicit user id, set it on the forwarded headers
-    if (explicitUserId) {
-      headers.set('X-User-Id', explicitUserId)
-    }
-
     // Ensure user identity header is present when possible.
-    // If an HttpOnly sb-access-token cookie is available, try to extract
-    // the user id (sub) from the JWT payload and set X-User-Id so the
-    // public-worker can resolve context without relying solely on cookies
-    // forwarded through intermediate networks.
+    // Resolve the authenticated user id server-side from the HttpOnly
+    // `sb-access-token` cookie. This ensures we never trust client-supplied
+    // identity values. If no valid user can be resolved, reject the request.
     // Resolve the authenticated user id server-side from the HttpOnly
     // `sb-access-token` cookie. This ensures we never trust client-supplied
     // identity values. If no valid user can be resolved, reject the request.
@@ -87,11 +81,6 @@ export async function POST(req: Request) {
       return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
     }
 
-    // If an explicitUserId was provided by the client, prefer a direct
-    // fetch to the public-worker so we can be certain the X-User-Id header
-    // is present (this is useful for testing and avoids any proxy header
-    // normalization surprises). Otherwise fall back to the shared proxy
-    // forwardToPublicWorker implementation.
     // Forward the sanitized, authenticated request to the public-worker.
     const newReq = new Request(destPath, { method: 'POST', body: outBodyBuf, headers })
     const resp = await forwardToPublicWorker(newReq)
