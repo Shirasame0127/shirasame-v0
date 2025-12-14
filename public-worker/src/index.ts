@@ -2126,10 +2126,16 @@ app.post('/api/admin/tags/save', async (c) => {
       }
       if (existing && existing.length > 0) {
         const ex = existing[0]
+        const exId = ex.id
         const exGroup = ex.group ?? null
         const tg = tagGroup ?? null
-        if ((exGroup === tg) || (exGroup == null && tg == null)) {
-          return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, `重複するタグが存在します: ${tagName}`, null, 'duplicate_tag', 400)
+        // If incoming item has an id and it matches the existing row, treat as update (not a duplicate)
+        if (t && t.id && String(t.id) === String(exId)) {
+          // same record, allow update
+        } else {
+          if ((exGroup === tg) || (exGroup == null && tg == null)) {
+            return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, `重複するタグが存在します: ${tagName}`, null, 'duplicate_tag', 400)
+          }
         }
       }
 
