@@ -39,6 +39,22 @@ type AttachmentSlot = {
   key: string
 }
 
+// Extract canonical key from various possible server values (full URL, /cdn-cgi/image/... prefixed URL, or raw key)
+function extractKeyFromUrl(u: any): string | null {
+  if (!u || typeof u !== 'string') return null
+  try {
+    const url = new URL(u)
+    let p = url.pathname.replace(/^\/+/, '')
+    // strip possible /cdn-cgi/image/.../ prefix
+    p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
+    return p || null
+  } catch (e) {
+    // not a URL — maybe it's already a key
+    if (typeof u === 'string' && u.length > 0) return u
+    return null
+  }
+}
+
 export default function ProductEditPageQuery() {
   const router = useRouter()
   const { toast } = useToast()
@@ -91,9 +107,10 @@ export default function ProductEditPageQuery() {
         setPublished(typeof data.published === "boolean" ? data.published : true)
         // Prefer new product-level column when present
         if (data && data.main_image_key) {
-          const k = data.main_image_key || ''
-          setMainImageKey(k)
-          try { setMainImagePreview(getPublicImageUrl(k) || '') } catch (e) {}
+          const raw = data.main_image_key || ''
+          const normalized = extractKeyFromUrl(raw) || String(raw || '')
+          setMainImageKey(normalized)
+          try { setMainImagePreview(getPublicImageUrl(db.images.getUpload(normalized) || normalized) || '') } catch (e) {}
         }
         
         if (Array.isArray(data.affiliateLinks) && data.affiliateLinks.length > 0) {
@@ -102,16 +119,15 @@ export default function ProductEditPageQuery() {
 
         if (Array.isArray(data.images) && data.images.length > 0) {
           const main = data.images.find((img: any) => img.role === 'main') || data.images[0]
-          if (main && (main.key || main.basePath)) {
-            // Persisted key resolution: prefer `key` then `basePath` only.
-            // NOTE: legacy `main.url` may exist in older records; we allow
-            // read-time compatibility via `getPublicImageUrl` but MUST NOT
-            // write `url` back to persistent state.
-            const key = main.key || main.basePath || ''
+          if (main && (main.key || main.basePath || main.url)) {
+            // Persisted key resolution: prefer `key` then `basePath` then fall back to url.
+            // Normalize any URL (strip domain and possible /cdn-cgi/image/... prefix)
+            const rawCandidate = main.key || main.basePath || main.url || ''
+            const normalized = extractKeyFromUrl(rawCandidate) || String(rawCandidate || '')
             // only set if main_image_key wasn't already preferred above
             if (!data || !data.main_image_key) {
-              setMainImageKey(key)
-              try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
+              setMainImageKey(normalized)
+              try { setMainImagePreview(getPublicImageUrl(db.images.getUpload(normalized) || normalized) || '') } catch (e) {}
             }
           }
           const attachmentsByRole = data.images.filter((img: any) => img.role === 'attachment')
@@ -121,13 +137,25 @@ export default function ProductEditPageQuery() {
           } else {
             attachments = data.images.filter((img: any) => img !== main)
           }
-          // Persist attachments as key-only. Do not persist legacy `img.url`.
-          setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, key: img.key || img.basePath || '' })))
+          // Persist attachments as key-only. Normalize keys/URLs to canonical key form.
+          setAttachmentSlots(
+            attachments
+              .slice(0, 4)
+              .map((img: any) => {
+                const raw = img.key || img.basePath || img.url || ''
+                const normalized = extractKeyFromUrl(raw) || String(raw || '')
+                return { file: null, key: normalized }
+              })
+          )
           try { console.log('[product-edit] attachments resolved from images[]', attachments.map((a:any) => a.key || a.basePath || null)) } catch (e) {}
         }
         // If product exposes attachment_image_keys use them as authoritative
         if (data && Array.isArray(data.attachment_image_keys) && data.attachment_image_keys.length > 0) {
-          setAttachmentSlots((data.attachment_image_keys || []).slice(0,4).map((k: any) => ({ file: null, key: k || '' })))
+          setAttachmentSlots(
+            (data.attachment_image_keys || [])
+              .slice(0, 4)
+              .map((k: any) => ({ file: null, key: extractKeyFromUrl(k) || String(k || '') }))
+          )
           try { console.log('[product-edit] attachment_image_keys from server', data.attachment_image_keys) } catch (e) {}
         }
         // No fallback to public API: admin UI must rely on admin API only.
