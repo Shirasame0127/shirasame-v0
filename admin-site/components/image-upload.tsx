@@ -15,10 +15,19 @@ import { BUILD_API_BASE } from '@/lib/api-client'
 async function attemptDirectComplete(body: any) {
   try {
     const runtimeApiBase = (typeof window !== 'undefined' && (window as any).__env__?.API_BASE) || BUILD_API_BASE || ''
-    const base = runtimeApiBase ? String(runtimeApiBase).replace(/\/$/, '') : ''
-    if (!base) return null
+    // Fallback to canonical public-worker host when no API base is configured
+    const fallbackBase = 'https://public-worker.shirasame-official.workers.dev'
+    const base = (runtimeApiBase ? String(runtimeApiBase).replace(/\/$/, '') : '') || fallbackBase
     const dest = `${base}/api/images/complete`
-    const res = await fetch(dest, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'include' })
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    // If the host injected a runtime USER_ID (server-side rendered), include it
+    // as X-User-Id so the public-worker can trust the request for testing/fallback.
+    try {
+      if (typeof window !== 'undefined' && (window as any).__env__?.USER_ID) {
+        headers['X-User-Id'] = String((window as any).__env__?.USER_ID)
+      }
+    } catch (e) {}
+    const res = await fetch(dest, { method: 'POST', headers, body: JSON.stringify(body), credentials: 'include' })
     if (!res) return null
     if (!res.ok) return null
     return await res.json().catch(() => null)
