@@ -76,7 +76,8 @@ export default function AdminSettingsPage() {
   const [bio, setBio] = useState("")
   const [email, setEmail] = useState("")
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
-  const [avatarUploadedUrl, setAvatarUploadedUrl] = useState<string | null>(null)
+  // store uploaded image KEY (R2/Supabase key), not a full URL
+  const [avatarUploadedKey, setAvatarUploadedKey] = useState<string | null>(null)
   const [headerImageKeys, setHeaderImageKeys] = useState<string[]>([]) // キー配列で管理
   const [newHeaderImageFile, setNewHeaderImageFile] = useState<File | null>(null)
   const [backgroundType, setBackgroundType] = useState<"color" | "image">("color")
@@ -164,8 +165,8 @@ export default function AdminSettingsPage() {
           setAmazonAssociateId(serverUser.amazonAssociateId || "")
           const headerKeysFromServer = serverUser.headerImageKeys || (Array.isArray(serverUser.headerImages) ? serverUser.headerImages.map(extractKey).filter(Boolean) : serverUser.headerImageKey ? [serverUser.headerImageKey] : serverUser.headerImage ? [extractKey(serverUser.headerImage)].filter(Boolean) : [])
           setHeaderImageKeys(headerKeysFromServer)
-          // If server provides direct profile image URL, prefer it
-          if (serverUser.profileImage) setAvatarUploadedUrl(serverUser.profileImage)
+          // If server provides direct profile image URL, extract key when possible and store key-only
+          if (serverUser.profileImage) setAvatarUploadedKey(extractKey(serverUser.profileImage))
           return
         }
 
@@ -183,7 +184,7 @@ export default function AdminSettingsPage() {
           setAmazonSecretKey(currentUser.amazonSecretKey || "")
           setAmazonAssociateId(currentUser.amazonAssociateId || "")
           setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
-          if (currentUser.profileImage) setAvatarUploadedUrl(currentUser.profileImage)
+          if (currentUser.profileImage) setAvatarUploadedKey(extractKey(currentUser.profileImage))
         }
       } catch (e) {
         const currentUser = db.user.get()
@@ -599,12 +600,8 @@ export default function AdminSettingsPage() {
 
     if (avatarFile) {
       // If the image was uploaded via ImageUpload and returned a value, prefer key when provided.
-      if (avatarUploadedUrl) {
-        if (avatarUploadedUrl.startsWith('http')) {
-          updates.profileImage = avatarUploadedUrl
-        } else {
-          updates.profileImageKey = avatarUploadedUrl
-        }
+                      if (avatarUploadedKey) {
+        updates.profileImageKey = avatarUploadedKey
       } else {
         const avatarKey = `avatar-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         const avatarBase64 = await fileToBase64(avatarFile)
@@ -729,17 +726,21 @@ export default function AdminSettingsPage() {
       return getPublicImageUrl(candidate)
     })
     .filter(Boolean) as string[]
-  const profileImageUrl =
-    getPublicImageUrl(
-      avatarUploadedUrl || (user?.profileImageKey ? db.images.getUpload(user.profileImageKey) : user?.avatarUrl || user?.profileImage) || null,
-    )
+  const profileImageUrl = getPublicImageUrl(
+    // prefer client-side uploaded KEY when available
+    (avatarUploadedKey ? (db.images.getUpload(avatarUploadedKey) || avatarUploadedKey) : (user?.profileImageKey ? db.images.getUpload(user.profileImageKey) : user?.avatarUrl || user?.profileImage)) || null,
+  )
 
   // Normalize loading_animation value which may be stored as string or object
   const loadingAnimationRaw = db.siteSettings.getValue('loading_animation')
   const loadingAnimationUrl = (() => {
     if (!loadingAnimationRaw) return ''
     if (typeof loadingAnimationRaw === 'string') return getPublicImageUrl(loadingAnimationRaw) || loadingAnimationRaw
-    if (typeof loadingAnimationRaw === 'object') return getPublicImageUrl(loadingAnimationRaw?.url) || loadingAnimationRaw?.url || ''
+    if (typeof loadingAnimationRaw === 'object') {
+      // support both legacy { url } and new { key } shapes
+      if (loadingAnimationRaw?.key) return getPublicImageUrl(db.images.getUpload(loadingAnimationRaw.key) || loadingAnimationRaw.key) || ''
+      return getPublicImageUrl(loadingAnimationRaw?.url) || loadingAnimationRaw?.url || ''
+    }
     return ''
   })()
 
@@ -766,7 +767,7 @@ export default function AdminSettingsPage() {
             <div className="space-y-2">
               <Label>プロフィール画像</Label>
               <div className="max-w-[200px]">
-                <ImageUpload value={profileImageUrl || ""} onChange={setAvatarFile} aspectRatioType="profile" onUploadComplete={(url) => setAvatarUploadedUrl(url)} />
+                <ImageUpload value={profileImageUrl || ""} onChange={setAvatarFile} aspectRatioType="profile" onUploadComplete={(key) => setAvatarUploadedKey(key)} />
               </div>
             </div>
 
@@ -800,13 +801,14 @@ export default function AdminSettingsPage() {
                   value={loadingAnimationUrl || ''}
                   onChange={() => {}}
                   aspectRatioType={'product'}
-                  onUploadComplete={async (url) => {
-                    if (!url) return
+                  onUploadComplete={async (key) => {
+                    // ImageUpload now returns canonical key; persist key-only
+                    if (!key) return
                     try {
                       await apiFetch('/api/site-settings', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ key: 'loading_animation', value: { url } }),
+                        body: JSON.stringify({ key: 'loading_animation', value: { key } }),
                       })
                       // refresh local cache
                       try { db.siteSettings.refresh().catch(() => {}) } catch (e) {}
@@ -832,7 +834,7 @@ export default function AdminSettingsPage() {
             <div>
               <Button variant="ghost" onClick={async () => {
                 try {
-                  await apiFetch('/api/site-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'loading_animation', value: { url: null } }) })
+                  await apiFetch('/api/site-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'loading_animation', value: { key: null } }) })
                   try { db.siteSettings.refresh().catch(() => {}) } catch (e) {}
                   toast({ title: 'クリアしました' })
                 } catch (e) {

@@ -93,7 +93,15 @@ export default function RecipeNewPage() {
       updatedAt: new Date().toISOString(),
     }
 
-    const created = db.recipes.create(recipe)
+    const safeForServer = {
+      ...recipe,
+      images: recipe.images.map((img: any) =>
+        img.key
+          ? { id: img.id, key: img.key, width: img.width, height: img.height, uploadedAt: img.uploadedAt }
+          : { id: img.id, width: img.width, height: img.height, uploadedAt: img.uploadedAt }
+      ),
+    }
+    const created = db.recipes.create(safeForServer)
 
     try {
       const body: any = { recipeId, id: recipeId, width: 1920, height: 1080 }

@@ -74,7 +74,8 @@ interface ImageUploadProps {
   label?: string
   open?: boolean
   onOpenChange?: (open: boolean) => void
-  onUploadComplete?: (fileUrl: string) => void
+  // onUploadComplete provides the canonical image KEY (R2/Supabase key). Not a URL.
+  onUploadComplete?: (fileKey?: string) => void
 }
 
 export function ImageUpload({
@@ -256,7 +257,8 @@ export function ImageUpload({
                 }
             } else if ((result as any)?.id) {
               // Backward compatibility: if the upload flow returned only a Cloudflare Images id
-              // (no R2 key), fall back to the previous behaviour to avoid breaking uploads.
+              // (no R2 key), call the images save endpoint with cf_id only. Server must
+              // resolve cf_id -> canonical key and return it. Do NOT send public URLs.
               try {
                 const completeTarget = aspectRatioType === 'profile'
                   ? 'profile'
@@ -269,11 +271,22 @@ export function ImageUpload({
                   : aspectRatioType === 'product'
                   ? 'product'
                   : 'other'
-                await apiFetch('/api/images/save', {
+                const saveRes = await apiFetch('/api/images/save', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ cf_id: (result as any).id, url: uploadedUrl, filename: file.name, target: completeTarget, aspect: '1:1' }),
+                  body: JSON.stringify({ cf_id: (result as any).id, filename: file.name, target: completeTarget, aspect: '1:1' }),
                 })
+                if (saveRes.ok) {
+                  const saveJson = await saveRes.json().catch(() => ({}))
+                  const returnedKey = saveJson?.key || undefined
+                  // Update preview and notify caller with returned key if available
+                  try {
+                    const usage = aspectRatioType === 'header' ? 'header-large' : aspectRatioType === 'recipe' ? 'recipe' : aspectRatioType === 'profile' ? 'avatar' : aspectRatioType === 'product' ? 'list' : aspectRatioType === 'background' ? 'original' : 'list'
+                    const resp = responsiveImageForUsage(returnedKey || (uploadedUrl || ''), usage as any)
+                    if (resp?.src) setPreviewUrl(resp.src)
+                  } catch (e) {}
+                  if (onUploadComplete) onUploadComplete(returnedKey || undefined)
+                }
               } catch (err) {
                 console.warn('images/complete failed', err)
               }
@@ -472,8 +485,9 @@ export function ImageUpload({
               console.warn('images/complete failed', err)
             }
           } else if (cfId) {
-            // Backward compatibility: if the upload flow returned only a Cloudflare Images id
-            // (no R2 key), fall back to the previous behaviour to avoid breaking uploads.
+            // Backward compatibility: if upload flow returned only a Cloudflare Images id
+            // (no R2 key), request the server to save the image using the cf_id only.
+            // Do NOT include full URLs in the payload to enforce the key-only policy.
             try {
               const completeTarget = aspectRatioType === 'profile'
                 ? 'profile'
@@ -486,11 +500,18 @@ export function ImageUpload({
                 : aspectRatioType === 'product'
                 ? 'product'
                 : 'other'
-              await apiFetch('/api/images/save', {
+              const saveRes = await apiFetch('/api/images/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cf_id: cfId, url: uploadedUrl, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
+                body: JSON.stringify({ cf_id: cfId, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
               })
+              if (saveRes.ok) {
+                const saveJson = await saveRes.json().catch(() => ({}))
+                const returnedKey = saveJson?.key
+                if (returnedKey && onUploadComplete) onUploadComplete(returnedKey)
+              } else {
+                console.warn('images/save (cf_id path) failed', saveRes.status)
+              }
             } catch (err) {
               console.warn('images/complete failed', err)
             }

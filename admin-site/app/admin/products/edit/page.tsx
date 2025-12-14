@@ -58,7 +58,8 @@ export default function ProductEditPageQuery() {
   const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState("")
   const [published, setPublished] = useState(true)
-  const [mainImageUrl, setMainImageUrl] = useState("")
+  const [mainImageKey, setMainImageKey] = useState("")
+  const [mainImagePreview, setMainImagePreview] = useState("")
   const [mainFile, setMainFile] = useState<File | null>(null)
   const [affiliateLinks, setAffiliateLinks] = useState<Array<{ provider: string; url: string; label: string }>>([
     { provider: "", url: "", label: "" },
@@ -95,7 +96,15 @@ export default function ProductEditPageQuery() {
 
         if (Array.isArray(data.images) && data.images.length > 0) {
           const main = data.images.find((img: any) => img.role === 'main') || data.images[0]
-          if (main && (main.key || main.basePath || main.url)) setMainImageUrl(main.key || main.basePath || main.url || '')
+          if (main && (main.key || main.basePath)) {
+            // Persisted key resolution: prefer `key` then `basePath` only.
+            // NOTE: legacy `main.url` may exist in older records; we allow
+            // read-time compatibility via `getPublicImageUrl` but MUST NOT
+            // write `url` back to persistent state.
+            const key = main.key || main.basePath || ''
+            setMainImageKey(key)
+            try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
+          }
           const attachmentsByRole = data.images.filter((img: any) => img.role === 'attachment')
           let attachments: any[] = []
           if (attachmentsByRole.length > 0) {
@@ -103,7 +112,8 @@ export default function ProductEditPageQuery() {
           } else {
             attachments = data.images.filter((img: any) => img !== main)
           }
-          setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, key: img.key || img.basePath || img.url || '' })))
+          // Persist attachments as key-only. Do not persist legacy `img.url`.
+          setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, key: img.key || img.basePath || '' })))
         }
         // No fallback to public API: admin UI must rely on admin API only.
 
@@ -262,10 +272,26 @@ export default function ProductEditPageQuery() {
       throw new Error(errData?.error || `upload failed (${res.status})`)
     }
     const json = await res.json().catch(() => ({}))
-    const uploadedUrl = json?.result?.variants?.[0] || json?.result?.publicUrl || json?.result?.url
-    const uploadedKey = json?.result?.key || json?.key || undefined
-    if (!uploadedUrl && !uploadedKey) throw new Error('upload did not return a URL or key')
-    return { url: uploadedUrl, key: uploadedKey }
+    // Prefer canonical key. If only a Cloudflare id is returned, ask server to resolve it.
+    let uploadedKey = json?.result?.key || json?.key || undefined
+    const cfId = json?.result?.id || undefined
+    if (!uploadedKey && cfId) {
+      try {
+        const saveRes = await apiFetch('/api/images/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cf_id: cfId, filename: file.name }),
+        })
+        if (saveRes.ok) {
+          const saveJson = await saveRes.json().catch(() => ({}))
+          uploadedKey = saveJson?.key || uploadedKey
+        }
+      } catch (e) {
+        console.warn('images/save (cf_id) resolution failed', e)
+      }
+    }
+    if (!uploadedKey) throw new Error('upload did not return a canonical key')
+    return { key: uploadedKey }
   }
 
   const addAttachmentSlot = () => {
@@ -289,7 +315,7 @@ export default function ProductEditPageQuery() {
   }
 
   const handleSave = async () => {
-    if (!title || !mainImageUrl) {
+    if (!title || !mainImageKey) {
       toast({
         variant: "destructive",
         title: "エラー",
@@ -300,29 +326,36 @@ export default function ProductEditPageQuery() {
 
     const images: any[] = []
 
-    let finalMainUrl = mainImageUrl
     let finalMainKey: string | undefined = undefined
     let finalAttachmentSlots = attachmentSlots
     try {
       if (mainFile) {
         const u = await uploadFile(mainFile)
-        finalMainUrl = u?.url || finalMainUrl
         finalMainKey = (u as any)?.key || undefined
+        if (!finalMainKey) {
+          toast({ variant: 'destructive', title: 'アップロードエラー', description: '画像アップロードがキーを返しませんでした。管理画面はキーのみを保存します。' })
+          return
+        }
         // update preview to use responsive helper when possible
         try {
           const usage = 'list'
-          const resp = responsiveImageForUsage(finalMainKey || finalMainUrl || '', usage as any)
-          if (resp?.src) setMainImageUrl(resp.src)
+          const resp = responsiveImageForUsage(finalMainKey || '', usage as any)
+          if (resp?.src) setMainImagePreview(resp.src)
         } catch (e) {}
         setMainFile(null)
       }
 
       const newAttachmentSlots = await Promise.all(
         attachmentSlots.map(async (slot) => {
-              if (slot.file && !slot.key) {
+                  if (slot.file && !slot.key) {
             try {
                   const u = await uploadFile(slot.file)
-                  return { file: null, key: (u as any)?.key || (u as any)?.url }
+                  const k = (u as any)?.key
+                  if (!k) {
+                    console.error('attachment upload did not return a key', u)
+                    return { ...slot }
+                  }
+                  return { file: null, key: k }
             } catch (e) {
               console.error('attachment upload failed', e)
               return { ...slot }
@@ -339,8 +372,8 @@ export default function ProductEditPageQuery() {
       return
     }
 
-    images.push({
-      key: finalMainKey || finalMainUrl,
+      images.push({
+      key: finalMainKey || mainImageKey,
       role: "main",
       aspect: "1:1",
     })
@@ -405,7 +438,7 @@ export default function ProductEditPageQuery() {
             <p className="text-sm text-muted-foreground">{title}</p>
           </div>
         </div>
-        <Button onClick={handleSave} size="lg" disabled={!title || !mainImageUrl}>
+        <Button onClick={handleSave} size="lg" disabled={!title || !mainImageKey}>
           <Save className="w-4 h-4 mr-2" />
           保存
         </Button>
@@ -552,12 +585,13 @@ export default function ProductEditPageQuery() {
           </CardHeader>
           <CardContent>
             <ImageUpload
-                value={getPublicImageUrl(mainImageUrl) || ""}
+                value={mainImagePreview || getPublicImageUrl(mainImageKey || '') || ""}
                 onChange={(f) => setMainFile(f)}
                 aspectRatioType="product"
-                onUploadComplete={(url) => {
-                  if (url) {
-                    setMainImageUrl(url)
+                onUploadComplete={(key) => {
+                  if (key) {
+                    setMainImageKey(key)
+                    try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
                     setMainFile(null)
                   }
                 }}
@@ -584,14 +618,18 @@ export default function ProductEditPageQuery() {
                   value={getPublicImageUrl(slot.key) || ""}
                   onChange={(f) => handleAttachmentChange(index, f)}
                   aspectRatioType="product"
-                  onUploadComplete={(keyOrUrl) =>
-                    keyOrUrl &&
+                  onUploadComplete={(key) => {
+                    if (!key) return
+                    if (typeof key === 'string' && key.startsWith('http')) {
+                      toast({ variant: 'destructive', title: '無効な画像キー', description: 'アップロード結果がURLでした。管理画面はキーのみを保存します。' })
+                      return
+                    }
                     setAttachmentSlots((prev) => {
                       const next = [...prev]
-                      if (next[index]) next[index] = { ...next[index], key: keyOrUrl }
+                      if (next[index]) next[index] = { ...next[index], key }
                       return next
                     })
-                  }
+                  }}
                 />
               </div>
             ))}

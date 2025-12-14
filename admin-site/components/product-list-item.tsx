@@ -65,8 +65,8 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
           <div className="relative w-24 h-24 shrink-0 rounded-lg overflow-hidden bg-muted">
             {
               (() => {
-                // Try several candidate fields for image path (url, basePath, key)
-                const raw = mainImage?.url || (mainImage as any)?.basePath || (mainImage as any)?.key || null
+                // Try several candidate fields for image path (prefer key, then basePath, then legacy url)
+                const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || (mainImage as any)?.url || null
                 const resp = responsiveImageForUsage(raw, 'list')
                 const placeholder = "/placeholder.svg?height=200&width=200"
                 return <img src={resp.src || placeholder} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-cover" />

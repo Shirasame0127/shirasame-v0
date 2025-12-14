@@ -61,7 +61,9 @@ export default function ProductNewPage() {
   const [tagInput, setTagInput] = useState("")
   const [published, setPublished] = useState(true)
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [mainImageUrl, setMainImageUrl] = useState("")
+  // store canonical image KEY only
+  const [mainImageKey, setMainImageKey] = useState<string | null>(null)
+  const [mainImagePreview, setMainImagePreview] = useState("")
   const [affiliateLinks, setAffiliateLinks] = useState<Array<{ provider: string; url: string; label: string }>>([
     { provider: "", url: "", label: "" },
   ])
@@ -134,10 +136,10 @@ export default function ProductNewPage() {
       tags,
       published,
       affiliateLinks,
-      mainImageUrl,
-      attachmentUrls: attachmentSlots.map((slot) => slot.key).filter(Boolean),
+      mainImageKey,
+      attachmentKeys: attachmentSlots.map((slot) => slot.key).filter(Boolean),
     }),
-    [productId, title, shortDescription, body, notes, relatedLinks, price, showPrice, tags, published, affiliateLinks, mainImageUrl, attachmentSlots],
+    [productId, title, shortDescription, body, notes, relatedLinks, price, showPrice, tags, published, affiliateLinks, mainImageKey, attachmentSlots],
   )
 
   // Draft auto-save disabled.
@@ -256,7 +258,7 @@ export default function ProductNewPage() {
       return
     }
 
-    if (!title || (!imageFile && !mainImageUrl)) {
+    if (!title || (!imageFile && !mainImageKey)) {
       toast({
         variant: "destructive",
         title: "エラー",
@@ -266,8 +268,22 @@ export default function ProductNewPage() {
     }
 
     const generatedProductId = productId || `prod-${Date.now()}`
-    const mainImageSource = mainImageUrl || (imageFile ? await fileToBase64(imageFile) : null)
-    if (!mainImageSource) {
+
+    // Ensure we have canonical keys for main image and attachments.
+    let finalMainKey = mainImageKey
+    if (!finalMainKey && imageFile) {
+      // upload via local cache helper which will call /api/images/save and return a key
+      const base64 = await fileToBase64(imageFile)
+      const genKey = `prod-${generatedProductId}-main-${Date.now()}`
+      try {
+        const returned = await db.images.saveUpload(genKey, base64)
+        finalMainKey = returned || genKey
+        setMainImageKey(finalMainKey)
+      } catch (e) {
+        console.error('main image save failed', e)
+      }
+    }
+    if (!finalMainKey) {
       toast({ variant: "destructive", title: "エラー", description: "画像のアップロードに失敗しました" })
       return
     }
@@ -279,11 +295,18 @@ export default function ProductNewPage() {
         .map(async ({ slot, idx }) => ({
           id: `img-attachment-${Date.now()}-${idx}`,
             productId: generatedProductId,
-            url: slot.key || (slot.file ? await fileToBase64(slot.file) : ""),
+            // persist attachment as key-only; if only file present, upload to obtain key
+            key: slot.key || (slot.file ? await db.images.saveUpload(`prod-${generatedProductId}-att-${idx}-${Date.now()}`, await fileToBase64(slot.file)) : ""),
             aspect: "1:1",
             role: "attachment" as const,
         })),
     )
+
+    // Guard: do not allow URL-shaped keys to be persisted
+    if (attachmentImages.some((a) => typeof a.key === 'string' && a.key.startsWith('http'))) {
+      toast({ variant: 'destructive', title: '保存中止', description: '添付画像のキーがURLになっています。キーのみを保存してください。' })
+      return
+    }
 
     const newProduct: Product = {
       id: generatedProductId,
@@ -298,7 +321,7 @@ export default function ProductNewPage() {
         {
           id: `img-${Date.now()}`,
           productId: generatedProductId,
-          url: mainImageSource,
+          key: finalMainKey,
           aspect: "1:1",
           role: "main" as const,
         },
@@ -360,7 +383,7 @@ export default function ProductNewPage() {
             <p className="text-sm text-muted-foreground">新しい商品情報を登録</p>
           </div>
         </div>
-        <Button onClick={handleSave} size="lg" disabled={!title || !(imageFile || mainImageUrl)}>
+        <Button onClick={handleSave} size="lg" disabled={!title || !(imageFile || mainImageKey)}>
           <Save className="w-4 h-4 mr-2" />
           保存
         </Button>
@@ -507,10 +530,14 @@ export default function ProductNewPage() {
           </CardHeader>
           <CardContent>
             <ImageUpload
-                  value={getPublicImageUrl(mainImageUrl) || ""}
+                  value={mainImagePreview || getPublicImageUrl(mainImageKey || '') || ""}
                   onChange={setImageFile}
                   aspectRatioType="product"
-                  onUploadComplete={(url) => url && setMainImageUrl(url)}
+                  onUploadComplete={(key) => {
+                    if (!key) return
+                    setMainImageKey(key)
+                    try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
+                  }}
                 />
           </CardContent>
         </Card>
@@ -534,14 +561,18 @@ export default function ProductNewPage() {
                   value={getPublicImageUrl(slot.key) || ""}
                   onChange={(f) => handleAttachmentChange(index, f)}
                   aspectRatioType="product"
-                  onUploadComplete={(keyOrUrl) =>
-                    keyOrUrl &&
-                    setAttachmentSlots((prev) => {
-                      const next = [...prev]
-                      if (next[index]) next[index] = { ...next[index], key: keyOrUrl }
-                      return next
-                    })
-                  }
+                  onUploadComplete={(key) => {
+                      if (!key) return
+                      if (typeof key === 'string' && key.startsWith('http')) {
+                        toast({ variant: 'destructive', title: '無効な画像キー', description: 'アップロード結果がURLでした。管理画面はキーのみを保存します。' })
+                        return
+                      }
+                      setAttachmentSlots((prev) => {
+                        const next = [...prev]
+                        if (next[index]) next[index] = { ...next[index], key: key }
+                        return next
+                      })
+                    }}
                 />
               </div>
             ))}

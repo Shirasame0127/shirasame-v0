@@ -18,7 +18,7 @@ export interface DBProduct {
 export interface DBProductImage {
   id: string
   product_id: string
-  url: string
+  key: string
   width: number
   height: number
   aspect: string
@@ -119,7 +119,7 @@ export interface DBRecipePin {
 export interface DBRecipeImage {
   id: string
   recipe_id: string
-  url: string
+  key: string
   width: number
   height: number
   uploaded_at: string
@@ -213,7 +213,7 @@ export type Product = {
   images: Array<{
     id: string
     productId?: string
-    url: string
+    key: string
     width?: number
     height?: number
     aspect?: string
@@ -302,7 +302,7 @@ export type Recipe = {
   // 画像配列（ページ実装側はここにアップロード済み画像情報を格納する）
   images?: Array<{
     id: string
-    url: string
+    key: string
     width?: number
     height?: number
     uploadedAt?: string
