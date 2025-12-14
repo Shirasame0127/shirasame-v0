@@ -123,10 +123,12 @@ export default function ProductEditPageQuery() {
           }
           // Persist attachments as key-only. Do not persist legacy `img.url`.
           setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, key: img.key || img.basePath || '' })))
+          try { console.log('[product-edit] attachments resolved from images[]', attachments.map((a:any) => a.key || a.basePath || null)) } catch (e) {}
         }
         // If product exposes attachment_image_keys use them as authoritative
         if (data && Array.isArray(data.attachment_image_keys) && data.attachment_image_keys.length > 0) {
           setAttachmentSlots((data.attachment_image_keys || []).slice(0,4).map((k: any) => ({ file: null, key: k || '' })))
+          try { console.log('[product-edit] attachment_image_keys from server', data.attachment_image_keys) } catch (e) {}
         }
         // No fallback to public API: admin UI must rely on admin API only.
 
