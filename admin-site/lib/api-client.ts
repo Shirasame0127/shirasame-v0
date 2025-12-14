@@ -11,12 +11,24 @@ export function apiPath(path: string) {
   } catch (e) {}
   // Security/design guard (highest priority): when running in a browser on
   // the official admin domain, ALWAYS use same-origin relative `/api` paths
-  // so that HttpOnly domain cookies are included. This intentionally
-  // ignores any runtime-injected `window.__env__.API_BASE` to prevent the
-  // client from calling an external public-worker directly.
+  // so that HttpOnly domain cookies are included. However, image endpoints
+  // (uploads / complete) must always be allowed to call the external
+  // public API (public-worker) when a runtime or build API base is provided.
+  // This allows the static admin client to POST image keys directly to the
+  // public-worker without hosting a proxy API in the admin site.
   try {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname || ''
+      // If this is an image-related path and a runtime API_BASE is present,
+      // allow calling the external API even from the admin origin.
+      const isImagePath = path.startsWith('/api/images') || path.startsWith('/images')
+      const runtime = (window as any).__env__ || {}
+      const runtimeApiBase = (runtime.API_BASE || runtime.NEXT_PUBLIC_API_BASE_URL || '').toString().replace(/\/$/, '')
+      if (isImagePath && runtimeApiBase) {
+        const p = path.startsWith('/api/') ? path.replace(/^\/api/, '') : path
+        return `${runtimeApiBase}${p}`
+      }
+
       if (host === 'admin.shirasame.com' || host.endsWith('.admin.shirasame.com')) {
         return path
       }

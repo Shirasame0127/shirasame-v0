@@ -277,7 +277,7 @@ export default function ProductEditPageQuery() {
     const cfId = json?.result?.id || undefined
     if (!uploadedKey && cfId) {
       try {
-        const saveRes = await apiFetch('/api/images/save', {
+        const saveRes = await apiFetch('/api/images/complete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cf_id: cfId, filename: file.name }),
@@ -287,7 +287,7 @@ export default function ProductEditPageQuery() {
           uploadedKey = saveJson?.key || uploadedKey
         }
       } catch (e) {
-        console.warn('images/save (cf_id) resolution failed', e)
+        console.warn('images/complete (cf_id) resolution failed', e)
       }
     }
     if (!uploadedKey) throw new Error('upload did not return a canonical key')

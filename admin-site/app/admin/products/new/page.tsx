@@ -272,7 +272,7 @@ export default function ProductNewPage() {
     // Ensure we have canonical keys for main image and attachments.
     let finalMainKey = mainImageKey
     if (!finalMainKey && imageFile) {
-      // upload via local cache helper which will call /api/images/save and return a key
+      // upload via local cache helper which will call /api/images/complete and return a key
       const base64 = await fileToBase64(imageFile)
       const genKey = `prod-${generatedProductId}-main-${Date.now()}`
       try {

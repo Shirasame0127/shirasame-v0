@@ -512,8 +512,9 @@ export const db = {
                 caches.imageUploads = { ...(caches.imageUploads || {}), [returnedKey]: caches.imageUploads[key] }
                 // Persist metadata explicitly (compat); public-worker may already have persisted
                 try {
-                  // Persist metadata by calling the admin proxy `/api/images/save` so browser-origin calls go through admin
-                  apiFetch('POST', '/api/images/save', { key: returnedKey })
+                  // Persist metadata by calling the public-worker `/api/images/complete`.
+                  // Use apiFetch so BUILD_API_BASE / runtime API_BASE is respected.
+                  apiFetch('POST', '/api/images/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: returnedKey }) })
                     .then((r) => {
                       if (!r) console.warn('[v0] images.saveUpload: server save failed')
                     })
@@ -535,7 +536,7 @@ export const db = {
         const persistKey = (url && typeof url === 'string' && !url.startsWith('http') && !url.startsWith('/')) ? url : key
         // Best-effort: call the images/complete endpoint via apiPath so BUILD_API_BASE is respected
         try {
-          apiFetch('POST', '/api/images/save', { key: persistKey })
+          apiFetch('POST', '/api/images/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: persistKey }) })
             .then((r) => {
               if (!r) console.warn('[v0] images.saveUpload: server save failed')
             })

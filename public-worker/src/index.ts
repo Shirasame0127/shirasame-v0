@@ -637,6 +637,19 @@ async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userI
     } catch (e) {}
     try { console.log('resolveRequestUserContext: cookie=', c.req.header('cookie')) } catch (e) {}
     try { console.log('resolveRequestUserContext: x-user-id=', c.req.header('x-user-id') || c.req.header('X-User-Id')) } catch (e) {}
+    // DEBUG BYPASS: when DEBUG_WORKER=true, allow providing X-Debug-User (and optional X-Debug-Secret)
+    try {
+      const debugEnabled = (c.env as any).DEBUG_WORKER === 'true'
+      const dbgUser = (c.req.header('x-debug-user') || c.req.header('X-Debug-User') || '').toString().trim()
+      const dbgSecret = (c.req.header('x-debug-secret') || c.req.header('X-Debug-Secret') || '').toString().trim()
+      if (debugEnabled && dbgUser) {
+        const expected = (c.env as any).DEBUG_SECRET || ''
+        if (!expected || expected === dbgSecret) {
+          try { console.log('resolveRequestUserContext: debug bypass user=', dbgUser) } catch (e) {}
+          return { userId: dbgUser, authType: 'user-token', trusted: true }
+        }
+      }
+    } catch (e) {}
     // For CRUD requests (GET/POST/PUT/DELETE), allow trusting a provided user_id via query or header.
     try {
       const method = ((c.req.method || '') as string).toUpperCase()

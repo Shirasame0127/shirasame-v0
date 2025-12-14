@@ -3,13 +3,13 @@
 日付: 2025-12-14
 
 概要
-- 現象: 管理画面から画像をアップロードすると、アップロードは `/api/images/upload` まで成功するが、その後の `/api/images/save`（admin App Route 経由で public-worker の `/api/images/complete` に転送する部分）で失敗し、ブラウザには `404` または `{"error":"missing_user_id"}` が返されるケースが確認されています。
+- 現象: 管理画面から画像をアップロードすると、アップロードは `/api/images/upload` まで成功するが、その後の `/api/images/complete`（管理クライアントが直接 public-worker の `/api/images/complete` に POST する、あるいは admin-proxy 経由で転送される部分）で失敗し、ブラウザには `404` または `{"error":"missing_user_id"}` が返されるケースが確認されています。
 - 目的: 画像は R2（Supabase R2 想定）に「キーのみ」を保存し、公開時は `public-site/shared/lib/image-usecases.ts` の関数群（`getPublicImageUrl` / `buildResizedImageUrl` / `responsiveImageForUsage` 等）を使って Cloudflare Image Resizing（/cdn-cgi/image/...）で配信する。二回目以降はエッジのキャッシュで配信されることを期待する。
 
 問い合せのための簡潔なプロンプト（運用担当者に送る用）
 
 ```
-状況: 管理画面からの画像アップロードで `/api/images/save` が 404 または public-worker から `{"error":"missing_user_id"}` を返します。
+状況: 管理画面からの画像アップロードで `/api/images/complete` が 404 または public-worker から `{"error":"missing_user_id"}` を返します。
 
 依頼:
 1) `PUBLIC_WORKER_API_BASE` が本番で正しく `https://public-worker.shirasame-official.workers.dev`（または正式な public-worker ドメイン）を指しているか確認してください。
@@ -18,7 +18,7 @@
 4) 可能なら下記の curl を実行して結果（HTTP ステータス、ボディ、重要ヘッダ）を返してください。
 
 ```powershell
-curl -v -X POST "https://admin.shirasame.com/api/images/save" \
+curl -v -X POST "https://admin.shirasame.com/api/images/complete" \
   -H "Content-Type: application/json" \
   --data '{"key":"images/abc.avif","user_id":"<テスト用のuser_id>"}'
 

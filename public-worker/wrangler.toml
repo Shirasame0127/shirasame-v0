@@ -47,6 +47,8 @@ preview_bucket_name = "images"
 [vars]
 # 公開APIからの受け入れ許可オリジン（カンマ区切り）
 PUBLIC_ALLOWED_ORIGINS = "https://admin.shirasame.com"
+# Enable debug bypass for local testing. REMOVE or set to empty in production.
+DEBUG_WORKER = "true"
 # 既存Next APIのベースURL（暫定プロキシ先）。例: https://admin.example.com
 INTERNAL_API_BASE = ""
 

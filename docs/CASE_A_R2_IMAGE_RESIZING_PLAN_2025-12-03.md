@@ -162,7 +162,7 @@ date: 2025-12-03
 
 ## 2025-12-09 実装反映（重要）
 
-- 管理画面クライアントはブラウザ起点の画像メタ保存を直接 Worker に投げず、管理サイトの同一オリジン API プロキシ（`/api/*`）経由で公開 Worker に転送する実装に統一しました。具体的にはフロント側は `apiFetch()` を使い、`/api/images/save` などの admin App Route を呼び出します。これにより HttpOnly cookie や Next.js ミドルウェアを活用した認可が維持されます。
+- 管理画面クライアントはブラウザ起点の画像メタ保存を直接 Worker に投げず、管理サイトの同一オリジン API プロキシ（`/api/*`）経由で公開 Worker に転送する実装が一部に残っていましたが、現在は public-worker の `POST /api/images/complete` を直接呼ぶ運用へ移行しています。具体的にはフロント側は `apiFetch()` を使い、`/api/images/complete` を直接呼ぶか、必要に応じて admin-proxy を経由して `public-worker` に転送する設計です。これにより HttpOnly cookie や Next.js ミドルウェアを活用した認可も維持できます。
 - ブラウザ側のアップロードフローは presigned（direct-upload）による R2 への PUT を許容しつつ、アップロード後のメタ保存（DBへの書き込み）は必ず admin プロキシ経由で `key` のみを保存することを必須とします。
 - サーバ（public-worker）は `key`（`images/YYYY/MM/DD/<random>-<filename.ext>`）のみを DB に書き込み、クライアントには `key` と内部で必要な場合のみ `publicUrl`（プレビュー用）を返却します。クライアント側は DB に `publicUrl` を保存してはなりません。
 - 管理サイトを静的ホスティングする場合はビルド時に `NEXT_PUBLIC_API_BASE_URL`（あるいは `BUILD_API_BASE`）を public-worker のオリジンに設定するか、管理側の `/api` プロキシを有効にしてください。静的デプロイでこれを設定しないと同一オリジンの App Route が存在せず 404 になります。

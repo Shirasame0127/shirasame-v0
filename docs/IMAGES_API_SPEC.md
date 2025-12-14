@@ -44,10 +44,10 @@
   - 実装: `admin-site/app/api/images/direct-upload/route.ts`
   - 認可: サーバー側で Cloudflare API トークンが必要。
 
-- `POST /api/images/save` (互換ルート)
-  - 旧クライアント互換のための App Route。受けたリクエストをサニタイズし、`public-worker` の `/api/images/complete` に proxy して「キーのみ」を永続化する。
-  - 実装: `admin-site/app/api/images/save/route.ts`（`runtime = 'edge'` に調整済）
-  - 認可: HttpOnly cookie の `sb-access-token` を server-side で検証して `X-User-Id` を付与します（クライアントの `user_id` は拒否）。
+- `POST /api/images/complete` (推奨)
+  - クライアントが upload 後に呼び出す public-worker 側の永続化エンドポイント（key-only を DB に upsert）。管理クライアントが同一オリジンで呼ぶ場合は admin 側プロキシを経由することもあるが、public-worker への直接 POST を推奨します。
+  - 実装: `public-worker/src/index.ts` の `/api/images/complete`
+  - 認可: リクエストはトークン／Cookie で検証され、`resolveRequestUserContext` により `effectiveUserId` を決定する。管理プロキシ経由では HttpOnly cookie により admin 側で検証した `X-User-Id` を付与して転送する設計。
 
 - `*/api/admin/recipe-images/upsert`（管理用途の proxy）
   - 全て `forwardToPublicWorker` 経由で public-worker に転送するシンプルな proxy。
@@ -95,9 +95,9 @@
 2. 署名付きアップロードを利用する場合:
    - 管理 UI が `POST /api/images/direct-upload` を呼び、Cloudflare direct_upload 情報を受け取る。
    - ブラウザは Cloudflare の direct_upload URL にファイルを PUT する（或いは `/api/images/upload` に multipart を POST してサーバー経由で Cloudflare に転送）。
-3. アップロード成功後、クライアントは `POST /api/images/save`（管理側 App Route）を呼ぶ:
-   - Body には少なくとも `{ "key": "r2/or/cf/key", "filename": "...", "target": "profile" }` を送る。
-   - ブラウザは HttpOnly の `sb-access-token` cookie を保持しているため、同一オリジンの `/api/images/save` 呼び出しで cookie が送信される。
+3. アップロード成功後、クライアントは `POST /api/images/complete`（public-worker へ直接、または admin-proxy 経由）を呼ぶ:
+  - Body には少なくとも `{ "key": "r2/or/cf/key", "filename": "...", "target": "profile" }` を送る。
+  - ブラウザは HttpOnly の `sb-access-token` cookie を保持しているため、同一オリジンの admin-proxy 経由で呼ぶ場合は cookie が送信され、proxy が `X-User-Id` を付与して public-worker に転送する。
 4. `admin-site` の App Route (`/api/images/save`) は:
    - リクエスト body をサニタイズ（`url` フィールドを拒否）し、`sb-access-token` を REST 経由で検証して userId を解決（`getUserIdFromCookieHeader` で `/auth/v1/user` を呼ぶ）。
    - 有効ユーザーが得られれば `X-User-Id` を付与して `public-worker` の `/api/images/complete` に proxy する。
@@ -159,7 +159,7 @@ curl -v -X POST "https://admin.shirasame.com/api/images/direct-upload" -H "Conte
 - Admin-side: upload 完了を通知（save -> proxy -> public-worker /images/complete）
 
 ```powershell
-curl -v -X POST "https://admin.shirasame.com/api/images/save" -H "Content-Type: application/json" -H "Cookie: sb-access-token=<your_token>" -d '{"key":"images/2025/12/14/abc.jpg","filename":"abc.jpg","target":"profile"}'
+curl -v -X POST "https://public-worker.example.com/api/images/complete" -H "Content-Type: application/json" -H "Cookie: sb-access-token=<your_token>" -d '{"key":"images/2025/12/14/abc.jpg","filename":"abc.jpg","target":"profile"}'
 ```
 
 - Public-worker の直接テスト UI（Worker が公開されている場合）で `/api/images/complete` を呼ぶときは、認証トークンを付与して実行してください。

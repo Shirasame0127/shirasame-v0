@@ -12,7 +12,7 @@ import apiFetch from '@/lib/api-client'
 import { BUILD_API_BASE } from '@/lib/api-client'
 
 // NOTE: direct POST fallback to public-worker (client -> external) was
-// removed for security. Client must call same-origin `/api/images/save`.
+// removed for security. Client must call same-origin `/api/images/complete`.
 
 // Lightweight client-side compression utility (skip GIFs)
 async function maybeCompressClientFile(file: File) {
@@ -230,7 +230,7 @@ export function ImageUpload({
                     : aspectRatioType === 'product'
                     ? 'product'
                     : 'other'
-                  const completeRes = await apiFetch('/api/images/save', {
+                  const completeRes = await apiFetch('/api/images/complete', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key: uploadedKey, filename: file.name, target: completeTarget, aspect: '1:1' }),
@@ -278,7 +278,7 @@ export function ImageUpload({
                   : aspectRatioType === 'product'
                   ? 'product'
                   : 'other'
-                const saveRes = await apiFetch('/api/images/save', {
+                const saveRes = await apiFetch('/api/images/complete', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ cf_id: (result as any).id, filename: file.name, target: completeTarget, aspect: '1:1' }),
@@ -465,7 +465,7 @@ export function ImageUpload({
                 : aspectRatioType === 'product'
                 ? 'product'
                 : 'other'
-              const completeRes = await apiFetch('/api/images/save', {
+              const completeRes = await apiFetch('/api/images/complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ key: uploadedKey, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
@@ -510,7 +510,7 @@ export function ImageUpload({
                 : aspectRatioType === 'product'
                 ? 'product'
                 : 'other'
-              const saveRes = await apiFetch('/api/images/save', {
+              const saveRes = await apiFetch('/api/images/complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ cf_id: cfId, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }),
