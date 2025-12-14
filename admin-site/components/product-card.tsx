@@ -69,31 +69,15 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
       <>
         <CardHeader className="p-0 relative">
             <div className="relative aspect-3/2 overflow-hidden bg-muted flex items-center justify-center">
-              {
-                (() => {
-                  // Normalize candidate like admin-nav: prefer canonical key -> public URL,
-                  // else client cache preview -> raw
-                  const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || mainImage?.url || null
-                  let candidate: string | null = null
-                  try {
-                    if (raw) {
-                      if (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/'))) {
-                        candidate = raw
-                      } else if (product && product.main_image_key) {
-                        candidate = getPublicImageUrl(String(raw)) || String(raw)
-                      } else {
-                        const cached = db.images.getUpload(raw)
-                        const rawResolved = (typeof cached === 'string' && cached) ? cached : String(raw)
-                        candidate = (rawResolved.startsWith('http') || rawResolved.startsWith('/')) ? rawResolved : (getPublicImageUrl(rawResolved) || rawResolved)
-                      }
-                    }
-                  } catch (e) {
-                    candidate = (raw && String(raw)) || null
+                  {
+                    (() => {
+                      const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || mainImage?.url || null
+                      const candidate = (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/'))) ? raw : db.images.getUpload(String(raw)) || String(raw || '')
+                      const publicBase = getPublicImageUrl(candidate) || candidate || ''
+                      const resp = responsiveImageForUsage(publicBase || null, 'list')
+                      return <img src={resp.src || (publicBase || "/placeholder.svg")} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center" />
+                    })()
                   }
-                  const resp = responsiveImageForUsage(candidate || null, 'list')
-                  return <img src={resp.src || (getPublicImageUrl(String(raw)) || "/placeholder.svg")} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center" />
-                })()
-              }
             {isOnSale && (
               <div className="absolute top-1 right-1 z-10">
                 <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 flex items-center gap-1">
@@ -132,16 +116,15 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
     <>
       <CardHeader className="p-0 relative">
         <div className="relative aspect-3/2 overflow-hidden bg-muted flex items-center justify-center">
-          {
-            (() => {
-              const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || mainImage?.url || null
-              const resolved = (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/')))
-                ? raw
-                : db.images.getUpload(raw) || String(raw || '')
-              const resp = responsiveImageForUsage(resolved || null, 'list')
-              return <img src={resp.src || (getPublicImageUrl(String(raw)) || "/placeholder.svg")} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center transition-transform duration-300" />
-            })()
-          }
+            {
+              (() => {
+                const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || mainImage?.url || null
+                const candidate = (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/'))) ? raw : db.images.getUpload(String(raw)) || String(raw || '')
+                const publicBase = getPublicImageUrl(candidate) || candidate || ''
+                const resp = responsiveImageForUsage(publicBase || null, 'list')
+                return <img src={resp.src || (publicBase || "/placeholder.svg")} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center transition-transform duration-300" />
+              })()
+            }
           {isOnSale && (
             <div className="absolute top-2 right-2 z-10">
               <Badge variant="destructive" className="text-xs px-2 py-1 flex items-center gap-1.5">
