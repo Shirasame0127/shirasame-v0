@@ -44,6 +44,23 @@ export async function POST(req: Request) {
       outBodyBuf = new TextEncoder().encode(JSON.stringify(sanitized)).buffer
     }
 
+    // Prefer an explicit `user_id` field in the JSON payload if provided
+    // (useful for testing). We'll forward it as `X-User-Id` header and
+    // avoid persisting it in the request body.
+    let explicitUserId: string | null = null
+    try {
+      if (parsed && typeof parsed === 'object' && parsed.user_id) {
+        explicitUserId = String(parsed.user_id)
+        // Rebuild outBodyBuf to ensure user_id is not present
+        try {
+          const stext = new TextDecoder().decode(outBodyBuf)
+          const sjson = stext ? JSON.parse(stext) : {}
+          if (sjson && typeof sjson === 'object' && 'user_id' in sjson) delete sjson.user_id
+          outBodyBuf = new TextEncoder().encode(JSON.stringify(sjson)).buffer
+        } catch {}
+      }
+    } catch {}
+
     // Forward sanitized request to public worker's images/complete endpoint.
     const destPath = '/api/images/complete' + url.search
     const headers = new Headers()
@@ -51,6 +68,11 @@ export async function POST(req: Request) {
       const lk = k.toLowerCase()
       if (lk === 'host') continue
       headers.set(k, v)
+    }
+
+    // If client provided explicit user id, set it on the forwarded headers
+    if (explicitUserId) {
+      headers.set('X-User-Id', explicitUserId)
     }
 
     // Ensure user identity header is present when possible.
@@ -73,8 +95,9 @@ export async function POST(req: Request) {
             const jsonStr = Buffer.from(padded, 'base64').toString('utf8')
             try {
               const parsed = JSON.parse(jsonStr)
-              const sub = parsed?.sub || parsed?.user_id || parsed?.uid || null
-              if (sub) headers.set('X-User-Id', String(sub))
+                const sub = parsed?.sub || parsed?.user_id || parsed?.uid || null
+                // Only set from cookie if an explicit user id wasn't provided
+                if (sub && !headers.get('X-User-Id')) headers.set('X-User-Id', String(sub))
             } catch {}
           }
         } catch {}
