@@ -106,8 +106,38 @@ export async function POST(req: Request) {
       // best-effort only
     }
 
-    const newReq = new Request(destPath, { method: 'POST', body: outBodyBuf, headers })
-    const resp = await forwardToPublicWorker(newReq)
+    // If an explicitUserId was provided by the client, prefer a direct
+    // fetch to the public-worker so we can be certain the X-User-Id header
+    // is present (this is useful for testing and avoids any proxy header
+    // normalization surprises). Otherwise fall back to the shared proxy
+    // forwardToPublicWorker implementation.
+    let resp: Response
+    if (explicitUserId) {
+      try {
+        const apiBase = (process.env.PUBLIC_WORKER_API_BASE || process.env.API_BASE_ORIGIN || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
+        const destFull = apiBase + destPath
+        const directHeaders = new Headers()
+        // copy relevant headers
+        try {
+          for (const [k, v] of headers.entries()) {
+            const lk = k.toLowerCase()
+            if (lk === 'host') continue
+            directHeaders.set(k, v)
+          }
+        } catch {}
+        directHeaders.set('X-User-Id', explicitUserId)
+        // ensure content-type is set
+        if (!directHeaders.get('Content-Type')) directHeaders.set('Content-Type', 'application/json')
+        resp = await fetch(destFull, { method: 'POST', headers: directHeaders, body: outBodyBuf, redirect: 'manual' })
+      } catch (e) {
+        // fallback to proxy if direct fetch fails
+        const newReq = new Request(destPath, { method: 'POST', body: outBodyBuf, headers })
+        resp = await forwardToPublicWorker(newReq)
+      }
+    } else {
+      const newReq = new Request(destPath, { method: 'POST', body: outBodyBuf, headers })
+      resp = await forwardToPublicWorker(newReq)
+    }
 
     // Parse response and normalize to { key }
     try {
