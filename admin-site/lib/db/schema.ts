@@ -232,6 +232,9 @@ export type Product = {
   published: boolean
   createdAt: string
   updatedAt: string
+  // authoritative image columns (DB-backed)
+  main_image_key?: string | null
+  attachment_image_keys?: string[] | null
 }
 
 export type Recipe = {
