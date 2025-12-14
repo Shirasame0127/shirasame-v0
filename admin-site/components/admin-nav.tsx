@@ -111,26 +111,20 @@ export function AdminNav() {
         }
 
         let image: string | null = null
-        // Prefer canonical `profile_image_key` stored on the server. If present,
-        // build a public URL from that key (avoid using a possibly stale client-side cache).
+        // Align with site-settings: prefer canonical key, prefer local upload cache,
+        // then generate a public URL via `getPublicImageUrl` before calling
+        // `responsiveImageForUsage` so admin-nav matches site-settings behavior.
         const profileKey = data?.profile_image_key ?? data?.profileImageKey ?? (data?.profileImage ? extractKey(data.profileImage) : null)
         if (profileKey) {
-          let candidate: string
-          if (data?.profile_image_key) {
-            // If we have the canonical key, prefer creating a public URL from it.
-            candidate = getPublicImageUrl(String(profileKey)) || String(profileKey)
-          } else {
-            // Backwards compatibility: try client cache first, then normalize.
-            const cached = db.images.getUpload(profileKey)
-            const raw = (typeof cached === 'string' && cached) ? cached : String(profileKey)
-            candidate = (raw.startsWith('http') || raw.startsWith('/')) ? raw : (getPublicImageUrl(raw) || raw)
-          }
-
+          const cached = db.images.getUpload(profileKey)
+          const raw = (typeof cached === 'string' && cached) ? cached : String(profileKey)
+          // try to normalize to a public base URL first
+          const publicBase = getPublicImageUrl(raw) || ((raw && (raw.startsWith('http') || raw.startsWith('/'))) ? raw : String(profileKey))
           try {
-            const resp = responsiveImageForUsage(candidate, 'avatar')
-            image = resp?.src || getPublicImageUrl(String(profileKey)) || candidate
+            const resp = responsiveImageForUsage(publicBase, 'avatar')
+            image = resp?.src || publicBase
           } catch (e) {
-            image = getPublicImageUrl(String(profileKey)) || candidate
+            image = publicBase
           }
         } else {
           image = data?.avatarUrl || data?.profileImage || null
