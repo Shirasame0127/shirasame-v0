@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
+import AdminLoading from '@/components/admin-loading'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,45 +11,50 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Save, Plus, Trash2, X, Clipboard } from 'lucide-react'
 import Link from "next/link"
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { auth } from "@/lib/auth"
-import type { Product } from "@/lib/db/schema"
-import { fileToBase64 } from "@/lib/utils/image-utils"
 import { useToast } from "@/hooks/use-toast"
-
 import { db } from "@/lib/db/storage"
 import apiFetch from '@/lib/api-client'
-import { getPublicImageUrl } from "@/lib/image-url"
+import { getPublicImageUrl, responsiveImageForUsage } from "@/lib/image-url"
 
-// (省略せずに元実装をそのまま移植しました)
-
-type AffiliateTemplateId = 'amazon' | 'rakuten' | 'yahoo' | 'official'
-
-const AFFILIATE_LINK_TEMPLATES: Array<{
-  id: AffiliateTemplateId
+type AffiliateTemplate = {
+  id: string
   name: string
   defaultLabel: string
   defaultUrl: string
   linkTag: string
-}> = [
-  { id: 'amazon', name: 'Amazon', defaultLabel: 'Amazonで見る', defaultUrl: 'https://www.amazon.co.jp/dp/', linkTag: 'Amazon' },
-  { id: 'rakuten', name: '楽天', defaultLabel: '楽天で見る', defaultUrl: 'https://item.rakuten.co.jp/', linkTag: '楽天' },
-  { id: 'yahoo', name: 'ヤフー', defaultLabel: 'ヤフーショッピングで見る', defaultUrl: 'https://store.shopping.yahoo.co.jp/', linkTag: 'Yahoo' },
-  { id: 'official', name: '公式サイト', defaultLabel: '公式サイトで見る', defaultUrl: 'https://example.com/', linkTag: '公式サイト' },
-]
+}
+
+const KNOWN_AFFILIATE_TEMPLATES: Record<string, Partial<AffiliateTemplate>> = {
+  Amazon: { name: 'Amazon', defaultLabel: 'Amazonで見る', defaultUrl: 'https://www.amazon.co.jp/dp/' },
+  楽天: { name: '楽天', defaultLabel: '楽天で見る', defaultUrl: 'https://item.rakuten.co.jp/' },
+  Yahoo: { name: 'Yahoo', defaultLabel: 'ヤフーショッピングで見る', defaultUrl: 'https://store.shopping.yahoo.co.jp/' },
+  '公式サイト': { name: '公式サイト', defaultLabel: '公式サイトで見る', defaultUrl: 'https://example.com/' },
+}
 
 type AttachmentSlot = {
   file: File | null
   key: string
 }
 
-export default function ProductNewPage() {
+export default function ProductEditPage({ params }: { params: any }) {
   const router = useRouter()
   const { toast } = useToast()
-  const [currentUser] = useState(() => auth.getCurrentUser())
-  const [productId, setProductId] = useState(() => `prod-${Date.now()}`)
+  const [isLoading, setIsLoading] = useState(true)
+
+  // `params` is provided by Next.js as a plain object in client pages.
+  // Avoid using the server-only `use()` utility here — read `params` directly.
+  const id = params?.id
+  const search = useSearchParams()
+  const maybeUserId = (() => {
+    try {
+      const s = search?.get ? search.get('user_id') : null
+      return s || null
+    } catch (e) { return null }
+  })()
+  
   const [title, setTitle] = useState("")
   const [shortDescription, setShortDescription] = useState("")
   const [body, setBody] = useState("")
@@ -59,93 +65,137 @@ export default function ProductNewPage() {
   const [showPrice, setShowPrice] = useState(true)
   const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState("")
-  const [published, setPublished] = useState(false)
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  // store canonical image KEY only
-  const [mainImageKey, setMainImageKey] = useState<string | null>(null)
+  const [published, setPublished] = useState(true)
+  const [mainImageKey, setMainImageKey] = useState("")
   const [mainImagePreview, setMainImagePreview] = useState("")
+  const [mainFile, setMainFile] = useState<File | null>(null)
   const [affiliateLinks, setAffiliateLinks] = useState<Array<{ provider: string; url: string; label: string }>>([
     { provider: "", url: "", label: "" },
   ])
-  const [draftInitialized, setDraftInitialized] = useState(false)
 
   const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({})
   const [availableTags, setAvailableTags] = useState<any[]>([])
 
   useEffect(() => {
+    const fetchData = async () => {
+      try {
+        if (!id) throw new Error('Invalid product id')
+        // Only call the authoritative admin API. Authentication is provided
+        // by HttpOnly cookies and validated server-side. Do NOT include
+        // user_id in the query string.
+        const res = await apiFetch(`/api/admin/products/${id}`)
+        if (!res.ok) throw new Error("Failed to fetch product")
+        const json = await res.json().catch(() => null)
+        const data = json && typeof json === 'object' && 'data' in json ? json.data : json
+
+        setTitle(data.title || "")
+        setShortDescription(data.shortDescription || "")
+        setBody(data.body || "")
+        setNotes(data.notes || "")
+        setRelatedLinks(data.relatedLinks?.length ? data.relatedLinks : [""])
+        setPrice(data.price || "")
+        setShowPrice(typeof data.showPrice === "boolean" ? data.showPrice : true)
+        setTags(Array.isArray(data.tags) ? data.tags : [])
+        setPublished(typeof data.published === "boolean" ? data.published : true)
+        
+        if (Array.isArray(data.affiliateLinks) && data.affiliateLinks.length > 0) {
+          setAffiliateLinks(data.affiliateLinks)
+        }
+
+        if (Array.isArray(data.images) && data.images.length > 0) {
+          const main = data.images.find((img: any) => img.role === 'main') || data.images[0]
+          if (main && (main.key || main.basePath)) {
+            // Persisted key resolution: prefer `key` then `basePath` only.
+            // NOTE: legacy `main.url` may exist in older records; allow read-time
+            // compatibility but do NOT persist `url` back to the DB/state.
+            const key = main.key || main.basePath || ''
+            setMainImageKey(key)
+            try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
+          }
+          const attachmentsByRole = data.images.filter((img: any) => img.role === 'attachment')
+          let attachments: any[] = []
+          if (attachmentsByRole.length > 0) {
+            attachments = attachmentsByRole
+          } else {
+            attachments = data.images.filter((img: any) => img !== main)
+          }
+          // Persist attachments as key-only. Do not persist legacy `img.url`.
+          setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, key: img.key || img.basePath || '' })))
+        }
+        // No fallback to public API: admin UI must rely on admin API only.
+
+      } catch (error) {
+        console.error(error)
+        toast({ variant: "destructive", title: "エラー", description: "商品データの読み込みに失敗しました" })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    fetchData()
+  }, [id, toast])
+
+  useEffect(() => {
     ;(async () => {
       try {
         const [tagsRes, groupsRes] = await Promise.all([apiFetch('/api/tags'), apiFetch('/api/tag-groups')])
-        const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
-        const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
+          const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
+          const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
         const serverTags = Array.isArray(tagsJson) ? tagsJson : tagsJson.data || []
         const serverGroups = Array.isArray(groupsJson) ? groupsJson : groupsJson.data || []
         const finalTags = tagsRes.ok && Array.isArray(serverTags) && serverTags.length > 0 ? serverTags : db.tags.getAllWithPlaceholders()
         setAvailableTags(finalTags)
         const groupNames: string[] = serverGroups && serverGroups.length > 0 ? serverGroups.map((g: any) => g.name).filter(Boolean) : []
         if (groupNames.length === 0) {
-          const inferred = Array.from(new Set((finalTags || []).map((t: any) => t.group).filter(Boolean))) as string[]
+          const inferred = Array.from(new Set((finalTags || []).map((t: any) => String(t.group)).filter(Boolean))) as string[]
           inferred.forEach((g: string) => groupNames.push(g))
         }
         const map: Record<string, string[]> = {}
-        const linkTags = (finalTags || [])
-          .filter((t: any) => (t.group || '未分類') === 'リンク先')
-          .map((t: any) => t.name)
-          .filter(Boolean)
-        if (linkTags.length > 0) {
-          map['リンク先'] = linkTags
-        } else {
-          map['リンク先'] = AFFILIATE_LINK_TEMPLATES.map((t) => t.name)
-        }
         groupNames.forEach((name) => {
           map[name] = (finalTags || []).filter((t: any) => (t.group || '未分類') === name).map((t: any) => t.name)
         })
+        if (!map['リンク先']) {
+          map['リンク先'] = (finalTags || []).filter((t: any) => (t.group || '未分類') === 'リンク先').map((t: any) => t.name)
+        }
         setTagGroups(map)
       } catch (e) {
-        const fallback = db.tags.getAllWithPlaceholders()
-        const inferred = Array.from(new Set((fallback || []).map((t: any) => t.group).filter(Boolean))) as string[]
+        const fallback: any[] = db.tags.getAllWithPlaceholders() || []
+        const inferred = Array.from(new Set(fallback.map((t: any) => String(t.group)).filter(Boolean))) as string[]
         const map: Record<string, string[]> = {}
-        const linkTags = (fallback || [])
-          .filter((t: any) => (t.group || '未分類') === 'リンク先')
-          .map((t: any) => t.name)
-          .filter(Boolean)
-        map['リンク先'] = linkTags.length > 0 ? linkTags : AFFILIATE_LINK_TEMPLATES.map((t) => t.name)
-        inferred.forEach((name: string) => {
-          map[name] = (fallback || []).filter((t: any) => (t.group || '未分類') === name).map((t: any) => t.name)
+        inferred.forEach((name) => {
+          map[name] = fallback.filter((t: any) => (t.group || '未分類') === name).map((t: any) => t.name)
         })
+        if (!map['リンク先']) {
+          map['リンク先'] = fallback.filter((t: any) => (t.group || '未分類') === 'リンク先').map((t: any) => t.name)
+        }
         setTagGroups(map)
         console.warn('failed to load tags/groups, falling back to cache', e)
       }
     })()
+  }, [])
 
-    // Drafts disabled: do not load server-side saved drafts.
-    if (!currentUser?.id || draftInitialized) return
-    setDraftInitialized(true)
-  }, [currentUser?.id, draftInitialized])
-
-  const draftState = useMemo(
-    () => ({
-      productId,
-      title,
-      shortDescription,
-      body,
-      notes,
-      relatedLinks,
-      price,
-      showPrice,
-      tags,
-      published,
-      affiliateLinks,
-      mainImageKey,
-      attachmentKeys: attachmentSlots.map((slot) => slot.key).filter(Boolean),
-    }),
-    [productId, title, shortDescription, body, notes, relatedLinks, price, showPrice, tags, published, affiliateLinks, mainImageKey, attachmentSlots],
-  )
-
-  // Draft auto-save disabled.
+  const affiliateTemplateOptions: AffiliateTemplate[] = (tagGroups['リンク先'] || []).map((tag) => {
+    const known = KNOWN_AFFILIATE_TEMPLATES[tag]
+    return {
+      id: tag,
+      name: known?.name || tag,
+      defaultLabel: known?.defaultLabel || `${tag}で見る`,
+      defaultUrl: known?.defaultUrl || '',
+      linkTag: tag,
+    }
+  })
 
   const addTag = (tag: string) => {
     const trimmedTag = tag.trim()
+    if (!trimmedTag) return
+    const linkGroup = tagGroups['リンク先'] || []
+    if (linkGroup.includes(trimmedTag)) {
+      const hasLabel = affiliateLinks.some((l) => (l.provider === trimmedTag || l.provider === KNOWN_AFFILIATE_TEMPLATES[trimmedTag]?.name) && (l.label || '').trim().length > 0)
+      if (!hasLabel) {
+        toast({ variant: 'destructive', title: '入力エラー', description: `"${trimmedTag}" タグを追加する前に、アフィリエイトリンクのラベルを入力してください` })
+        setTagInput("")
+        return
+      }
+    }
     if (trimmedTag && !tags.includes(trimmedTag)) {
       setTags([...tags, trimmedTag])
     }
@@ -169,32 +219,25 @@ export default function ProductNewPage() {
     setTags((prev) => (prev.includes(linkTag) ? prev : [...prev, linkTag]))
   }
 
-  const applyAffiliateTemplate = (index: number, templateId: AffiliateTemplateId) => {
-    const template = AFFILIATE_LINK_TEMPLATES.find((t) => t.id === templateId)
-    if (!template) return
+  const applyAffiliateTemplate = (index: number, templateTag: string) => {
+    if (!templateTag) return
+    const known = KNOWN_AFFILIATE_TEMPLATES[templateTag]
+    const template: AffiliateTemplate = {
+      id: templateTag,
+      name: known?.name || templateTag,
+      defaultLabel: known?.defaultLabel || `${templateTag}で見る`,
+      defaultUrl: known?.defaultUrl || '',
+      linkTag: templateTag,
+    }
     const updated = [...affiliateLinks]
     updated[index] = {
       ...updated[index],
       provider: template.name,
-      label: template.defaultLabel,
+      label: updated[index].label || template.defaultLabel,
       url: updated[index].url || template.defaultUrl,
     }
     setAffiliateLinks(updated)
     ensureLinkTag(template.linkTag)
-  }
-
-  const applyLinkTagTemplate = (index: number, tagName: string) => {
-    if (!tagName) return
-    const tagObj = (availableTags || []).find((t: any) => t.name === tagName)
-    const updated = [...affiliateLinks]
-    updated[index] = {
-      ...updated[index],
-      provider: tagName,
-      label: (tagObj && (tagObj.linkLabel || tagObj.link_label)) || updated[index].label || "",
-      url: (tagObj && (tagObj.linkUrl || tagObj.link_url)) || updated[index].url || "",
-    }
-    setAffiliateLinks(updated)
-    ensureLinkTag(tagName)
   }
 
   const updateAffiliateLink = (index: number, field: string, value: string) => {
@@ -226,6 +269,39 @@ export default function ProductNewPage() {
     })
   }
 
+    const uploadFile = async (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
+    if (!res.ok) {
+      let errData: any = null
+      try { errData = await res.json() } catch (e) { try { const txt = await res.text(); errData = { error: txt } } catch (e2) { errData = { error: 'unknown' } } }
+      throw new Error(errData?.error || `upload failed (${res.status})`)
+    }
+    const json = await res.json().catch(() => ({}))
+    // Prefer canonical key. If only a Cloudflare id is returned, ask server to resolve it.
+    let uploadedKey = json?.result?.key || json?.key || undefined
+    const cfId = json?.result?.id || undefined
+    if (!uploadedKey && cfId) {
+      try {
+        // Resolve Cloudflare Images id -> canonical key via images/complete
+        const saveRes = await apiFetch('/api/images/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cf_id: cfId, filename: file.name }),
+        })
+        if (saveRes.ok) {
+          const saveJson = await saveRes.json().catch(() => ({}))
+          uploadedKey = saveJson?.key || uploadedKey
+        }
+      } catch (e) {
+        console.warn('images/complete (cf_id) resolution failed', e)
+      }
+    }
+    if (!uploadedKey) throw new Error('upload did not return a canonical key')
+    return { key: uploadedKey }
+  }
+
   const addAttachmentSlot = () => {
     if (attachmentSlots.length < 4) {
       setAttachmentSlots([...attachmentSlots, { file: null, key: "" }])
@@ -246,140 +322,128 @@ export default function ProductNewPage() {
     setRelatedLinks(relatedLinks.filter((_, i) => i !== index))
   }
 
-  const handleSave = async (publishOverride?: boolean) => {
-    const user = currentUser || auth.getCurrentUser()
-    if (!user) {
+  const handleSave = async () => {
+    if (!title || !mainImageKey) {
       toast({
         variant: "destructive",
         title: "エラー",
-        description: "ログインが必要です"
-      })
-      router.push('/admin/login')
-      return
-    }
-
-    const finalPublished = typeof publishOverride === 'boolean' ? publishOverride : published
-
-    if (!title) {
-      toast({
-        variant: "destructive",
-        title: "エラー",
-        description: "タイトルは必須です"
+        description: "タイトルとメイン画像は必須です"
       })
       return
     }
 
-    // If publishing (not saving a draft) require an image
-    if (finalPublished && (!imageFile && !mainImageKey)) {
-      toast({
-        variant: "destructive",
-        title: "エラー",
-        description: "公開するにはタイトルと画像が必要です"
-      })
-      return
-    }
+    const images: any[] = []
 
-    const generatedProductId = productId || `prod-${Date.now()}`
-
-    // Ensure we have canonical keys for main image and attachments.
-    let finalMainKey = mainImageKey
-    if (!finalMainKey && imageFile) {
-      // upload via local cache helper which will call /api/images/complete and return a key
-      const base64 = await fileToBase64(imageFile)
-      const genKey = `prod-${generatedProductId}-main-${Date.now()}`
-      try {
-        const returned = await db.images.saveUpload(genKey, base64)
-        finalMainKey = returned || genKey
-        setMainImageKey(finalMainKey)
-      } catch (e) {
-        console.error('main image save failed', e)
+    let finalMainKey: string | undefined = undefined
+    let finalAttachmentSlots = attachmentSlots
+    try {
+      if (mainFile) {
+        const u = await uploadFile(mainFile)
+        finalMainKey = (u as any)?.key || undefined
+        if (!finalMainKey) {
+          toast({ variant: 'destructive', title: 'アップロードエラー', description: '画像アップロードがキーを返しませんでした。管理画面はキーのみを保存します。' })
+          return
+        }
+        try {
+          const usage = 'list'
+          const resp = responsiveImageForUsage(finalMainKey || '', usage as any)
+          if (resp?.src) setMainImagePreview(resp.src)
+        } catch (e) {}
+        setMainFile(null)
       }
-    }
-    if (!finalMainKey) {
-      toast({ variant: "destructive", title: "エラー", description: "画像のアップロードに失敗しました" })
+
+      const newAttachmentSlots = await Promise.all(
+        attachmentSlots.map(async (slot) => {
+              if (slot.file && !slot.key) {
+            try {
+                  const u = await uploadFile(slot.file)
+                  const k = (u as any)?.key
+                  if (!k) {
+                    console.error('attachment upload did not return a key', u)
+                    return { ...slot }
+                  }
+                  return { file: null, key: k }
+            } catch (e) {
+              console.error('attachment upload failed', e)
+              return { ...slot }
+            }
+          }
+          return slot
+        })
+      )
+      finalAttachmentSlots = newAttachmentSlots
+      setAttachmentSlots(newAttachmentSlots)
+    } catch (e) {
+      console.error('upload before save failed', e)
+      toast({ variant: 'destructive', title: 'アップロードエラー', description: '画像アップロード中にエラーが発生しました。' })
       return
     }
 
-    const attachmentImages = await Promise.all(
-      attachmentSlots
-        .map((slot, idx) => ({ slot, idx }))
-        .filter(({ slot }) => slot.file || slot.key)
-        .map(async ({ slot, idx }) => ({
-          id: `img-attachment-${Date.now()}-${idx}`,
-            productId: generatedProductId,
-            // persist attachment as key-only; if only file present, upload to obtain key
-            key: slot.key || (slot.file ? await db.images.saveUpload(`prod-${generatedProductId}-att-${idx}-${Date.now()}`, await fileToBase64(slot.file)) : ""),
-            aspect: "1:1",
-            role: "attachment" as const,
-        })),
-    )
+    images.push({
+      key: finalMainKey || mainImageKey,
+      role: "main",
+      aspect: "1:1",
+    })
 
-    // Guard: do not allow URL-shaped keys to be persisted
-    if (attachmentImages.some((a) => typeof a.key === 'string' && a.key.startsWith('http'))) {
-      toast({ variant: 'destructive', title: '保存中止', description: '添付画像のキーがURLになっています。キーのみを保存してください。' })
+    // Guard: ensure no URL-shaped keys are persisted
+    if (images.some((img) => typeof img.key === 'string' && img.key.startsWith('http'))) {
+      toast({ variant: 'destructive', title: '保存中止', description: '画像のキーにURLが含まれています。キーのみ保存してください。' })
       return
     }
 
-    const newProduct: Product = {
-      id: generatedProductId,
-      userId: user.id,
+    finalAttachmentSlots.forEach((slot) => {
+      if (slot.key) {
+        images.push({
+          key: slot.key,
+          role: "attachment",
+          aspect: "1:1"
+        })
+      }
+    })
+
+    const productData = {
       title,
-      slug: title.toLowerCase().replace(/\s+/g, "-"),
       shortDescription,
       body,
       notes: notes.trim() || undefined,
       relatedLinks: relatedLinks.filter((link) => link.trim()),
-      images: [
-        {
-          id: `img-${Date.now()}`,
-          productId: generatedProductId,
-          key: finalMainKey,
-          aspect: "1:1",
-          role: "main" as const,
-        },
-        ...attachmentImages,
-      ],
+      images,
       affiliateLinks: affiliateLinks.filter((link) => link.url),
       tags,
       price: price ? Number(price) : undefined,
       showPrice,
-      published: finalPublished,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      published,
     }
 
     try {
-      const res = await apiFetch('/api/admin/products', {
-        method: 'POST',
+      if (!id) throw new Error('Invalid product id')
+      const res = await apiFetch(`/api/admin/products/${id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newProduct),
+        body: JSON.stringify(productData),
       })
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: '保存に失敗しました' }))
-        toast({ variant: 'destructive', title: 'エラー', description: err.error || '商品保存に失敗しました' })
-        return
+        throw new Error(err.error)
       }
 
-      const json = await res.json()
-      if (json.errors) {
-        const messages = Object.entries(json.errors)
-          .map(([k, v]) => `${k}: ${String(v)}`)
-          .join('\n')
-        toast({ variant: 'destructive', title: '一部保存に失敗しました', description: messages })
-      }
-
-      const created = json.data || json
-
-      // Draft cleanup disabled: no server-side draft endpoint call.
-
-      toast({ title: '作成完了', description: '商品を追加しました' })
+      toast({ title: '更新完了', description: '商品情報を更新しました' })
       router.push('/admin/products')
-    } catch (e) {
-      console.error('product create error', e)
-      toast({ variant: 'destructive', title: 'エラー', description: '商品作成中にエラーが発生しました' })
+      router.refresh()
+    } catch (e: any) {
+      console.error('product update error', e)
+      toast({ variant: 'destructive', title: 'エラー', description: e.message || '商品更新中にエラーが発生しました' })
     }
   }
+
+  // NOTE:
+  // Do not block the entire page render while loading product data.
+  // Render the edit UI immediately (with empty state / disabled actions)
+  // and let the client-side effect populate the form when the API
+  // call completes. This prevents the dashboard-only shell from
+  // appearing and ensures the AdminLayout (whoami) controls only
+  // authentication, not individual page data fetching.
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
@@ -391,23 +455,18 @@ export default function ProductNewPage() {
             </Link>
           </Button>
           <div>
-            <h1 className="text-2xl font-bold">商品を追加</h1>
-            <p className="text-sm text-muted-foreground">新しい商品情報を登録</p>
+            <h1 className="text-2xl font-bold">商品を編集</h1>
+            <p className="text-sm text-muted-foreground">{title}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => handleSave(false)} disabled={!title}>
-            下書きとして保存
-          </Button>
-          <Button onClick={() => handleSave(true)} size="lg" disabled={!title || !(imageFile || mainImageKey)}>
-            <Save className="w-4 h-4 mr-2" />
-            公開して保存
-          </Button>
-        </div>
+        <Button onClick={handleSave} size="lg" disabled={!title || !mainImageKey}>
+          <Save className="w-4 h-4 mr-2" />
+          保存
+        </Button>
       </div>
 
       <div className="space-y-6">
-        {/* 省略せず元実装のフォームをそのまま移植 */}
+        {/* フォーム（元実装と同じ） */}
         <Card>
           <CardHeader>
             <CardTitle>基本情報</CardTitle>
@@ -547,15 +606,17 @@ export default function ProductNewPage() {
           </CardHeader>
           <CardContent>
             <ImageUpload
-                  value={mainImagePreview || getPublicImageUrl(mainImageKey || '') || ""}
-                  onChange={setImageFile}
-                  aspectRatioType="product"
-                  onUploadComplete={(key) => {
-                    if (!key) return
+                value={mainImagePreview || getPublicImageUrl(mainImageKey || '') || ""}
+                onChange={(f) => setMainFile(f)}
+                aspectRatioType="product"
+                onUploadComplete={(key) => {
+                  if (key) {
                     setMainImageKey(key)
                     try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
-                  }}
-                />
+                    setMainFile(null)
+                  }
+                }}
+              />
           </CardContent>
         </Card>
 
@@ -579,17 +640,17 @@ export default function ProductNewPage() {
                   onChange={(f) => handleAttachmentChange(index, f)}
                   aspectRatioType="product"
                   onUploadComplete={(key) => {
-                      if (!key) return
-                      if (typeof key === 'string' && key.startsWith('http')) {
-                        toast({ variant: 'destructive', title: '無効な画像キー', description: 'アップロード結果がURLでした。管理画面はキーのみを保存します。' })
-                        return
-                      }
-                      setAttachmentSlots((prev) => {
-                        const next = [...prev]
-                        if (next[index]) next[index] = { ...next[index], key: key }
-                        return next
-                      })
-                    }}
+                    if (!key) return
+                    if (typeof key === 'string' && key.startsWith('http')) {
+                      toast({ variant: 'destructive', title: '無効な画像キー', description: 'アップロード結果がURLでした。管理画面はキーのみを保存します。' })
+                      return
+                    }
+                    setAttachmentSlots((prev) => {
+                      const next = [...prev]
+                      if (next[index]) next[index] = { ...next[index], key }
+                      return next
+                    })
+                  }}
                 />
               </div>
             ))}
@@ -614,31 +675,24 @@ export default function ProductNewPage() {
                   <div className="space-y-2">
                     <Label>リンク先テンプレート</Label>
                     <Select
-                      value={link.provider || ""}
-                      onValueChange={(value) => applyLinkTagTemplate(index, value)}
+                      value={affiliateTemplateOptions.find((t) => t.name === link.provider)?.id || ""}
+                      onValueChange={(value) => applyAffiliateTemplate(index, value)}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="選択してください" />
                       </SelectTrigger>
                       <SelectContent>
-                        {(tagGroups['リンク先'] || []).map((tagName) => {
-                          const tagObj = (availableTags || []).find((t: any) => t.name === tagName)
-                          const display = tagObj ? (tagObj.linkLabel || tagObj.link_label || tagName) : tagName
-                          return (
-                            <SelectItem key={tagName} value={tagName}>
-                              {display}
-                            </SelectItem>
-                          )
-                        })}
-                        {(tagGroups['リンク先'] || []).length === 0 &&
-                          AFFILIATE_LINK_TEMPLATES.map((template) => (
-                            <SelectItem key={template.id} value={template.name}>
+                        {affiliateTemplateOptions.length === 0 ? (
+                          <SelectItem value="__no-template__" disabled>テンプレートがありません</SelectItem>
+                        ) : (
+                          affiliateTemplateOptions.map((template) => (
+                            <SelectItem key={template.id} value={template.id}>
                               {template.name}
                             </SelectItem>
-                          ))}
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">タグで管理されたリンク先を選択できます</p>
                   </div>
 
                   <div className="space-y-2">
@@ -668,12 +722,9 @@ export default function ProductNewPage() {
                       value={link.label}
                       onChange={(e) => updateAffiliateLink(index, "label", e.target.value)}
                     />
-                    <p className="text-xs text-muted-foreground">
-                      テンプレート選択時に自動入力されます
-                    </p>
                   </div>
                 </div>
-                {affiliateLinks.length > 1 && (
+                {affiliateLinks.length > 0 && (
                   <Button type="button" variant="ghost" size="icon" onClick={() => removeAffiliateLink(index)}>
                     <Trash2 className="w-4 h-4" />
                   </Button>

@@ -49,16 +49,49 @@ export async function forwardToPublicWorker(req: Request) {
     } catch {}
 
     // Explicitly forward cookie exactly as received from the browser
+    let cookieHeader = ''
     try {
-      const cookie = req.headers.get('cookie') || req.headers.get('Cookie') || ''
-      proxyHeaders.set('Cookie', cookie)
+      cookieHeader = req.headers.get('cookie') || req.headers.get('Cookie') || ''
+      proxyHeaders.set('Cookie', cookieHeader)
     } catch {}
 
-    // Always forward explicit identity headers if present (or empty string)
-    try {
-      const xuid = req.headers.get('x-user-id') || req.headers.get('X-User-Id') || ''
-      proxyHeaders.set('X-User-Id', xuid)
-    } catch {}
+    // For sensitive endpoints (images/complete) enforce server-side user verification
+    const isImagesComplete = incomingPath === '/api/images/complete' || incomingPath.startsWith('/api/images/complete/')
+
+    if (isImagesComplete) {
+      // Parse sb-access-token from cookie and verify via Supabase /auth/v1/user
+      let verifiedUserId = ''
+      try {
+        const cookieMatch = cookieHeader.match(/sb-access-token=([^;\s]+)/)
+        const accessToken = cookieMatch ? decodeURIComponent(cookieMatch[1]) : ''
+        if (accessToken && process.env.SUPABASE_URL) {
+          const supaUrl = process.env.SUPABASE_URL.replace(/\/$/, '')
+          const headers: Record<string,string> = { 'Authorization': `Bearer ${accessToken}` }
+          if (process.env.SUPABASE_ANON_KEY) headers['apikey'] = process.env.SUPABASE_ANON_KEY
+          const whoami = await fetch(supaUrl + '/auth/v1/user', { method: 'GET', headers })
+          if (whoami && whoami.ok) {
+            const uj = await whoami.json().catch(() => null)
+            verifiedUserId = uj?.id || uj?.sub || ''
+          }
+        }
+      } catch (e) {
+        // ignore and fall through to missing_user_id
+      }
+
+      if (!verifiedUserId) {
+        return new Response(JSON.stringify({ ok: false, error: 'missing_user_id' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+      }
+
+      // Enforce server-verified X-User-Id (override any client-supplied header)
+      proxyHeaders.set('X-User-Id', verifiedUserId)
+    } else {
+      // Always forward explicit identity headers if present (or empty string)
+      try {
+        const xuid = req.headers.get('x-user-id') || req.headers.get('X-User-Id') || ''
+        proxyHeaders.set('X-User-Id', xuid)
+      } catch {}
+    }
+
     try {
       const auth = req.headers.get('authorization') || req.headers.get('Authorization') || ''
       if (auth) proxyHeaders.set('Authorization', auth)
@@ -70,11 +103,31 @@ export async function forwardToPublicWorker(req: Request) {
       proxyHeaders.set('Host', originHost)
     } catch {}
 
+    // If this is images/complete, sanitize JSON body by removing any client-supplied user_id
+    let forwardBody: any = req.body
+    if (isImagesComplete && !['GET','HEAD'].includes(req.method)) {
+      try {
+        const ct = req.headers.get('content-type') || ''
+        if (ct.indexOf('application/json') !== -1) {
+          const parsed = await req.json().catch(() => null)
+          if (parsed && typeof parsed === 'object') {
+            delete parsed.user_id
+            delete parsed.userId
+            forwardBody = JSON.stringify(parsed)
+            // ensure content-type header is set for the proxied request
+            proxyHeaders.set('Content-Type', 'application/json')
+          }
+        }
+      } catch (e) {
+        // ignore and forward original body
+      }
+    }
+
     const init: RequestInit = {
       method: req.method,
       headers: proxyHeaders,
       // body can be forwarded directly; for GET/HEAD there is no body
-      body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.body,
+      body: ['GET', 'HEAD'].includes(req.method) ? undefined : forwardBody,
       // keep credentials via cookie header if present
       redirect: 'manual',
     }

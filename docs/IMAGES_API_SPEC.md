@@ -98,8 +98,8 @@
 3. アップロード成功後、クライアントは `POST /api/images/complete`（public-worker へ直接、または admin-proxy 経由）を呼ぶ:
   - Body には少なくとも `{ "key": "r2/or/cf/key", "filename": "...", "target": "profile" }` を送る。
   - ブラウザは HttpOnly の `sb-access-token` cookie を保持しているため、同一オリジンの admin-proxy 経由で呼ぶ場合は cookie が送信され、proxy が `X-User-Id` を付与して public-worker に転送する。
-4. `admin-site` の互換 App Route (`/api/images/save`) は（非推奨）:
-  - 注: クライアントは可能な限り直接 `POST /api/images/complete`（public-worker）を呼び出すことを推奨します。互換の `/api/images/save` は admin 側の proxy として一時的に残されています。
+4. `admin-site` の互換 App Route (`/api/images/save`) は互換で残るが非推奨（推奨: `/api/images/complete`）:
+  - 注: クライアントは可能な限り直接 `POST /api/images/complete`（public-worker）を呼び出すことを推奨します。互換の `/api/images/save` は admin 側の proxy として一時的に残されていますが、将来的に削除予定です。
   - リクエスト body をサニタイズ（`url` フィールドを拒否）し、`sb-access-token` を REST 経由で検証して userId を解決（`getUserIdFromCookieHeader` で `/auth/v1/user` を呼ぶ）。
   - 有効ユーザーが得られれば `X-User-Id` を付与して `public-worker` の `/api/images/complete` に proxy する。
 5. `public-worker` の `/api/images/complete` は:
@@ -169,6 +169,7 @@ curl -v -X POST "https://public-worker.example.com/api/images/complete" -H "Cont
 
 ## 変更履歴
 - 2025-12-14: ドキュメント作成。`admin-site` と `public-worker` の現行実装を走査してまとめました。
+- 2025-12-14: 商品・レシピの下書き（draft）保存を管理 UI に追加。下書き保存は画像必須ではなく、公開時に画像を必須とするバリデーションを行います。
 
 ---
 

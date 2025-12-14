@@ -46,7 +46,7 @@ curl -v -X POST "https://admin.shirasame.com/api/images/complete" \
   - すでに一部デバッグログ（ヘッダ出力）を出すコードが含まれているため実行ログで到達状況は確認できる。
 
 - `admin-site/components/image-upload.tsx`:
-  - 管理 UI はアップロード後に `/api/images/save` を呼ぶ。admin プロキシが 404 を返すと、クライアントはフォールバックで public-worker への直接 POST を試行する仕組みを持つよう修正済み（ただし `X-User-Id` をクライアントから入れるのはテスト用で、本番ではサーバー側でのトークン検証が必須）。
+  - 管理 UI はアップロード後に `/api/images/complete` を呼ぶ（旧来の `/api/images/save` 経路は互換で存在するが非推奨）。admin プロキシが 404 を返すと、クライアントはフォールバックで public-worker への直接 POST を試行する仕組みを持つよう修正済み（ただし `X-User-Id` をクライアントから入れるのはテスト用で、本番ではサーバー側でのトークン検証が必須）。
 
 検証すべきポイント（チェックリスト）
 1. admin が同一オリジン（https://admin.shirasame.com）で動いており、ブラウザが HttpOnly Cookie (`sb-access-token`) を送っているか。Network タブで `Request Headers` の `Cookie` を確認。
@@ -60,7 +60,7 @@ curl -v -X POST "https://admin.shirasame.com/api/images/complete" \
 コマンド例（現地での実行と確認）
 - admin 経由（相互に確認）
 ```powershell
-curl -v -X POST "https://admin.shirasame.com/api/images/save" \
+curl -v -X POST "https://admin.shirasame.com/api/images/complete" \
   -H "Content-Type: application/json" \
   --data '{"key":"images/your-test-key.jpg"}'
 ```
@@ -79,17 +79,17 @@ curl -v "https://your-images-domain/cdn-cgi/image/width=200,format=auto,quality=
 ```
 
 成功の条件（期待値）
-- `/api/images/save` 経由で呼ぶと public-worker により `{ "key": "images/...." }` が返ること。
+ - `/api/images/complete` 経由で呼ぶと public-worker により `{ "key": "images/...." }` が返ること（`/api/images/save` は互換で一時的に残るが非推奨）。
 - public-worker のレスポンスで `key` が返り、DB（Supabase）に key が登録されること（管理画面のレコードに key の参照が残る）。
 - 表示側で `responsiveImageForUsage(key, usage)` を使って生成された `/cdn-cgi/image/.../<key>` に対して 1回目の GET は 200、2回目以降に `cf-cache-status: HIT` または CDN の `Cache-Control` ヘッダによりエッジキャッシュから配信されること。
 
 暫定的にリポジトリへ適用済みの修正（要点）
 - `admin-site/lib/api-proxy.ts`: 相対 URL を `PUBLIC_WORKER_API_BASE` に対して解決する修正を適用。
-- `admin-site/app/api/images/save/route.ts`: テスト用に `user_id` を JSON で受け取った場合に `X-User-Id` ヘッダへ変換して direct POST するフォールバックを追加（暫定）。
+- `admin-site/app/api/images/save/route.ts`（互換）: テスト用に `user_id` を JSON で受け取った場合に `X-User-Id` ヘッダへ変換して `public-worker` の `/api/images/complete` に direct POST するフォールバックを追加（暫定）。
 - `admin-site/components/image-upload.tsx`: admin proxy が失敗した場合の direct-complete フォールバックを強化（runtime の `USER_ID` 注入をヘッダに含めるなど）。
 
 推奨される本番対応（優先度順）
-1. 安全化: `admin-site/app/api/images/save/route.ts` で `sb-access-token` を Supabase にサーバー側で検証し、検証成功時に `X-User-Id` を付与する実装に置き換える（クライアント送信 `user_id` を信頼する暫定処理は削除）。
+1. 安全化: `admin-site/app/api/images/save/route.ts`（互換 proxy）または admin の proxy 実装で `sb-access-token` を Supabase にサーバー側で検証し、検証成功時に `X-User-Id` を付与する実装に置き換える（クライアント送信 `user_id` を信頼する暫定処理は削除）。
 2. 確実な proxy: `forwardToPublicWorker` が `Cookie` と `Authorization`、および `X-User-Id` を確実に転送することを保証する。必要なら一時的に転送先 URL をログ出力して問題特定。
 3. public-worker のログ確認: `resolveRequestUserContext` のログ（既にデバッグ出力あり）で実際に受信しているヘッダと token の整合性を確認する。
 4. 画像表示: フロントエンド側で必ず `public-site/shared/lib/image-usecases.ts` の `responsiveImageForUsage` を使って URL を生成することを確認。JSX 内で直接フル URL を埋め込む箇所があれば修正。
