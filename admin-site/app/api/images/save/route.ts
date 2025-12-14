@@ -1,4 +1,5 @@
 import { forwardToPublicWorker } from '@/lib/api-proxy'
+import { getUserIdFromCookieHeader } from '@/lib/server-auth'
 
 // Compatibility route: some older client bundles post to /api/images/save.
 // Forward as a POST to /api/images/complete on the public worker.
@@ -47,19 +48,11 @@ export async function POST(req: Request) {
     // Prefer an explicit `user_id` field in the JSON payload if provided
     // (useful for testing). We'll forward it as `X-User-Id` header and
     // avoid persisting it in the request body.
-    let explicitUserId: string | null = null
-    try {
-      if (parsed && typeof parsed === 'object' && parsed.user_id) {
-        explicitUserId = String(parsed.user_id)
-        // Rebuild outBodyBuf to ensure user_id is not present
-        try {
-          const stext = new TextDecoder().decode(outBodyBuf)
-          const sjson = stext ? JSON.parse(stext) : {}
-          if (sjson && typeof sjson === 'object' && 'user_id' in sjson) delete sjson.user_id
-          outBodyBuf = new TextEncoder().encode(JSON.stringify(sjson)).buffer
-        } catch {}
-      }
-    } catch {}
+    // Reject any client-supplied user identifiers to enforce server-side
+    // identity derivation. Clients MUST not supply `user_id`.
+    if (parsed && typeof parsed === 'object' && Object.prototype.hasOwnProperty.call(parsed, 'user_id')) {
+      return new Response(JSON.stringify({ error: 'user_id_not_allowed' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    }
 
     // Forward sanitized request to public worker's images/complete endpoint.
     const destPath = '/api/images/complete' + url.search
@@ -80,30 +73,18 @@ export async function POST(req: Request) {
     // the user id (sub) from the JWT payload and set X-User-Id so the
     // public-worker can resolve context without relying solely on cookies
     // forwarded through intermediate networks.
+    // Resolve the authenticated user id server-side from the HttpOnly
+    // `sb-access-token` cookie. This ensures we never trust client-supplied
+    // identity values. If no valid user can be resolved, reject the request.
     try {
-      const cookieHeader = req.headers.get('cookie') || req.headers.get('Cookie') || ''
-      const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
-      if (m && m[1]) {
-        try {
-          const token = decodeURIComponent(m[1])
-          const parts = token.split('.')
-          if (parts.length >= 2) {
-            // base64url decode payload
-            const payloadB64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-            const pad = payloadB64.length % 4
-            const padded = payloadB64 + (pad === 2 ? '==' : pad === 3 ? '=' : pad === 0 ? '' : '')
-            const jsonStr = Buffer.from(padded, 'base64').toString('utf8')
-            try {
-              const parsed = JSON.parse(jsonStr)
-                const sub = parsed?.sub || parsed?.user_id || parsed?.uid || null
-                // Only set from cookie if an explicit user id wasn't provided
-                if (sub && !headers.get('X-User-Id')) headers.set('X-User-Id', String(sub))
-            } catch {}
-          }
-        } catch {}
+      const cookieHeader = req.headers.get('cookie') || req.headers.get('Cookie') || null
+      const userId = await getUserIdFromCookieHeader(cookieHeader)
+      if (!userId) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
       }
+      headers.set('X-User-Id', String(userId))
     } catch (e) {
-      // best-effort only
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
     }
 
     // If an explicitUserId was provided by the client, prefer a direct
@@ -111,33 +92,9 @@ export async function POST(req: Request) {
     // is present (this is useful for testing and avoids any proxy header
     // normalization surprises). Otherwise fall back to the shared proxy
     // forwardToPublicWorker implementation.
-    let resp: Response
-    if (explicitUserId) {
-      try {
-        const apiBase = (process.env.PUBLIC_WORKER_API_BASE || process.env.API_BASE_ORIGIN || 'https://public-worker.shirasame-official.workers.dev').replace(/\/$/, '')
-        const destFull = apiBase + destPath
-        const directHeaders = new Headers()
-        // copy relevant headers
-        try {
-          for (const [k, v] of headers.entries()) {
-            const lk = k.toLowerCase()
-            if (lk === 'host') continue
-            directHeaders.set(k, v)
-          }
-        } catch {}
-        directHeaders.set('X-User-Id', explicitUserId)
-        // ensure content-type is set
-        if (!directHeaders.get('Content-Type')) directHeaders.set('Content-Type', 'application/json')
-        resp = await fetch(destFull, { method: 'POST', headers: directHeaders, body: outBodyBuf, redirect: 'manual' })
-      } catch (e) {
-        // fallback to proxy if direct fetch fails
-        const newReq = new Request(destPath, { method: 'POST', body: outBodyBuf, headers })
-        resp = await forwardToPublicWorker(newReq)
-      }
-    } else {
-      const newReq = new Request(destPath, { method: 'POST', body: outBodyBuf, headers })
-      resp = await forwardToPublicWorker(newReq)
-    }
+    // Forward the sanitized, authenticated request to the public-worker.
+    const newReq = new Request(destPath, { method: 'POST', body: outBodyBuf, headers })
+    const resp = await forwardToPublicWorker(newReq)
 
     // Parse response and normalize to { key }
     try {
