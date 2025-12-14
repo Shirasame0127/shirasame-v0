@@ -20,6 +20,7 @@ export default function AdminDashboard() {
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [productCount, setProductCount] = useState<number | null>(null)
+  const [publishedCount, setPublishedCount] = useState<number | null>(null)
 
   const pathname = usePathname()
 
@@ -55,13 +56,17 @@ export default function AdminDashboard() {
         if (cntRes && cntRes.ok) {
           const cntJson = await cntRes.json().catch(() => null)
           const total = cntJson?.meta?.total ?? (Array.isArray(cntJson?.data) ? cntJson.data.length : null)
+          const pub = cntJson?.meta?.publishedTotal ?? null
           setProductCount(typeof total === 'number' ? total : loadedProducts.length)
+          setPublishedCount(typeof pub === 'number' ? pub : loadedProducts.filter((p) => p.published).length)
         } else {
           setProductCount(loadedProducts.length)
+          setPublishedCount(loadedProducts.filter((p) => p.published).length)
         }
       } catch (e) {
         console.warn('[v0] failed to fetch product count', e)
         setProductCount(loadedProducts.length)
+        setPublishedCount(loadedProducts.filter((p) => p.published).length)
       }
 
       console.log("[v0] Dashboard: Products loaded:", loadedProducts.length)
@@ -112,7 +117,7 @@ export default function AdminDashboard() {
       title: "商品数",
       value: productCount ?? products.length,
       icon: Package,
-      description: `${products.filter((p) => p.published).length}件公開中`,
+      description: `${publishedCount ?? products.filter((p) => p.published).length}件公開中`,
       link: "/admin/products",
     },
     {

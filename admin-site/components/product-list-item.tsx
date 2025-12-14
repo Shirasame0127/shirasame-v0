@@ -36,7 +36,9 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
       setPublishedState(prev)
     }
   }
-  const mainImage = product.images?.find((img) => img.role === "main") || product.images?.[0]
+  // Prefer authoritative `main_image_key` column when present, otherwise fall back to images array
+  const mainImageFromImages = product.images?.find((img) => img.role === "main") || product.images?.[0]
+  const mainImage = product.main_image_key ? { key: product.main_image_key } as any : mainImageFromImages
 
   const handleDelete = async () => {
     if (!product?.id) {
@@ -65,7 +67,7 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
           <div className="relative w-24 h-24 shrink-0 rounded-lg overflow-hidden bg-muted">
             {
               (() => {
-                // Try several candidate fields for image path (prefer key, then basePath, then legacy url)
+                // Try several candidate fields for image path (prefer key from `main_image_key`, then basePath, then legacy url)
                 const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || (mainImage as any)?.url || null
                 const resp = responsiveImageForUsage(raw, 'list')
                 const placeholder = "/placeholder.svg?height=200&width=200"

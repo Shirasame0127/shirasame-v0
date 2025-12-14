@@ -1469,18 +1469,34 @@ app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
           const res = await supabase.from('products').select('id', { count: 'exact' }).eq('user_id', ctx.userId).order('created_at', { ascending: false }).range(0, 0)
           const data = res.data || []
           const total = typeof (res as any).count === 'number' ? (res as any).count : null
+          // also compute published count when available
+          let publishedTotal: number | null = null
+          try {
+            const pres = await supabase.from('products').select('id', { count: 'exact' }).eq('user_id', ctx.userId).eq('published', true).range(0, 0)
+            publishedTotal = typeof (pres as any).count === 'number' ? (pres as any).count : null
+          } catch (e) {
+            try { console.warn('[DBG] published count query failed', String(e)) } catch {}
+          }
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-          const meta = total != null ? { total, limit: 0, offset } : undefined
+          const meta = total != null ? Object.assign({ total, limit: 0, offset }, publishedTotal != null ? { publishedTotal } : {}) : undefined
           return new Response(JSON.stringify({ data: [], meta }), { headers: merged })
         } else {
           // fetch rows + exact count
           const res = await supabase.from('products').select(shallow ? selectShallow : selectFull, { count: 'exact' }).eq('user_id', ctx.userId).order('created_at', { ascending: false }).range(offset, offset + Math.max(0, limit - 1))
           const data = res.data || []
           const total = typeof (res as any).count === 'number' ? (res as any).count : null
+          // also compute published count
+          let publishedTotal: number | null = null
+          try {
+            const pres = await supabase.from('products').select('id', { count: 'exact' }).eq('user_id', ctx.userId).eq('published', true).range(0, 0)
+            publishedTotal = typeof (pres as any).count === 'number' ? (pres as any).count : null
+          } catch (e) {
+            try { console.warn('[DBG] published count query failed', String(e)) } catch {}
+          }
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-          const meta = total != null ? { total, limit, offset } : undefined
+          const meta = total != null ? Object.assign({ total, limit, offset }, publishedTotal != null ? { publishedTotal } : {}) : undefined
           return new Response(JSON.stringify({ data, meta }), { headers: merged })
         }
       }
