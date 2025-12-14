@@ -102,16 +102,24 @@ export default function ProductEditPage({ params }: { params: any }) {
           setAffiliateLinks(data.affiliateLinks)
         }
 
-        if (Array.isArray(data.images) && data.images.length > 0) {
+        // Prefer new product columns `main_image_key` / `attachment_image_keys` when present.
+        if (data.main_image_key) {
+          const k = data.main_image_key || ''
+          setMainImageKey(k)
+          try { setMainImagePreview(getPublicImageUrl(k) || '') } catch (e) {}
+        } else if (Array.isArray(data.images) && data.images.length > 0) {
           const main = data.images.find((img: any) => img.role === 'main') || data.images[0]
           if (main && (main.key || main.basePath)) {
-            // Persisted key resolution: prefer `key` then `basePath` only.
-            // NOTE: legacy `main.url` may exist in older records; allow read-time
-            // compatibility but do NOT persist `url` back to the DB/state.
             const key = main.key || main.basePath || ''
             setMainImageKey(key)
             try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
           }
+        }
+
+        if (Array.isArray(data.attachment_image_keys) && data.attachment_image_keys.length > 0) {
+          setAttachmentSlots((data.attachment_image_keys || []).slice(0,4).map((k: any) => ({ file: null, key: k || '' })))
+        } else if (Array.isArray(data.images) && data.images.length > 0) {
+          const main = data.images.find((img: any) => img.role === 'main') || data.images[0]
           const attachmentsByRole = data.images.filter((img: any) => img.role === 'attachment')
           let attachments: any[] = []
           if (attachmentsByRole.length > 0) {
@@ -119,7 +127,6 @@ export default function ProductEditPage({ params }: { params: any }) {
           } else {
             attachments = data.images.filter((img: any) => img !== main)
           }
-          // Persist attachments as key-only. Do not persist legacy `img.url`.
           setAttachmentSlots(attachments.slice(0, 4).map((img: any) => ({ file: null, key: img.key || img.basePath || '' })))
         }
         // No fallback to public API: admin UI must rely on admin API only.
@@ -408,6 +415,9 @@ export default function ProductEditPage({ params }: { params: any }) {
       notes: notes.trim() || undefined,
       relatedLinks: relatedLinks.filter((link) => link.trim()),
       images,
+      // Set authoritative product-level columns when available
+      main_image_key: images && images.length > 0 ? (images[0].key || mainImageKey) : mainImageKey,
+      attachment_image_keys: attachmentSlots.map((s) => s.key).filter(Boolean),
       affiliateLinks: affiliateLinks.filter((link) => link.url),
       tags,
       price: price ? Number(price) : undefined,

@@ -339,6 +339,9 @@ export default function ProductNewPage() {
         },
         ...attachmentImages,
       ],
+      // New authoritative product-level columns
+      main_image_key: finalMainKey,
+      attachment_image_keys: attachmentImages.map((a) => a.key).filter(Boolean),
       affiliateLinks: affiliateLinks.filter((link) => link.url),
       tags,
       price: price ? Number(price) : undefined,

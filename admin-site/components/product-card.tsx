@@ -18,6 +18,8 @@ interface Product {
   slug: string
   shortDescription?: string
   images?: ProductImage[]
+  main_image_key?: string | null
+  attachment_image_keys?: string[] | null
   tags?: string[]
   price?: number
 }
@@ -33,7 +35,9 @@ interface ProductCardProps {
 
 export function ProductCard({ product, size = "md", isAdminMode = false, onClick }: ProductCardProps) {
   const images: ProductImage[] = product.images || []
-  const mainImage = images.find((img: ProductImage) => img?.role === "main") || images[0] || null
+  const mainRawFromProduct = product.main_image_key || null
+  const mainImageFromImages = images.find((img: ProductImage) => img?.role === "main") || images[0] || null
+  const mainImage = mainRawFromProduct ? { key: mainRawFromProduct } as ProductImage : mainImageFromImages
 
   const getActiveSaleInfo = () => {
     const me = getCurrentUser && getCurrentUser()

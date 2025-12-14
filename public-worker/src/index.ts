@@ -1565,6 +1565,30 @@ app.post('/api/admin/products', async (c) => {
       if (!insertBody.updated_at) insertBody.updated_at = now
     } catch {}
 
+    // Derive product-level image columns when possible
+    try {
+      const imagesRaw = body && (body.images || body.images) ? (body.images || body.images) : null
+      // prefer explicit fields if provided
+      const mainKeyExplicit = body && (body.main_image_key || body.mainImageKey) ? (body.main_image_key || body.mainImageKey) : null
+      const attachmentsExplicit = body && (body.attachment_image_keys || body.attachmentImageKeys) && Array.isArray(body.attachment_image_keys || body.attachmentImageKeys) ? (body.attachment_image_keys || body.attachmentImageKeys) : null
+      if (mainKeyExplicit && typeof mainKeyExplicit === 'string') {
+        insertBody.main_image_key = mainKeyExplicit
+      } else if (Array.isArray(imagesRaw) && imagesRaw.length > 0) {
+        const first = imagesRaw.find((img: any) => img && (img.role === 'main' || !img.role)) || imagesRaw[0]
+        const candidate = first && (first.key || first.basePath || (typeof first.url === 'string' ? first.url : null)) ? (first.key || first.basePath || first.url) : null
+        if (candidate && typeof candidate === 'string' && !candidate.startsWith('http')) insertBody.main_image_key = candidate
+      }
+      if (attachmentsExplicit) {
+        insertBody.attachment_image_keys = (attachmentsExplicit || []).filter((k: any) => typeof k === 'string' && !k.startsWith('http'))
+      } else if (Array.isArray(imagesRaw) && imagesRaw.length > 0) {
+        const att = imagesRaw.filter((img: any) => img && (img.role === 'attachment' || (!img.role && img !== imagesRaw[0])))
+        const keys = att.map((a: any) => a.key || a.basePath || (typeof a.url === 'string' ? a.url : null)).filter((k: any) => typeof k === 'string' && !k.startsWith('http'))
+        if (keys.length > 0) insertBody.attachment_image_keys = keys
+      }
+    } catch (e) {
+      try { console.warn('[DBG] deriving product-level image keys failed', String(e)) } catch {}
+    }
+
     // Debug shortcut: if caller sets __debug=true in body, return the computed
     // insertBody without performing DB operations to inspect payload shape.
     try {
@@ -1726,6 +1750,27 @@ app.put('/api/admin/products/*', async (c) => {
     if (typeof body.related_links !== 'undefined') updates.related_links = Array.isArray(body.related_links) ? body.related_links : (Array.isArray(body.relatedLinks) ? body.relatedLinks : null)
     if (typeof body.notes !== 'undefined') updates.notes = body.notes
     if (typeof body.show_price !== 'undefined') updates.show_price = !!body.show_price
+
+    // Handle product-level image fields: prefer explicit fields, otherwise derive from body.images
+    try {
+      if (typeof body.main_image_key !== 'undefined') {
+        updates.main_image_key = body.main_image_key || null
+      } else if (Array.isArray(body.images) && body.images.length > 0) {
+        const first = body.images.find((img: any) => img && (img.role === 'main' || !img.role)) || body.images[0]
+        const candidate = first && (first.key || first.basePath || (typeof first.url === 'string' ? first.url : null)) ? (first.key || first.basePath || first.url) : null
+        if (candidate && typeof candidate === 'string' && !candidate.startsWith('http')) updates.main_image_key = candidate
+      }
+
+      if (typeof body.attachment_image_keys !== 'undefined' && Array.isArray(body.attachment_image_keys)) {
+        updates.attachment_image_keys = (body.attachment_image_keys || []).filter((k: any) => typeof k === 'string' && !k.startsWith('http'))
+      } else if (Array.isArray(body.images) && body.images.length > 0) {
+        const att = body.images.filter((img: any) => img && (img.role === 'attachment' || (!img.role && img !== body.images[0])))
+        const keys = att.map((a: any) => a.key || a.basePath || (typeof a.url === 'string' ? a.url : null)).filter((k: any) => typeof k === 'string' && !k.startsWith('http'))
+        if (keys.length > 0) updates.attachment_image_keys = keys
+      }
+    } catch (e) {
+      try { console.warn('[DBG] deriving product-level updates failed', String(e)) } catch {}
+    }
 
     const { data: up, error: upErr } = await supabase.from('products').update(updates).eq('id', id).select('*')
     if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の更新に失敗しました', upErr.message || upErr, 'db_error', 500)
