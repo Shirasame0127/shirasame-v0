@@ -1196,6 +1196,45 @@ app.delete('/api/admin/tags', async (c) => {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ削除中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
 })
+
+// Admin: create single tag (convenience)
+app.post('/api/admin/tags', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const name = body.name ? String(body.name).trim() : ''
+    const group = typeof body.group !== 'undefined' ? body.group : null
+    const linkUrl = body.linkUrl || body.link_url || null
+    const linkLabel = body.linkLabel || body.link_label || null
+    const sortOrder = typeof body.sortOrder !== 'undefined' ? Number(body.sortOrder) : null
+    if (!name) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ名が必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+    const targetUser = body.userId ? String(body.userId) : actingUser
+    if (body.userId && body.userId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    // duplicate check
+    const { data: existing = [], error: existErr } = await supabase.from('tags').select('id,group').eq('user_id', targetUser).eq('name', name).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+    if (existing && existing.length > 0) {
+      const ex = existing[0]
+      const exGroup = ex.group ?? null
+      const tg = group ?? null
+      if ((exGroup === tg) || (exGroup == null && tg == null)) {
+        return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, `重複するタグが存在します: ${name}`, null, 'duplicate_tag', 400)
+      }
+    }
+
+    const insertBody: any = { name, group, link_url: linkUrl || null, link_label: linkLabel || null, sort_order: sortOrder, user_id: targetUser }
+    const { data: ins, error: insErr } = await supabase.from('tags').insert(insertBody).select('*')
+    if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+    return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ作成中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
 // /site-settings
 app.get('/site-settings', async (c) => {
   const upstreamUrl = upstream(c, '/api/site-settings')
