@@ -3287,12 +3287,14 @@ async function handleUploadImage(c: any) {
       try { console.warn('images: assign handling failed', String(e?.message || e)) } catch(e){}
     }
 
-    // Per CASE A (key-only) policy: return only the canonical `key`.
-    // Do not return provider hostnames, variants or additional metadata here.
+    // Per CASE A (key-only) policy: return canonical `key` and minimal upload metadata.
+    // We include `contentType` so clients can make safe display/resize fallbacks
+    // (for example when Cloudflare Image Resizing rejects a particular encoding).
     {
       const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ key }), { headers: merged })
+      const contentType = (file && (file.type || 'application/octet-stream')) || 'application/octet-stream'
+      return new Response(JSON.stringify({ key, contentType }), { headers: merged })
     }
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }

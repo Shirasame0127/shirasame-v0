@@ -53,6 +53,36 @@ export async function POST(req: Request) {
       headers.set(k, v)
     }
 
+    // Ensure user identity header is present when possible.
+    // If an HttpOnly sb-access-token cookie is available, try to extract
+    // the user id (sub) from the JWT payload and set X-User-Id so the
+    // public-worker can resolve context without relying solely on cookies
+    // forwarded through intermediate networks.
+    try {
+      const cookieHeader = req.headers.get('cookie') || req.headers.get('Cookie') || ''
+      const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
+      if (m && m[1]) {
+        try {
+          const token = decodeURIComponent(m[1])
+          const parts = token.split('.')
+          if (parts.length >= 2) {
+            // base64url decode payload
+            const payloadB64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+            const pad = payloadB64.length % 4
+            const padded = payloadB64 + (pad === 2 ? '==' : pad === 3 ? '=' : pad === 0 ? '' : '')
+            const jsonStr = Buffer.from(padded, 'base64').toString('utf8')
+            try {
+              const parsed = JSON.parse(jsonStr)
+              const sub = parsed?.sub || parsed?.user_id || parsed?.uid || null
+              if (sub) headers.set('X-User-Id', String(sub))
+            } catch {}
+          }
+        } catch {}
+      }
+    } catch (e) {
+      // best-effort only
+    }
+
     const newReq = new Request(destPath, { method: 'POST', body: outBodyBuf, headers })
     const resp = await forwardToPublicWorker(newReq)
 

@@ -11,6 +11,22 @@ import { responsiveImageForUsage } from "@/lib/image-url"
 import apiFetch from '@/lib/api-client'
 import { BUILD_API_BASE } from '@/lib/api-client'
 
+// Attempt a direct POST to an external public-worker if admin App Routes are unavailable.
+async function attemptDirectComplete(body: any) {
+  try {
+    const runtimeApiBase = (typeof window !== 'undefined' && (window as any).__env__?.API_BASE) || BUILD_API_BASE || ''
+    const base = runtimeApiBase ? String(runtimeApiBase).replace(/\/$/, '') : ''
+    if (!base) return null
+    const dest = `${base}/api/images/complete`
+    const res = await fetch(dest, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'include' })
+    if (!res) return null
+    if (!res.ok) return null
+    return await res.json().catch(() => null)
+  } catch (e) {
+    return null
+  }
+}
+
 // Lightweight client-side compression utility (skip GIFs)
 async function maybeCompressClientFile(file: File) {
   try {
@@ -243,11 +259,30 @@ export function ImageUpload({
                     } catch (e) {}
                     if (onUploadComplete) onUploadComplete(returnedKey || undefined)
                   } else {
-                    // Let admin proxy handle images/complete. If it fails, log for diagnostics.
+                    // Let admin proxy handle images/complete. If it fails, log for diagnostics
+                    // and attempt a direct POST to an external public-worker if configured.
                     try {
                       let errData: any = null
                       try { errData = await completeRes.json() } catch (_) { try { errData = await completeRes.text() } catch (_) { errData = null } }
                       console.warn('images/complete via admin proxy failed', completeRes.status, errData)
+                      // Attempt fallback to external public-worker (BUILD_API_BASE or runtime injection)
+                      try {
+                        const fallbackBody = { key: uploadedKey, filename: file.name, target: completeTarget, aspect: '1:1' }
+                        const fb = await attemptDirectComplete(fallbackBody)
+                        if (fb && (fb.key || (fb.result && fb.result.key))) {
+                          const returnedKey = fb.key || fb.result?.key || uploadedKey
+                          try {
+                            const usage = aspectRatioType === 'header' ? 'header-large' : aspectRatioType === 'recipe' ? 'recipe' : aspectRatioType === 'profile' ? 'avatar' : aspectRatioType === 'product' ? 'list' : aspectRatioType === 'background' ? 'original' : 'list'
+                            const resp = responsiveImageForUsage(returnedKey || '', usage as any)
+                            if (resp?.src) setPreviewUrl(resp.src)
+                          } catch (e) {}
+                          if (onUploadComplete) onUploadComplete(returnedKey || undefined)
+                        } else {
+                          console.warn('direct fallback to public-worker failed or not configured')
+                        }
+                      } catch (e) {
+                        console.warn('fallback direct complete failed', e)
+                      }
                     } catch (e) {
                       console.warn('images/complete error parsing response', e)
                     }
@@ -477,6 +512,24 @@ export function ImageUpload({
                   let errData: any = null
                   try { errData = await completeRes.json() } catch (_) { try { errData = await completeRes.text() } catch (_) { errData = null } }
                   console.warn('images/complete via admin proxy failed', completeRes.status, errData)
+                  // Fallback: try direct POST to public-worker if configured
+                  try {
+                    const fallbackBody = { key: uploadedKey, filename: croppedFile.name, target: completeTarget, aspect: aspectString || selectedAspect }
+                    const fb = await attemptDirectComplete(fallbackBody)
+                    if (fb && (fb.key || (fb.result && fb.result.key))) {
+                      const returnedKey = fb.key || fb.result?.key || uploadedKey
+                      try {
+                        const usage = aspectRatioType === 'header' ? 'header-large' : aspectRatioType === 'recipe' ? 'recipe' : aspectRatioType === 'profile' ? 'avatar' : aspectRatioType === 'product' ? 'list' : aspectRatioType === 'background' ? 'original' : 'list'
+                        const resp = responsiveImageForUsage(returnedKey || '', usage as any)
+                        if (resp?.src) setPreviewUrl(resp.src)
+                      } catch (e) {}
+                      if (onUploadComplete) onUploadComplete(returnedKey || undefined)
+                    } else {
+                      console.warn('direct fallback to public-worker failed or not configured')
+                    }
+                  } catch (e) {
+                    console.warn('fallback direct complete failed', e)
+                  }
                 } catch (e) {
                   console.warn('images/complete error parsing response', e)
                 }
