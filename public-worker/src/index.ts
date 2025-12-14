@@ -1901,6 +1901,9 @@ app.get('/api/admin/products/:id', async (c) => {
       notes: p.notes,
       relatedLinks: p.related_links,
       images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, key: img.key ?? null, url: getPublicImageUrl(img.key, c.env.IMAGES_DOMAIN) || img.url || null, width: img.width, height: img.height, aspect: img.aspect, role: img.role, basePath: deriveBasePath(c, img.key || img.url), })) : [],
+      // expose canonical key fields for admin clients
+      main_image_key: p.main_image_key ?? null,
+      attachment_image_keys: Array.isArray(p.attachment_image_keys) ? p.attachment_image_keys : (p.attachment_image_keys || []),
       affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : []
     }
     return new Response(JSON.stringify({ data: transformed }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
@@ -1963,6 +1966,9 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
           notes: p.notes,
           relatedLinks: p.related_links,
           images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, key: img.key ?? null, url: getPublicImageUrl(img.key, c2.env.IMAGES_DOMAIN) || img.url || null, width: img.width, height: img.height, aspect: img.aspect, role: img.role, basePath: deriveBasePath(c2, img.key || img.url), })) : [],
+          // expose canonical key fields for admin clients
+          main_image_key: p.main_image_key ?? null,
+          attachment_image_keys: Array.isArray(p.attachment_image_keys) ? p.attachment_image_keys : (p.attachment_image_keys || []),
           affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : []
         }
         const headers = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8' })
