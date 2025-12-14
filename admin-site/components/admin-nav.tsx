@@ -113,12 +113,17 @@ export function AdminNav() {
         let image: string | null = null
         const profileKey = data?.profile_image_key || data?.profileImageKey || (data?.profileImage ? extractKey(data.profileImage) : null)
         if (profileKey) {
-          const candidate = db.images.getUpload(profileKey) || profileKey
+          // Try to prefer any client-side cached upload URL, else normalize the key
+          const rawCandidate = db.images.getUpload(profileKey) || String(profileKey)
+          // If rawCandidate already looks like an absolute URL or absolute path, use it
+          const normalized = (typeof rawCandidate === 'string' && (rawCandidate.startsWith('http') || rawCandidate.startsWith('/')))
+            ? rawCandidate
+            : getPublicImageUrl(rawCandidate) || String(rawCandidate)
           try {
-            const resp = responsiveImageForUsage(candidate, 'avatar')
-            image = resp?.src || getPublicImageUrl(candidate)
+            const resp = responsiveImageForUsage(normalized, 'avatar')
+            image = resp?.src || getPublicImageUrl(rawCandidate) || normalized
           } catch (e) {
-            image = getPublicImageUrl(candidate)
+            image = getPublicImageUrl(rawCandidate) || normalized
           }
         } else {
           image = data?.avatarUrl || data?.profileImage || null

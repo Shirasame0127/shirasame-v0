@@ -1729,6 +1729,58 @@ app.put('/api/admin/products/*', async (c) => {
 
     const { data: up, error: upErr } = await supabase.from('products').update(updates).eq('id', id).select('*')
     if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の更新に失敗しました', upErr.message || upErr, 'db_error', 500)
+
+    // If caller supplied images, replace existing product_images with the provided set.
+    try {
+      const updatedProduct = up && up[0] ? up[0] : null
+      const imagesRaw = body && Object.prototype.hasOwnProperty.call(body, 'images') ? body.images : null
+      // If images is explicitly provided (even empty array) we will synchronize DB to match it.
+      if (Array.isArray(imagesRaw)) {
+        try {
+          const { error: delErr } = await supabase.from('product_images').delete().eq('product_id', id)
+          if (delErr) {
+            try { console.warn('[DBG] product_images delete error during update', delErr) } catch {}
+          }
+        } catch (e) {
+          try { console.warn('[DBG] exception deleting existing product_images', String(e)) } catch {}
+        }
+
+        try {
+          const now = new Date().toISOString()
+          const rows = imagesRaw
+            .filter((img: any) => img && (img.key || img.url || img.basePath))
+            .map((img: any, idx: number) => ({
+              product_id: id,
+              key: img.key || img.basePath || (typeof img.url === 'string' ? img.url : null),
+              width: img.width || null,
+              height: img.height || null,
+              aspect: img.aspect || null,
+              role: img.role || (idx === 0 ? 'main' : 'attachment'),
+              caption: img.caption || null,
+              cf_id: img.cf_id || null,
+              created_at: now,
+              user_id: updatedProduct ? (updatedProduct.user_id || null) : null,
+            }))
+          if (rows.length > 0) {
+            try {
+              const { data: imgData, error: imgErr } = await supabase.from('product_images').insert(rows).select('*')
+              if (imgErr) {
+                try { console.warn('[DBG] product_images insert error during update', imgErr) } catch {}
+              } else {
+                try { console.log('[DBG] product_images inserted count during update=', Array.isArray(imgData) ? imgData.length : 0) } catch {}
+              }
+            } catch (e) {
+              try { console.warn('[DBG] exception inserting product_images during update', String(e)) } catch {}
+            }
+          }
+        } catch (e) {
+          try { console.warn('[DBG] product_images processing error during update', String(e)) } catch {}
+        }
+      }
+    } catch (e) {
+      try { console.warn('[DBG] top-level product_images sync error during update', String(e)) } catch {}
+    }
+
     return new Response(JSON.stringify({ ok: true, data: up && up[0] ? up[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品更新中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
