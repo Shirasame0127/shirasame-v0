@@ -3047,6 +3047,7 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
           showPrice: p.show_price,
           notes: p.notes,
           relatedLinks: p.related_links,
+          // preserve original images array with keys + public urls
           images: Array.isArray(p.images)
             ? p.images.map((img: any) => ({
                   id: img.id,
@@ -3060,6 +3061,9 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
                   basePath: deriveBasePath(c, img.key || img.url),
                 }))
             : [],
+          // Expose canonical key fields if present in DB so admin UI can read them directly
+          main_image_key: p.main_image_key ?? null,
+          attachment_image_keys: Array.isArray(p.attachment_image_keys) ? p.attachment_image_keys : (p.attachment_image_keys || []),
           affiliateLinks: Array.isArray(p.affiliateLinks)
             ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label }))
             : [],
