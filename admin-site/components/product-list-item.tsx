@@ -66,18 +66,39 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
       <CardContent className="p-4 h-30">
         <div className="flex gap-4">
           <div className="relative w-24 h-24 shrink-0 rounded-lg overflow-hidden bg-muted">
-            {
-              (() => {
-                // Resolve candidate similarly to `site-settings`: prefer canonical key -> client cache -> raw
-                const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || (mainImage as any)?.url || null
-                const resolved = (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/')))
-                  ? raw
-                  : db.images.getUpload(raw) || String(raw || '')
-                const resp = responsiveImageForUsage(resolved || null, 'list')
-                const placeholder = "/placeholder.svg?height=200&width=200"
-                return <img src={resp.src || (getPublicImageUrl(String(raw)) || placeholder)} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-cover" />
-              })()
-            }
+              {
+                (() => {
+                  // Normalize candidate the same way `admin-nav` does:
+                  // - If we have an authoritative product-level key, build a public URL from it
+                  // - Otherwise prefer client-side cached upload preview when present
+                  // - Fall back to raw values
+                  const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || (mainImage as any)?.url || null
+                  const placeholder = "/placeholder.svg?height=200&width=200"
+
+                  let candidate: string | null = null
+                  try {
+                    if (raw) {
+                      // absolute/relative URLs pass-through
+                      if (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/'))) {
+                        candidate = raw
+                      } else if (product && product.main_image_key) {
+                        // authoritative key present: build public URL from the key
+                        candidate = getPublicImageUrl(String(raw)) || String(raw)
+                      } else {
+                        // Backwards-compat: prefer client cache preview, otherwise normalize
+                        const cached = db.images.getUpload(raw)
+                        const rawResolved = (typeof cached === 'string' && cached) ? cached : String(raw)
+                        candidate = (rawResolved.startsWith('http') || rawResolved.startsWith('/')) ? rawResolved : (getPublicImageUrl(rawResolved) || rawResolved)
+                      }
+                    }
+                  } catch (e) {
+                    candidate = (raw && String(raw)) || null
+                  }
+
+                  const resp = responsiveImageForUsage(candidate || null, 'list')
+                  return <img src={resp.src || (getPublicImageUrl(String(raw)) || placeholder)} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-cover" />
+                })()
+              }
           </div>
 
           <div className="flex-1 min-w-0">

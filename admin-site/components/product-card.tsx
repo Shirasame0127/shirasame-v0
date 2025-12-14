@@ -71,11 +71,26 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
             <div className="relative aspect-3/2 overflow-hidden bg-muted flex items-center justify-center">
               {
                 (() => {
+                  // Normalize candidate like admin-nav: prefer canonical key -> public URL,
+                  // else client cache preview -> raw
                   const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || mainImage?.url || null
-                  const resolved = (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/')))
-                    ? raw
-                    : db.images.getUpload(raw) || String(raw || '')
-                  const resp = responsiveImageForUsage(resolved || null, 'list')
+                  let candidate: string | null = null
+                  try {
+                    if (raw) {
+                      if (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/'))) {
+                        candidate = raw
+                      } else if (product && product.main_image_key) {
+                        candidate = getPublicImageUrl(String(raw)) || String(raw)
+                      } else {
+                        const cached = db.images.getUpload(raw)
+                        const rawResolved = (typeof cached === 'string' && cached) ? cached : String(raw)
+                        candidate = (rawResolved.startsWith('http') || rawResolved.startsWith('/')) ? rawResolved : (getPublicImageUrl(rawResolved) || rawResolved)
+                      }
+                    }
+                  } catch (e) {
+                    candidate = (raw && String(raw)) || null
+                  }
+                  const resp = responsiveImageForUsage(candidate || null, 'list')
                   return <img src={resp.src || (getPublicImageUrl(String(raw)) || "/placeholder.svg")} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-contain object-center" />
                 })()
               }
