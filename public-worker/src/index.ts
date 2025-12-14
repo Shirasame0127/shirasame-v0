@@ -2142,14 +2142,18 @@ app.post('/api/admin/tags/save', async (c) => {
       // upsert behavior: if id present -> update, else insert
       if (t && t.id) {
         const updateBody: any = { name: tagName, group: tagGroup, link_url: t.linkUrl || t.link_url || null, link_label: t.linkLabel || t.link_label || null, sort_order: typeof t.sortOrder !== 'undefined' ? t.sortOrder : null }
-        const { data: up, error: upErr } = await supabase.from('tags').update(updateBody).eq('id', t.id)
+        // Return updated row so client can update UI. .select('*') may be restricted by RLS,
+        // but when available it prevents null entries in the response array.
+        const { data: up, error: upErr } = await supabase.from('tags').update(updateBody).eq('id', t.id).select('*')
         if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの更新に失敗しました', upErr.message || upErr, 'db_error', 500)
-        results.push(up && up[0] ? up[0] : null)
+        // Fallback: if DB didn't return the updated row (RLS), provide a provisional object
+        results.push(up && up[0] ? up[0] : { id: t.id ?? null, name: tagName, group: tagGroup, provisional: true })
       } else {
         const insertBody: any = { name: tagName, group: tagGroup, link_url: t.linkUrl || t.link_url || null, link_label: t.linkLabel || t.link_label || null, sort_order: typeof t.sortOrder !== 'undefined' ? t.sortOrder : null, user_id: targetUserId }
         const { data: ins, error: insErr } = await supabase.from('tags').insert(insertBody).select('*')
         if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
-        results.push(ins && ins[0] ? ins[0] : null)
+        // If insert returned no visible row (RLS), provide a provisional object so client doesn't get null
+        results.push(ins && ins[0] ? ins[0] : { id: null, name: tagName, group: tagGroup, provisional: true })
       }
     }
 
