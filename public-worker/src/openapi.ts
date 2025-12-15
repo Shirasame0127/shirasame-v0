@@ -43,7 +43,57 @@ export const openapi = {
       Product: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' }, price: { type: 'number' }, createdAt: { type: 'string', format: 'date-time' } }, required: ['id','title'] },
       ProductList: { type: 'object', properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Product' } }, total: { type: 'integer' } } },
       SiteSettings: { type: 'object', properties: { siteName: { type: 'string' }, logoUrl: { type: ['string','null'] } } },
-      Profile: { type: 'object', properties: { id: { type: 'string' }, email: { type: 'string' }, displayName: { type: ['string','null'] }, avatarUrl: { type: ['string','null'] } } }
+      Profile: { type: 'object', properties: { id: { type: 'string' }, email: { type: 'string' }, displayName: { type: ['string','null'] }, avatarUrl: { type: ['string','null'] } } },
+
+      // Tags
+      Tag: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          group: { type: ['string','null'] },
+          linkUrl: { type: ['string','null'] },
+          linkLabel: { type: ['string','null'] },
+          userId: { type: ['string','null'] },
+          sortOrder: { type: 'integer' },
+          createdAt: { type: 'string', format: 'date-time' }
+        },
+        required: ['id','name']
+      },
+      TagList: { type: 'object', properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Tag' } } } },
+      TagCreateRequest: { type: 'object', properties: { name: { type: 'string' }, group: { type: ['string','null'] }, linkUrl: { type: ['string','null'] }, linkLabel: { type: ['string','null'] } }, required: ['name'] },
+
+      // Tag groups
+      TagGroup: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          label: { type: 'string' },
+          sortOrder: { type: 'integer' },
+          createdAt: { type: 'string', format: 'date-time' }
+        },
+        required: ['name']
+      },
+      TagGroupList: { type: 'object', properties: { data: { type: 'array', items: { $ref: '#/components/schemas/TagGroup' } } } },
+
+      // Auth
+      AuthToken: { type: 'object', properties: { access_token: { type: 'string' }, token_type: { type: 'string' }, expires_in: { type: 'integer' } } },
+      WhoAmI: { type: 'object', properties: { id: { type: 'string' }, email: { type: 'string' }, role: { type: 'string' } } },
+
+      // Recipes
+      Recipe: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' }, ingredients: { type: 'array', items: { type: 'string' } }, steps: { type: 'array', items: { type: 'string' } }, createdAt: { type: 'string', format: 'date-time' } }, required: ['id','title'] },
+      RecipeList: { type: 'object', properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Recipe' } }, total: { type: 'integer' } } },
+
+      // Collections
+      Collection: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' }, productIds: { type: 'array', items: { type: 'string' } }, createdAt: { type: 'string', format: 'date-time' } }, required: ['id','title'] },
+      CollectionList: { type: 'object', properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Collection' } }, total: { type: 'integer' } } },
+
+      // Sales / promotions
+      Sale: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, startAt: { type: 'string', format: 'date-time' }, endAt: { type: 'string', format: 'date-time' }, discountPercent: { type: 'number' } }, required: ['id','name','startAt','endAt'] },
+      SaleList: { type: 'object', properties: { data: { type: 'array', items: { $ref: '#/components/schemas/Sale' } } } },
+
+      // Dashboard summaries
+      DashboardSummary: { type: 'object', properties: { totalProducts: { type: 'integer' }, totalUsers: { type: 'integer' }, recentOrders: { type: 'integer' } } }
     }
   },
   // Swagger UI のサイドバーで表示するタグ（機能グループ）を日本語で定義
