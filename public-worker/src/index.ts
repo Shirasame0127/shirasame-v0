@@ -1116,7 +1116,7 @@ app.get('/recipes', zValidator('query', listQuery.partial()), async (c) => {
 
       const transformed = (recipes || []).map((r: any) => {
         const imgsRaw = Array.isArray(r.images) ? r.images : []
-        const mappedImages = imgsRaw.map((img: any) => ({ id: img.id, recipeId: r.id, key: img.key ?? null, url: (img.key ? getPublicImageUrl(img.key, c.env.IMAGES_DOMAIN) : (img.url || null)), width: img.width, height: img.height }))
+        const mappedImages = imgsRaw.map((img: any) => ({ id: img.id, recipeId: r.id, key: img.key ?? null, url: (img.key ? getPublicImageUrl(img.key, c.env.IMAGES_DOMAIN) : null), width: img.width, height: img.height }))
         if (r.base_image_id && mappedImages.length > 1) {
           const idx = mappedImages.findIndex((mi: any) => mi.id === r.base_image_id)
           if (idx > 0) {
@@ -1124,6 +1124,10 @@ app.get('/recipes', zValidator('query', listQuery.partial()), async (c) => {
             mappedImages.unshift(base)
           }
         }
+        // Prefer joined recipe_images rows; otherwise derive from recipe_image_keys
+        const keysFromRecipe = Array.isArray(r.recipe_image_keys) ? r.recipe_image_keys : []
+        const imgsFromKeys = keysFromRecipe.map((k: any) => ({ id: null, recipeId: r.id, key: k, url: getPublicImageUrl(k, c.env.IMAGES_DOMAIN), width: null, height: null }))
+        const images = mappedImages.length > 0 ? mappedImages : imgsFromKeys
         const mappedPins = pinsByRecipe.get(r.id) || []
         return {
           id: r.id,
@@ -1132,8 +1136,8 @@ app.get('/recipes', zValidator('query', listQuery.partial()), async (c) => {
           published: !!r.published,
           createdAt: r.created_at,
           updatedAt: r.updated_at,
-          images: mappedImages,
-          imageDataUrl: r.image_data_url || (mappedImages.length > 0 ? mappedImages[0].url : null) || null,
+          images: images,
+          recipeImageKeys: keysFromRecipe,
           pins: mappedPins,
         }
       })
@@ -2169,7 +2173,7 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
 
     // NOTE: omit optional/legacy columns (e.g. `draft`, `short_description`) from shallow select
     // because some DBs do not have those columns and PostgREST will error.
-    const selectShallow = 'id,user_id,title,slug,published,main_image_key,attachment_image_keys,created_at,updated_at'
+    const selectShallow = 'id,user_id,title,slug,published,recipe_image_keys,created_at,updated_at'
     const selectFull = '*,images:recipe_images(id,recipe_id,key,width,height,role,caption)'
 
     let query: any = supabase.from('recipes').select(shallow ? selectShallow : selectFull)
@@ -2813,6 +2817,25 @@ app.post('/api/admin/recipes', async (c) => {
                   try { console.warn('[DBG] recipe_images insert error', imgErr) } catch (e) {}
                 } else {
                   try { console.log('[DBG] recipe_images inserted count=', Array.isArray(imgData) ? imgData.length : 0) } catch (e) {}
+                  try {
+                    // Also update recipes.recipe_image_keys (use service role key)
+                    const supabaseUrlTop = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
+                    const serviceKeyTop = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
+                    if (supabaseUrlTop && serviceKeyTop && Array.isArray(imgData) && imgData.length > 0) {
+                      const keys = imgData.map((d: any) => d.key).filter(Boolean)
+                      try {
+                        const getUrl = `${supabaseUrlTop}/rest/v1/recipes?id=eq.${encodeURIComponent(createdRecipe.id)}&select=recipe_image_keys&limit=1`
+                        const gres = await fetch(getUrl, { method: 'GET', headers: { apikey: serviceKeyTop, Authorization: `Bearer ${serviceKeyTop}` } })
+                        if (gres.ok) {
+                          const rows2 = await gres.json().catch(() => null)
+                          const existing = Array.isArray(rows2) && rows2.length > 0 ? (rows2[0].recipe_image_keys || []) : []
+                          const merged = Array.from(new Set([...(Array.isArray(existing) ? existing : []), ...keys]))
+                          const patchUrl = `${supabaseUrlTop}/rest/v1/recipes?id=eq.${encodeURIComponent(createdRecipe.id)}`
+                          await fetch(patchUrl, { method: 'PATCH', headers: { apikey: serviceKeyTop, Authorization: `Bearer ${serviceKeyTop}`, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: JSON.stringify({ recipe_image_keys: merged }) }).catch(() => {})
+                        }
+                      } catch (e) { try { console.warn('[DBG] failed to update recipe_image_keys', String(e)) } catch (e2) {} }
+                    }
+                  } catch (e) {}
                 }
               } catch (e) {
                 try { console.warn('[DBG] exception inserting recipe_images', String(e)) } catch (e) {}
@@ -2858,6 +2881,10 @@ app.get('/api/admin/recipes/:id', async (c) => {
       if (!pErr && Array.isArray(pData)) pins = pData
     } catch (e) {}
 
+    const keysFromRecipe = Array.isArray(r.recipe_image_keys) ? r.recipe_image_keys : []
+    const imagesFromJoin = Array.isArray(r.images) ? r.images.map((img: any) => ({ id: img.id, recipeId: img.recipe_id, key: img.key ?? null, width: img.width, height: img.height, role: img.role, caption: img.caption })) : []
+    const imagesFromKeys = keysFromRecipe.map((k: any) => ({ id: null, recipeId: r.id, key: k, width: null, height: null, role: null, caption: null }))
+    const finalImages = imagesFromJoin.length > 0 ? imagesFromJoin : imagesFromKeys
     const transformed = {
       id: r.id,
       userId: r.user_id,
@@ -2866,12 +2893,12 @@ app.get('/api/admin/recipes/:id', async (c) => {
       body: r.body,
       pins: Array.isArray(r.pins) ? r.pins : null,
       pinsNormalized: Array.isArray(pins) ? pins.map((p:any) => ({ id: p.id, recipeId: p.recipe_id, productId: p.product_id, userId: p.user_id, tagDisplayText: p.tag_display_text || p.tag_text || null, dotXPercent: Number(p.dot_x_percent || 0), dotYPercent: Number(p.dot_y_percent || 0), tagXPercent: Number(p.tag_x_percent || 0), tagYPercent: Number(p.tag_y_percent || 0), dotSizePercent: Number(p.dot_size_percent || 0), tagFontSizePercent: Number(p.tag_font_size_percent || 0), lineWidthPercent: Number(p.line_width_percent || 0), tagPaddingXPercent: Number(p.tag_padding_x_percent || 0), tagPaddingYPercent: Number(p.tag_padding_y_percent || 0), tagBorderRadiusPercent: Number(p.tag_border_radius_percent || 0), tagBorderWidthPercent: Number(p.tag_border_width_percent || 0), dotColor: p.dot_color, dotShape: p.dot_shape, tagText: p.tag_text, tagFontFamily: p.tag_font_family, tagFontWeight: p.tag_font_weight, tagTextColor: p.tag_text_color, tagTextShadow: p.tag_text_shadow, tagBackgroundColor: p.tag_background_color, tagBackgroundOpacity: Number(p.tag_background_opacity || 1), tagBorderColor: p.tag_border_color, tagShadow: p.tag_shadow, lineType: p.line_type })) : [],
-      images: Array.isArray(r.images) ? r.images.map((img: any) => ({ id: img.id, recipeId: img.recipe_id, key: img.key ?? null, width: img.width, height: img.height, role: img.role, caption: img.caption })) : [],
+      images: finalImages,
+      recipeImageKeys: keysFromRecipe,
       createdAt: r.created_at || null,
       updatedAt: r.updated_at || null,
       published: !!r.published,
       items: r.items || null,
-      imageDataUrl: r.image_data_url || null,
     }
 
     return new Response(JSON.stringify({ data: transformed }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
@@ -2905,11 +2932,11 @@ app.put('/api/admin/recipes/:id', async (c) => {
     if (typeof body.body !== 'undefined') upd.body = body.body
     if (typeof body.published !== 'undefined') upd.published = !!body.published
     if (typeof body.tags !== 'undefined') upd.tags = Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null)
-    if (typeof body.main_image_key !== 'undefined') upd.main_image_key = body.main_image_key || null
-    if (typeof body.attachment_image_keys !== 'undefined') upd.attachment_image_keys = Array.isArray(body.attachment_image_keys) ? body.attachment_image_keys : null
+    // Normalize image keys: recipe-level canonical field is `recipe_image_keys`
+    if (typeof body.recipe_image_keys !== 'undefined') upd.recipe_image_keys = Array.isArray(body.recipe_image_keys) ? body.recipe_image_keys : null
     if (typeof body.items !== 'undefined') upd.items = body.items
     if (typeof body.pins !== 'undefined') upd.pins = body.pins
-    if (typeof body.image_data_url !== 'undefined') upd.image_data_url = body.image_data_url
+    // image_data_url is deprecated and intentionally ignored/removed
     if (typeof body.image_width !== 'undefined') upd.image_width = body.image_width
     if (typeof body.image_height !== 'undefined') upd.image_height = body.image_height
     upd.updated_at = now
@@ -4780,22 +4807,24 @@ async function handleImagesComplete(c: any) {
     if (payload?.aspect) metadata.aspect = payload.aspect
     if (payload?.extra) metadata.extra = payload.extra
 
-    // Resolve user context centrally (token only)
-    const ctx = await resolveRequestUserContext(c, payload)
-    if (!ctx.trusted) {
+    // Require a verified token for any complete/assign operations
+    // Do not trust client-provided `user_id` or X-User-Id for writes.
+    const tokenUserId = await getRequestUserId(c)
+    if (!tokenUserId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
       return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: merged })
     }
-
     // effectiveUserId: token-authenticated user id
-    const effectiveUserId = ctx.userId || null
+    const effectiveUserId = tokenUserId || null
 
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
     // Determine if this request intends to assign the uploaded key to a user profile
     const wantsAssignToProfile = (payload?.assign === 'users.profile') || (payload?.target === 'profile')
     const assignTargetUserId = payload?.userId || effectiveUserId || null
+    const wantsAssignToRecipe = (payload?.assign === 'recipe') || (payload?.target === 'recipe')
+    const assignTargetRecipeId = payload?.recipeId || payload?.recipe_id || null
     // Enforce owner check for explicit profile assignment: only token owner or site owner may assign
     try {
       const ownerIdGlobal = (c.env.PUBLIC_OWNER_USER_ID || '').toString() || null
@@ -4826,6 +4855,36 @@ async function handleImagesComplete(c: any) {
         }
       } catch (e) {
         try { console.warn('[images/complete] exception assigning profile image', String(e)) } catch(e){}
+      }
+    }
+
+    async function tryAssignRecipeKey(keyToAssign: string) {
+      try {
+        if (!wantsAssignToRecipe) return
+        if (!assignTargetRecipeId) return
+        if (!supabaseUrl || !serviceKey) return
+        // Fetch existing recipe and verify owner
+        const getUrl = `${supabaseUrl}/rest/v1/recipes?id=eq.${encodeURIComponent(assignTargetRecipeId)}&select=user_id,recipe_image_keys&limit=1`
+        const getRes = await fetch(getUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+        if (!getRes.ok) return
+        const rows = await getRes.json().catch(() => null)
+        if (!Array.isArray(rows) || rows.length === 0) return
+        const rec = rows[0]
+        const ownerId = rec?.user_id || null
+        const ownerIdGlobal = (c.env.PUBLIC_OWNER_USER_ID || '').toString() || null
+        // Only allow when token owner is recipe owner or site owner or admin
+        if (effectiveUserId !== ownerId && effectiveUserId !== ownerIdGlobal && !isAdmin(effectiveUserId, c.env)) return
+        const existingKeys = Array.isArray(rec?.recipe_image_keys) ? rec.recipe_image_keys : []
+        // ensure uniqueness and preserve order (append if missing)
+        const merged = Array.from(new Set([...existingKeys, keyToAssign]))
+        const patchUrl = `${supabaseUrl}/rest/v1/recipes?id=eq.${encodeURIComponent(assignTargetRecipeId)}`
+        await fetch(patchUrl, {
+          method: 'PATCH',
+          headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+          body: JSON.stringify({ recipe_image_keys: merged })
+        }).catch(() => {})
+      } catch (e) {
+        try { console.warn('[images/complete] tryAssignRecipeKey failed', String(e)) } catch(e){}
       }
     }
     if (!supabaseUrl || !serviceKey) {
