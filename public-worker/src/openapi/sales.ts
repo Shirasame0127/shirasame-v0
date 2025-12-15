@@ -7,9 +7,7 @@ export const salesPaths = {
       responses: { '200': { description: '正常', content: { 'application/json': { schema: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, saleName: { type: 'string' }, startDate: { type: 'string', format: 'date-time' }, endDate: { type: 'string', format: 'date-time' } } } } } } }} } },
       security: [{ bearerAuth: [] }]
     },
-    post: {
-      tags: ['セール'],
-      summary: 'セールスケジュールを作成します',
+    export default salesPaths;
       requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { saleName: { type: 'string' }, startDate: { type: 'string', format: 'date-time' }, endDate: { type: 'string', format: 'date-time' } }, required: ['saleName','startDate'] }, example: { saleName: 'ブラックフライデー', startDate: '2025-11-28T00:00:00Z', endDate: '2025-11-29T00:00:00Z' } } } },
       responses: { '200': { description: '作成済み' }, '400': { description: '無効な入力' } },
       security: [{ bearerAuth: [] }]
