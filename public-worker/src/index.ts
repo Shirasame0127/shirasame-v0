@@ -2167,7 +2167,8 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
     const shallow = url.searchParams.get('shallow') === 'true' || url.searchParams.get('list') === 'true'
     const userIdQuery = url.searchParams.get('user_id') || null
 
-    const selectShallow = 'id,user_id,title,slug,short_description,draft,published,main_image_key,attachment_image_keys,created_at,updated_at'
+    // NOTE: omit `draft` from shallow select because some DBs do not have that column.
+    const selectShallow = 'id,user_id,title,slug,short_description,published,main_image_key,attachment_image_keys,created_at,updated_at'
     const selectFull = '*,images:recipe_images(id,recipe_id,key,width,height,role,caption),tags'
 
     let query: any = supabase.from('recipes').select(shallow ? selectShallow : selectFull)
@@ -2742,7 +2743,9 @@ app.post('/api/admin/recipes', async (c) => {
       short_description: body.short_description || null,
       body: body.body || null,
       tags: Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null),
-      draft: !!body.draft,
+      // Note: some deployments may not have a `draft` column in `recipes`.
+      // Avoid including unknown columns in insert payload to prevent
+      // PostgREST/schema-cache errors like "Could not find the 'draft' column".
       user_id: actingUser,
       created_at: now,
       updated_at: now,
