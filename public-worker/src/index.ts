@@ -2162,15 +2162,15 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
       }
     } catch {}
 
-    // Prefer only-trusted/admin calls for the admin-side proxy. If caller
-    // is not trusted, deny access to user-scoped recipe lists.
-    if (!ctx.trusted) {
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
-    }
-
+    // Attach user's Supabase auth token to the client when available so
+    // RLS can resolve the correct user. This mirrors other admin endpoints.
     const supabase = getSupabase(c2.env)
+    try {
+      const maybeToken = await getTokenFromRequest(c2)
+      if (!((c2.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
+        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+      }
+    } catch (e) {}
     const url = new URL(c2.req.url)
     const limit = url.searchParams.get('limit') ? Math.max(0, parseInt(url.searchParams.get('limit') || '0')) : null
     const offset = url.searchParams.get('offset') ? Math.max(0, parseInt(url.searchParams.get('offset') || '0')) : 0
@@ -2182,7 +2182,13 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
     const selectFull = '*,images:recipe_images(id,recipe_id,key,width,height,role,caption),tags'
 
     let query: any = supabase.from('recipes').select(shallow ? selectShallow : selectFull)
-    if (userIdQuery) query = query.eq('user_id', userIdQuery)
+    // Determine effective user scope: prefer explicit user_id query param,
+    // otherwise fall back to authenticated user id from token/context when available.
+    if (userIdQuery) {
+      query = query.eq('user_id', userIdQuery)
+    } else if (ctx && ctx.userId) {
+      query = query.eq('user_id', ctx.userId)
+    }
     if (limit !== null) query = query.limit(limit).offset(offset)
 
     // If wantCount requested, use range to obtain count via supabase (Postgres)
