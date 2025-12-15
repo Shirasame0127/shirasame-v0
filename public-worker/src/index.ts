@@ -1901,6 +1901,48 @@ app.delete('/api/admin/collection-items', async (c) => {
   }
 })
 
+// Admin: repair collection_items rows (one-off maintenance endpoint)
+app.post('/api/admin/collections/repair', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    const fallbackUser = ctx.userId || ((c.env.PUBLIC_OWNER_USER_ID || '').toString().trim() || null)
+    const now = new Date().toISOString()
+
+    // Fill null user_id with fallbackUser
+    if (fallbackUser) {
+      const { error: uErr } = await supabase.from('collection_items').update({ user_id: fallbackUser }).is('user_id', null)
+      if (uErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'user_id の修復に失敗しました', uErr.message || uErr, 'db_error', 500)
+    }
+
+    // Fill null created_at with now
+    const { error: tErr } = await supabase.from('collection_items').update({ created_at: now }).is('created_at', null)
+    if (tErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'created_at の修復に失敗しました', tErr.message || tErr, 'db_error', 500)
+
+    // Remove collection_items that reference missing products
+    const { data: items = [], error: itemsErr } = await supabase.from('collection_items').select('product_id').limit(10000)
+    if (itemsErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の取得に失敗しました', itemsErr.message || itemsErr, 'db_error', 500)
+    const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id))).filter(Boolean)
+    if (productIds.length > 0) {
+      const { data: prods = [], error: prodErr } = await supabase.from('products').select('id').in('id', productIds)
+      if (prodErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'products の取得に失敗しました', prodErr.message || prodErr, 'db_error', 500)
+      const existingIds = Array.isArray(prods) ? prods.map((p: any) => p.id) : []
+      const missingIds = productIds.filter((pid) => !existingIds.includes(pid))
+      if (missingIds.length > 0) {
+        const { error: delErr } = await supabase.from('collection_items').delete().in('product_id', missingIds)
+        if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '欠損商品の削除に失敗しました', delErr.message || delErr, 'db_error', 500)
+      }
+    }
+
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: { repaired: true } }), { headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '修復中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
 app.get('/api/profile', async (c) => mirrorGet(c, async (c2) => {
   const supabase = getSupabase(c2.env)
   const key = `profile`
