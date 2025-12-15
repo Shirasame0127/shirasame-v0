@@ -21,6 +21,7 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true)
   const [productCount, setProductCount] = useState<number | null>(null)
   const [publishedCount, setPublishedCount] = useState<number | null>(null)
+  const [collections, setCollections] = useState<any[]>([])
 
   const pathname = usePathname()
 
@@ -36,6 +37,7 @@ export default function AdminDashboard() {
       // Pass user id where possible to allow server-side filtering if implemented
       try {
         await db.products.refreshAdmin(currentUser?.id)
+        await (db.collections as any)?.refreshAdmin?.(currentUser?.id).catch(() => {})
       } catch (e) {
         console.warn('[v0] products.refreshAdmin warning', e)
       }
@@ -49,6 +51,7 @@ export default function AdminDashboard() {
 
       const loadedProducts = db.products.getAll(userId)
       const loadedRecipes = db.recipes.getAll(userId)
+      const loadedCollections = db.collections.getAll(userId)
 
       // Fetch authoritative product count for dashboard (admin API)
       try {
@@ -74,6 +77,7 @@ export default function AdminDashboard() {
 
       setProducts(loadedProducts)
       setRecipes(loadedRecipes)
+      setCollections(loadedCollections)
     } catch (error) {
       console.error("[v0] Dashboard: Error loading data:", error)
     } finally {
@@ -135,10 +139,11 @@ export default function AdminDashboard() {
       description: "今月の合計",
     },
     {
-      title: "クリック数",
-      value: "567",
+      title: "コレクション数",
+      value: collections.length,
       icon: TrendingUp,
-      description: "アフィリエイトリンク",
+      description: `${collections.filter((c) => c.visibility === 'public').length}件公開中`,
+      link: "/admin/collections",
     },
   ]
 
