@@ -2748,6 +2748,14 @@ app.post('/api/admin/recipes', async (c) => {
       updated_at: now,
     }
 
+    // Attach user's Supabase auth token to the client when available so RLS can resolve the correct user.
+    try {
+      const maybeToken = await getTokenFromRequest(c)
+      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
+        try { supabase.auth.setAuth(maybeToken) } catch (e) { try { console.warn('[admin/recipes] supabase.auth.setAuth failed', String(e)) } catch {} }
+      }
+    } catch (e) { try { console.warn('[admin/recipes] token attach error', String(e)) } catch {} }
+
     // Derive main_image_key and attachment_image_keys from body.images if not explicitly provided
     try {
       if (typeof body.main_image_key !== 'undefined') {
