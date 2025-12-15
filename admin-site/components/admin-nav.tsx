@@ -97,41 +97,55 @@ export function AdminNav() {
         if (!res.ok) return
         const json = await res.json().catch(() => null)
         const data = json?.data || null
-        // Prefer profile image key => build public URL; fallback to avatarUrl or legacy profileImage
-        function extractKeyFromUrl(u: any): string | null {
-          if (!u || typeof u !== 'string') return null
+        // Prefer profile image key and normalize incoming values to a canonical key.
+        // This mirrors site-settings normalization: strip any /cdn-cgi/image/.../ prefix
+        // and extract the path portion when a full URL is provided.
+        function normalizeImageKey(u: any): string | null {
+          if (!u) return null
           try {
-            const url = new URL(u)
-            let p = url.pathname.replace(/^\/+/, '')
-            // strip possible /cdn-cgi/image/.../ prefix
-            p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
-            return p || null
+            if (typeof u !== 'string') return null
+            const trimmed = u.trim()
+            // If it looks like a full URL, parse and use the pathname
+            if (/^https?:\/\//i.test(trimmed)) {
+              const url = new URL(trimmed)
+              let p = url.pathname.replace(/^\/+/, '')
+              // remove /cdn-cgi/image/<params>/ prefix if present
+              p = p.replace(/^cdn-cgi\/image\/[^^\/]+\/?/, '')
+              return p || null
+            }
+            // If it's not a full URL, remove leading slashes and any cdn prefix
+            let s = String(trimmed).replace(/^\/+/, '')
+            s = s.replace(/^cdn-cgi\/image\/[^^\/]+\/?/, '')
+            return s || null
           } catch (e) {
-            // not a URL — maybe it's already a key
-            if (typeof u === 'string' && u.length > 0) return u
-            return null
+            try {
+              const s = String(u || '').replace(/^\/+/, '').replace(/^cdn-cgi\/image\/[^^\/]+\/?/, '')
+              return s || null
+            } catch {
+              return null
+            }
           }
         }
 
         let image: string | null = null
-        // Align with site-settings: prefer canonical key, prefer local upload cache,
-        // then generate a public URL via `getPublicImageUrl` before calling
-        // `responsiveImageForUsage` so admin-nav matches site-settings behavior.
         const rawProfileCandidate = data?.profile_image_key ?? data?.profileImageKey ?? data?.profileImage ?? null
-        const profileKey = extractKeyFromUrl(rawProfileCandidate) || (rawProfileCandidate ? String(rawProfileCandidate) : null)
+        const profileKey = normalizeImageKey(rawProfileCandidate) || (rawProfileCandidate ? String(rawProfileCandidate).replace(/^\/+/, '') : null)
         if (profileKey) {
+          // Use any local upload preview stored in db.images; fall back to canonical key.
           const cached = db.images.getUpload(profileKey)
-          const baseInput = (typeof cached === 'string' && cached) ? cached : String(profileKey)
-          // generate public base from either cached preview or canonical key
-          const publicBase = getPublicImageUrl(baseInput) || ((baseInput && (baseInput.startsWith('http') || baseInput.startsWith('/'))) ? baseInput : String(profileKey))
-          try {
-            const resp = responsiveImageForUsage(publicBase, 'avatar')
-            image = resp?.src || publicBase
-          } catch (e) {
-            image = publicBase
-          }
+          const normalizedKey = (typeof cached === 'string' && cached) ? cached : profileKey
+          image = getPublicImageUrl(normalizedKey) || String(normalizedKey) || null
         } else {
-          image = data?.avatarUrl || data?.profileImage || null
+          // Fallback to legacy avatar/profileImage fields (may be full URLs)
+          const fallback = data?.avatarUrl || data?.profileImage || null
+          const normalized = normalizeImageKey(fallback)
+          if (normalized) {
+            const cached = db.images.getUpload(normalized)
+            const normalizedKey = (typeof cached === 'string' && cached) ? cached : normalized
+            image = getPublicImageUrl(normalizedKey) || String(normalizedKey) || null
+          } else {
+            image = null
+          }
         }
         if (active) {
           setProfileData(data)
