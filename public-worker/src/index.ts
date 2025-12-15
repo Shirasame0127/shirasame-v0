@@ -1718,6 +1718,12 @@ app.post('/api/admin/collections', async (c) => {
 app.put('/api/admin/collections/*', async (c) => {
   try {
     const supabase = getSupabase(c.env)
+    try {
+      const maybeToken = await getTokenFromRequest(c)
+      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
+        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+      }
+    } catch (e) {}
     const body = await c.req.json().catch(() => ({}))
     const path = c.req.path || (new URL(c.req.url)).pathname
     const id = path.replace('/api/admin/collections/', '')
