@@ -1734,6 +1734,62 @@ app.post('/api/admin/collections/:id/sync', async (c) => {
   }
 })
 
+// Admin: add item to collection
+app.post('/api/admin/collection-items', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    let body: any = {}
+    try { body = await c.req.json() } catch { body = {} }
+    const collectionId = body.collectionId || body.collection_id || ''
+    const productId = body.productId || body.product_id || ''
+    if (!collectionId || !productId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collectionId と productId が必要です', null, 'invalid_body', 400)
+
+    // determine next order
+    const { data: existing = [], error: existErr } = await supabase.from('collection_items').select('order').eq('collection_id', collectionId).order('order', { ascending: false }).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の取得に失敗しました', existErr.message || existErr, 'db_error', 500)
+    const nextOrder = (Array.isArray(existing) && existing.length > 0 && typeof existing[0].order === 'number') ? (existing[0].order + 1) : 1
+
+    const insertBody = { collection_id: collectionId, product_id: productId, order: nextOrder, added_at: new Date().toISOString() }
+    const { data: ins, error: insErr } = await supabase.from('collection_items').insert(insertBody).select('*')
+    if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の挿入に失敗しました', insErr.message || insErr, 'db_error', 500)
+
+    const { data: items = [] } = await supabase.from('collection_items').select('id').eq('collection_id', collectionId)
+    const itemCount = Array.isArray(items) ? items.length : 0
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: { itemCount, item: ins && ins[0] ? ins[0] : null } }), { headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '追加処理中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: remove item from collection
+app.delete('/api/admin/collection-items', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    let body: any = {}
+    try { body = await c.req.json() } catch { body = {} }
+    const collectionId = body.collectionId || body.collection_id || ''
+    const productId = body.productId || body.product_id || ''
+    if (!collectionId || !productId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collectionId と productId が必要です', null, 'invalid_body', 400)
+
+    const { error: delErr } = await supabase.from('collection_items').delete().eq('collection_id', collectionId).eq('product_id', productId)
+    if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の削除に失敗しました', delErr.message || delErr, 'db_error', 500)
+
+    const { data: items = [] } = await supabase.from('collection_items').select('id').eq('collection_id', collectionId)
+    const itemCount = Array.isArray(items) ? items.length : 0
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: { itemCount } }), { headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '削除処理中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
 app.get('/api/profile', async (c) => mirrorGet(c, async (c2) => {
   const supabase = getSupabase(c2.env)
   const key = `profile`
