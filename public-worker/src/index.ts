@@ -1562,6 +1562,111 @@ app.get('/api/collections', async (c) => mirrorGet(c, async (c2) => {
   })
 }))
 
+// Admin-prefixed alias for collections so admin UI can call `/api/admin/collections`.
+// Behavior mirrors `/api/collections` but goes through admin-origin middleware above.
+app.get('/api/admin/collections', async (c) => mirrorGet(c, async (c2) => {
+  // Reuse same logic as /api/collections but ensure token-based resolution is used
+  const supabase = getSupabase(c2.env)
+  const q = c2.req.query()
+  const limit = q.limit ? Math.max(0, parseInt(q.limit)) : null
+  const offset = q.limit ? Math.max(0, parseInt(q.offset || '0')) : 0
+  const wantCount = q.count === 'true'
+  const key = `admin_collections${c2.req.url.includes('?') ? c2.req.url.substring(c2.req.url.indexOf('?')) : ''}`
+  return cacheJson(c2, key, async () => {
+    try {
+      // For admin routes we require an authenticated user — ensure resolved context
+      const ctx = await resolveRequestUserContext(c2)
+      if (!ctx.trusted) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      }
+      const reqUserId = ctx.userId
+      let collections: any[] = []
+      let total: number | null = null
+      if (limit && limit > 0) {
+        if (wantCount) {
+          let query: any = supabase.from('collections').select('*', { count: 'exact' }).order('created_at', { ascending: false })
+          if (reqUserId) query = query.eq('user_id', reqUserId)
+          else {
+            const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
+            if (ownerId) query = query.eq('user_id', ownerId)
+            else query = query.eq('visibility', 'public')
+          }
+          const res = await query.range(offset, offset + Math.max(0, limit - 1))
+          collections = res.data || []
+          // @ts-ignore
+          total = typeof res.count === 'number' ? res.count : null
+        } else {
+          let query: any = supabase.from('collections').select('*').order('created_at', { ascending: false })
+          if (reqUserId) query = query.eq('user_id', reqUserId)
+          else {
+            const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
+            if (ownerId) query = query.eq('user_id', ownerId)
+            else query = query.eq('visibility', 'public')
+          }
+          const res = await query.range(offset, offset + Math.max(0, limit - 1))
+          collections = res.data || []
+        }
+      } else {
+        let query: any = supabase.from('collections').select('*').order('created_at', { ascending: false })
+        if (reqUserId) query = query.eq('user_id', reqUserId)
+        else {
+          const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
+          if (ownerId) query = query.eq('user_id', ownerId)
+          else query = query.eq('visibility', 'public')
+        }
+        const res = await query
+        collections = res.data || []
+      }
+
+      if (!collections || collections.length === 0) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        return new Response(JSON.stringify({ data: [], meta: total != null ? { total, limit, offset } : undefined }), { headers: merged })
+      }
+
+      const collectionIds = collections.map((c3: any) => c3.id)
+      const { data: items = [] } = await supabase.from('collection_items').select('*').in('collection_id', collectionIds)
+      const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id)))
+      let products: any[] = []
+      if (productIds.length > 0) {
+        const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
+        let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('published', true)
+        if (reqUserId) prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('user_id', reqUserId)
+        else {
+          const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
+          if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
+        }
+        const { data: prods = [] } = await prodQuery
+        products = prods || []
+      }
+      const productMap = new Map<string, any>()
+      for (const p of products) productMap.set(p.id, p)
+      const transformed = collections.map((col: any) => {
+        const thisItems = (items || []).filter((it: any) => it.collection_id === col.id)
+        const thisProducts = thisItems.map((it: any) => productMap.get(it.product_id)).filter(Boolean)
+        return {
+          id: col.id,
+          userId: col.user_id,
+          title: col.title,
+          description: col.description,
+          visibility: col.visibility,
+          createdAt: col.created_at,
+          updatedAt: col.updated_at,
+          products: thisProducts.map((p: any) => ({ id: p.id, userId: p.user_id, title: p.title, slug: p.slug }))
+        }
+      })
+      const meta = total != null ? { total, limit, offset } : undefined
+      const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ data: transformed, meta }), { headers: merged })
+    } catch (e: any) {
+      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
+  })
+}))
+
 app.get('/api/profile', async (c) => mirrorGet(c, async (c2) => {
   const supabase = getSupabase(c2.env)
   const key = `profile`
