@@ -2748,6 +2748,16 @@ app.post('/api/admin/recipes', async (c) => {
       updated_at: now,
     }
 
+    // Ensure a server-generated id exists. Do NOT trust client-provided id.
+    try {
+      let newId = ''
+      if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') newId = (crypto as any).randomUUID()
+      else newId = `recipe-${Date.now()}`
+      insertBody.id = newId
+    } catch (e) {
+      insertBody.id = `recipe-${Date.now()}`
+    }
+
     // Attach user's Supabase auth token to the client when available so RLS can resolve the correct user.
     try {
       const maybeToken = await getTokenFromRequest(c)
