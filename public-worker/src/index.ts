@@ -1701,7 +1701,8 @@ app.post('/api/admin/collections', async (c) => {
       newId = `col-${Date.now()}`
     }
 
-    const insertBody: any = { id: newId, user_id: userId, title, description, visibility }
+    const now = new Date().toISOString()
+    const insertBody: any = { id: newId, user_id: userId, title, description, visibility, created_at: now, updated_at: now }
     const { data: insData = [], error: insErr } = await supabase.from('collections').insert(insertBody).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクションの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
 
@@ -1801,12 +1802,28 @@ app.post('/api/admin/collection-items', async (c) => {
     // Some Postgres schemas expect a non-null 'id' without a default, so
     // generate a local id when missing to avoid 'null value in column "id"' errors.
     const genId = `col-item-${Date.now()}`
-    const insertBody: any = { id: genId, collection_id: collectionId, product_id: productId, order: nextOrder }
+    const now = new Date().toISOString()
+    const itemUserId = ctx.userId || ((c.env.PUBLIC_OWNER_USER_ID || '').toString().trim() || null)
+    const insertBody: any = { id: genId, collection_id: collectionId, product_id: productId, order: nextOrder, user_id: itemUserId, created_at: now, updated_at: now }
     const { data: ins, error: insErr } = await supabase.from('collection_items').insert(insertBody).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の挿入に失敗しました', insErr.message || insErr, 'db_error', 500)
-
-    const { data: items = [] } = await supabase.from('collection_items').select('id').eq('collection_id', collectionId)
-    const itemCount = Array.isArray(items) ? items.length : 0
+    // After inserting, ensure we only count items that reference existing products
+    const { data: items = [], error: itemsErr } = await supabase.from('collection_items').select('product_id').eq('collection_id', collectionId)
+    if (itemsErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の取得に失敗しました', itemsErr.message || itemsErr, 'db_error', 500)
+    const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id)))
+    let existingCount = 0
+    if (productIds.length > 0) {
+      const { data: prods = [], error: prodErr } = await supabase.from('products').select('id').in('id', productIds)
+      if (prodErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'products の取得に失敗しました', prodErr.message || prodErr, 'db_error', 500)
+      const existingIds = Array.isArray(prods) ? prods.map((p: any) => p.id) : []
+      existingCount = productIds.filter((pid) => existingIds.includes(pid)).length
+      // cleanup missing items
+      const missingIds = productIds.filter((pid) => !existingIds.includes(pid))
+      if (missingIds.length > 0) {
+        await supabase.from('collection_items').delete().in('product_id', missingIds).eq('collection_id', collectionId)
+      }
+    }
+    const itemCount = existingCount
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
     return new Response(JSON.stringify({ data: { itemCount, item: ins && ins[0] ? ins[0] : null } }), { headers: merged })
   } catch (e: any) {
@@ -1823,12 +1840,29 @@ app.get('/api/admin/collections/:id/items', async (c) => {
     const ctx = await resolveRequestUserContext(c)
     if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
 
-    const { data: items = [], error: itemsErr } = await supabase.from('collection_items').select('product_id').eq('collection_id', id).order('order', { ascending: true })
+    // Fetch items and validate referenced products. Remove references to missing products automatically.
+    const { data: items = [], error: itemsErr } = await supabase.from('collection_items').select('product_id,id').eq('collection_id', id).order('order', { ascending: true })
     if (itemsErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の取得に失敗しました', itemsErr.message || itemsErr, 'db_error', 500)
 
-    const out = (items || []).map((it: any) => ({ productId: it.product_id }))
+    const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id)))
+    let existingIds: string[] = []
+    if (productIds.length > 0) {
+      const { data: prods = [], error: prodErr } = await supabase.from('products').select('id').in('id', productIds)
+      if (prodErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'products の取得に失敗しました', prodErr.message || prodErr, 'db_error', 500)
+      existingIds = Array.isArray(prods) ? prods.map((p: any) => p.id) : []
+    }
+
+    const missingIds = productIds.filter((pid) => !existingIds.includes(pid))
+    if (missingIds.length > 0) {
+      // delete missing item references
+      const { error: delErr } = await supabase.from('collection_items').delete().in('product_id', missingIds).eq('collection_id', id)
+      if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '欠損商品の削除に失敗しました', delErr.message || delErr, 'db_error', 500)
+    }
+
+    // return only existing product ids
+    const remaining = (items || []).filter((it: any) => existingIds.includes(it.product_id)).map((it: any) => ({ productId: it.product_id }))
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: out }), { headers: merged })
+    return new Response(JSON.stringify({ data: remaining }), { headers: merged })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -1850,8 +1884,16 @@ app.delete('/api/admin/collection-items', async (c) => {
     const { error: delErr } = await supabase.from('collection_items').delete().eq('collection_id', collectionId).eq('product_id', productId)
     if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の削除に失敗しました', delErr.message || delErr, 'db_error', 500)
 
-    const { data: items = [] } = await supabase.from('collection_items').select('id').eq('collection_id', collectionId)
-    const itemCount = Array.isArray(items) ? items.length : 0
+    const { data: itemsAfter = [] } = await supabase.from('collection_items').select('product_id').eq('collection_id', collectionId)
+    // count items that reference existing products
+    const productIdsAfter = Array.from(new Set((itemsAfter || []).map((it: any) => it.product_id)))
+    let finalCount = 0
+    if (productIdsAfter.length > 0) {
+      const { data: prodsAfter = [] } = await supabase.from('products').select('id').in('id', productIdsAfter)
+      const existingAfter = Array.isArray(prodsAfter) ? prodsAfter.map((p: any) => p.id) : []
+      finalCount = productIdsAfter.filter((pid) => existingAfter.includes(pid)).length
+    }
+    const itemCount = finalCount
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
     return new Response(JSON.stringify({ data: { itemCount } }), { headers: merged })
   } catch (e: any) {
