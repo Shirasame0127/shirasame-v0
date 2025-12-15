@@ -1753,7 +1753,10 @@ app.post('/api/admin/collection-items', async (c) => {
     const nextOrder = (Array.isArray(existing) && existing.length > 0 && typeof existing[0].order === 'number') ? (existing[0].order + 1) : 1
 
     // DB schema does not have an 'added_at' column by default; avoid inserting it.
-    const insertBody = { collection_id: collectionId, product_id: productId, order: nextOrder }
+    // Some Postgres schemas expect a non-null 'id' without a default, so
+    // generate a local id when missing to avoid 'null value in column "id"' errors.
+    const genId = `col-item-${Date.now()}`
+    const insertBody: any = { id: genId, collection_id: collectionId, product_id: productId, order: nextOrder }
     const { data: ins, error: insErr } = await supabase.from('collection_items').insert(insertBody).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の挿入に失敗しました', insErr.message || insErr, 'db_error', 500)
 
