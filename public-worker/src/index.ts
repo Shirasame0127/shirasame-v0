@@ -2146,39 +2146,103 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
     return new Response(JSON.stringify(json), { status: res.status, headers: merged })
   }
-  // Fallback: call existing /recipes logic by fetching local path.
-  // Prefer the configured public worker host when available so the
-  // request is handled by this worker's public hostname instead of
-  // accidentally fetching the origin/admin server which returns HTML.
-  let res: Response
+  // Fallback: directly handle /api/recipes by querying Supabase.
+  // This avoids fragile upstream fetches which can return HTML or trigger
+  // Cloudflare 5xx/530 responses when the internal routing isn't available.
   try {
-    const workerHost = (c2.env && (c2.env.WORKER_PUBLIC_HOST || c2.env.WORKER_PUBLIC_HOST === '') ) ? (c2.env.WORKER_PUBLIC_HOST as string) : ''
-    if (workerHost) {
-      const p = c2.req.url.replace('/api/', '/')
-      const target = workerHost.replace(/\/$/, '') + p
-      res = await fetch(target, { method: 'GET', headers: makeUpstreamHeaders(c2) })
-    } else {
-      // Safety: avoid fetching the origin (which can return HTML pages) when
-      // WORKER_PUBLIC_HOST is not configured. Returning a JSON 404 makes it
-      // explicit that the internal API route is unavailable and prevents
-      // accidentally proxying to a frontend page.
+    const ctx = await resolveRequestUserContext(c2)
+
+    // Debug helper: if caller requests ?debug=1 return resolved auth context
+    try {
+      const url = new URL(c2.req.url)
+      if (url.searchParams.get('debug') === '1') {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+        return new Response(JSON.stringify({ debug: true, ctx: { userId: ctx.userId, authType: ctx.authType, trusted: ctx.trusted } }), { status: 200, headers: merged })
+      }
+    } catch {}
+
+    // Prefer only-trusted/admin calls for the admin-side proxy. If caller
+    // is not trusted, deny access to user-scoped recipe lists.
+    if (!ctx.trusted) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ error: 'no_internal_handler', message: 'WORKER_PUBLIC_HOST not configured; internal API not found' }), { status: 404, headers: merged })
+      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
     }
-  } catch (e) {
-    // If fetching the configured worker host fails, return a JSON 502 rather
-    // than falling back to the origin which may return HTML.
+
+    const supabase = getSupabase(c2.env)
+    const url = new URL(c2.req.url)
+    const limit = url.searchParams.get('limit') ? Math.max(0, parseInt(url.searchParams.get('limit') || '0')) : null
+    const offset = url.searchParams.get('offset') ? Math.max(0, parseInt(url.searchParams.get('offset') || '0')) : 0
+    const wantCount = url.searchParams.get('count') === 'true'
+    const shallow = url.searchParams.get('shallow') === 'true' || url.searchParams.get('list') === 'true'
+    const userIdQuery = url.searchParams.get('user_id') || null
+
+    const selectShallow = 'id,user_id,title,slug,short_description,draft,published,main_image_key,attachment_image_keys,created_at,updated_at'
+    const selectFull = '*,images:recipe_images(id,recipe_id,key,width,height,role,caption),tags'
+
+    let query: any = supabase.from('recipes').select(shallow ? selectShallow : selectFull)
+    if (userIdQuery) query = query.eq('user_id', userIdQuery)
+    if (limit !== null) query = query.limit(limit).offset(offset)
+
+    // If wantCount requested, use range to obtain count via supabase (Postgres)
+    if (wantCount && limit !== null) {
+      // supabase-js uses range to get count when `count: 'exact'` option used
+      query = query.range(offset, (limit && limit > 0) ? (offset + limit - 1) : offset)
+    }
+
+    const { data, error } = await query
+    if (error) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ data: [], total: 0 }), { status: 500, headers: merged })
+    }
+
+    // If requested, obtain total count separately (so pagination can be handled)
+    let total: number | null = null
+    try {
+      if (wantCount) {
+        let countQuery: any = getSupabase(c2.env).from('recipes').select('id', { count: 'exact', head: true })
+        if (userIdQuery) countQuery = countQuery.eq('user_id', userIdQuery)
+        const countRes: any = await countQuery
+        // supabase returns `count` in the response when head:true
+        total = typeof countRes?.count === 'number' ? countRes.count : null
+      }
+    } catch (e) {
+      try { console.warn('[DBG] failed to obtain recipes count', String(e)) } catch {}
+    }
+
+    // Normalize response shape expected by admin client
+    const transformed = (Array.isArray(data) ? data : []).map((r: any) => {
+      const images = Array.isArray(r.images) ? r.images.map((img: any) => ({ id: img.id, recipeId: img.recipe_id, key: img.key, width: img.width, height: img.height, role: img.role, caption: img.caption })) : []
+      return {
+        id: r.id,
+        userId: r.user_id,
+        title: r.title,
+        slug: r.slug,
+        shortDescription: r.short_description || null,
+        body: r.body || null,
+        tags: r.tags || null,
+        draft: !!r.draft,
+        published: !!r.published,
+        mainImageKey: r.main_image_key || null,
+        attachmentImageKeys: Array.isArray(r.attachment_image_keys) ? r.attachment_image_keys : null,
+        images: images,
+        createdAt: r.created_at || null,
+        updatedAt: r.updated_at || null,
+      }
+    })
+
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ error: 'upstream_fetch_failed', message: 'Failed to fetch configured WORKER_PUBLIC_HOST' }), { status: 502, headers: merged })
+    // Return list and total to match new OpenAPI spec
+    const respBody: any = { data: transformed }
+    respBody.total = typeof total === 'number' ? total : transformed.length
+    return new Response(JSON.stringify(respBody), { status: 200, headers: merged })
+  } catch (e: any) {
+    const detail = (e && (e.stack || e.message)) ? (e.stack || e.message) : String(e)
+    return makeErrorResponse({ env: c2.env, computeCorsHeaders, req: c2.req }, 'レシピ取得中にサーバーエラーが発生しました', detail, 'server_error', 500)
   }
-  const buf = await res.arrayBuffer()
-  const outHeaders: Record<string, string> = {}
-  try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
-  const origin = c2.req.header('Origin') || ''
-  const mergedHeaders = Object.assign({}, computeCorsHeaders(origin, c2.env), outHeaders)
-  return new Response(buf, { status: res.status, headers: mergedHeaders })
 }))
 
 // Mirror admin products GET to canonical /products handlers so admin UI
