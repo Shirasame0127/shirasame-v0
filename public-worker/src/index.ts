@@ -1691,8 +1691,17 @@ app.post('/api/admin/collections', async (c) => {
 
     const userId = ctx.userId || ((c.env.PUBLIC_OWNER_USER_ID || '').toString().trim() || null)
     if (!userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'ユーザーが特定できません', null, 'invalid_user', 400)
+    // Ensure an `id` is provided — some DB schemas require non-null `id` without default.
+    let newId = ''
+    try {
+      if (body.id) newId = body.id
+      else if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') newId = (crypto as any).randomUUID()
+      else newId = `col-${Date.now()}`
+    } catch (e) {
+      newId = `col-${Date.now()}`
+    }
 
-    const insertBody: any = { user_id: userId, title, description, visibility }
+    const insertBody: any = { id: newId, user_id: userId, title, description, visibility }
     const { data: insData = [], error: insErr } = await supabase.from('collections').insert(insertBody).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクションの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
 
