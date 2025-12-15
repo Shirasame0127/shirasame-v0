@@ -1,9 +1,10 @@
-const tagGroupsPaths = {
+export const tagGroupsPaths = {
   '/api/tag-groups': {
     get: {
       tags: ['タググループ'],
       summary: 'タググループ一覧を取得します',
-      responses: { '200': { description: '正常', content: { 'application/json': { schema: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, label: { type: 'string' } } } } } } }
+      responses: { '200': { description: '正常', content: { 'application/json': { schema: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, label: { type: 'string' } } } } } } },
+      security: [{ bearerAuth: [] }]
     },
     post: {
       tags: ['タググループ'],

@@ -24,7 +24,8 @@ const collectionsPaths = {
             }
           }
         }
-      }
+      },
+      security: [{ bearerAuth: [] }]
     },
     post: {
       tags: ['コレクション'],
@@ -39,7 +40,8 @@ const collectionsPaths = {
       tags: ['コレクション'],
       summary: 'コレクションを取得します',
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' }, description: 'コレクション ID' }],
-      responses: { '200': { description: '正常' }, '404': { description: '見つかりません' } }
+      responses: { '200': { description: '正常' }, '404': { description: '見つかりません' } },
+      security: [{ bearerAuth: [] }]
     }
   }
 }

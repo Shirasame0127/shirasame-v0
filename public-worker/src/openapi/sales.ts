@@ -1,10 +1,11 @@
-const salesPaths = {
+export const salesPaths = {
   '/api/amazon-sale-schedules': {
     get: {
       tags: ['セール'],
       summary: 'セールスケジュール一覧を取得します',
       description: 'セールのスケジュールを取得します。',
-      responses: { '200': { description: '正常', content: { 'application/json': { schema: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, saleName: { type: 'string' }, startDate: { type: 'string', format: 'date-time' }, endDate: { type: 'string', format: 'date-time' } } } } } } } } }
+      responses: { '200': { description: '正常', content: { 'application/json': { schema: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, saleName: { type: 'string' }, startDate: { type: 'string', format: 'date-time' }, endDate: { type: 'string', format: 'date-time' } } } } } } } } },
+      security: [{ bearerAuth: [] }]
     },
     post: {
       tags: ['セール'],
