@@ -2749,27 +2749,28 @@ app.post('/api/admin/recipes', async (c) => {
     const actingUser = ctx.userId
 
     const now = new Date().toISOString()
-    // Build insert body conservatively: only include commonly supported fields.
-    // Avoid adding optional/legacy columns that may be absent in some deployments
-    // (e.g. `short_description`, `draft`) to prevent PostgREST schema-cache errors.
-    const insertBody: any = {
-      title: body.title || null,
-      slug: body.slug || null,
-      body: body.body || null,
-      tags: Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null),
-      user_id: actingUser,
-      created_at: now,
-      updated_at: now,
-    }
+    // Allow creating a draft with only the recipe name (title).
+    // Build a minimal insert payload and attempt insert. If the DB rejects
+    // due to schema differences, fall back to an even smaller payload.
+    const title = (body && (body.title || body.name)) ? (body.title || body.name) : 'Untitled Recipe'
 
     // Ensure a server-generated id exists. Do NOT trust client-provided id.
+    let generatedId = ''
     try {
-      let newId = ''
-      if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') newId = (crypto as any).randomUUID()
-      else newId = `recipe-${Date.now()}`
-      insertBody.id = newId
+      if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') generatedId = (crypto as any).randomUUID()
+      else generatedId = `recipe-${Date.now()}`
     } catch (e) {
-      insertBody.id = `recipe-${Date.now()}`
+      generatedId = `recipe-${Date.now()}`
+    }
+
+    const minimalInsert: any = {
+      id: generatedId,
+      title: title,
+      // prefer to attach owner, but some RLS setups may infer owner from token
+      user_id: actingUser,
+      published: false,
+      created_at: now,
+      updated_at: now,
     }
 
     // Attach user's Supabase auth token to the client when available so RLS can resolve the correct user.
@@ -2786,8 +2787,22 @@ app.post('/api/admin/recipes', async (c) => {
     // to avoid schema mismatch across deployments.
 
     try {
-      const { data: ins, error: insErr } = await supabase.from('recipes').insert([insertBody]).select('*')
-      if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+      // First attempt: insert the minimalInsert (includes owner)
+      let { data: ins, error: insErr } = await supabase.from('recipes').insert([minimalInsert]).select('*')
+      if (insErr) {
+        try { console.warn('[admin/recipes] initial insert failed, trying fallback insert', insErr) } catch (e) {}
+        // Fallback: try inserting only id + title (some schemas may not accept user_id or timestamps from client)
+        try {
+          const fallback = { id: minimalInsert.id, title: minimalInsert.title }
+          const { data: ins2, error: insErr2 } = await supabase.from('recipes').insert([fallback]).select('*')
+          if (insErr2) {
+            return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピの作成に失敗しました', insErr2.message || insErr2, 'db_error', 500)
+          }
+          ins = ins2
+        } catch (e) {
+          return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピの作成に失敗しました', String(e), 'db_error', 500)
+        }
+      }
 
       // If images were provided, persist them to recipe_images
       try {
