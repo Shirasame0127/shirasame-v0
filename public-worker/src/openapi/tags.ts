@@ -4,7 +4,8 @@ const tagsPaths = {
       tags: ['タグ'],
       summary: 'タグ一覧を取得します',
       description: 'ユーザーに紐づくタグ一覧を返します',
-      responses: { '200': { description: '正常', content: { 'application/json': { schema: { type: 'object' } } } } }
+      responses: { '200': { description: '正常', content: { 'application/json': { schema: { type: 'object' } } } } },
+      security: [{ bearerAuth: [] }]
     }
   },
   '/api/admin/tags': {
