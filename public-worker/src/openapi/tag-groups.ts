@@ -1,4 +1,4 @@
-export const tagGroupsPaths = {
+const tagGroupsPaths = {
   '/api/tag-groups': {
     get: {
       tags: ['タググループ'],
@@ -28,4 +28,4 @@ export const tagGroupsPaths = {
     }
   }
 }
-export default tagGroupsPaths
+export default tagGroupsPaths;

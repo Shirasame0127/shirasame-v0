@@ -1,4 +1,4 @@
-export const salesPaths = {
+const salesPaths = {
   '/api/amazon-sale-schedules': {
     get: {
       tags: ['セール'],
@@ -15,4 +15,4 @@ export const salesPaths = {
     }
   }
 }
-export default salesPaths
+export default salesPaths;

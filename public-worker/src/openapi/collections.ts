@@ -1,4 +1,4 @@
-export const collectionsPaths = {
+const collectionsPaths = {
   '/api/collections': {
     get: {
       tags: ['コレクション'],
@@ -23,4 +23,4 @@ export const collectionsPaths = {
     }
   }
 }
-export default collectionsPaths
+export default collectionsPaths;

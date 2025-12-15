@@ -1,4 +1,4 @@
-export const recipesPaths = {
+const recipesPaths = {
   '/api/recipes': {
     get: {
       tags: ['レシピ'],
@@ -17,4 +17,4 @@ export const recipesPaths = {
     }
   }
 }
-export default recipesPaths
+export default recipesPaths;
