@@ -15,6 +15,21 @@ import type { Recipe } from "@/lib/db/schema"
 import { useToast } from "@/hooks/use-toast"
 import apiFetch from '@/lib/api-client'
 
+// Helper: try to extract a key-like ID from a public URL path
+function extractKeyFromUrl(raw?: string | null) {
+  if (!raw) return null
+  try {
+    if (raw.startsWith('http')) {
+      const u = new URL(raw)
+      return (u.pathname || '').split('/').filter(Boolean).pop() || null
+    }
+  } catch (e) {
+    // fallback naive
+    return String(raw).split('/').filter(Boolean).pop() || null
+  }
+  return null
+}
+
 export default function RecipeNewPage() {
   const router = useRouter()
   const [title, setTitle] = useState("")
@@ -70,14 +85,22 @@ export default function RecipeNewPage() {
             finalUrl = uploadJson.result
           }
         }
+      } else if (imageUrl && imageUrl.startsWith('http')) {
+        // Try to derive a key from a provided public URL (best-effort).
+        const derived = extractKeyFromUrl(imageUrl)
+        if (derived) finalKey = derived
       }
     } catch (e) {
       console.warn('[v0] new recipe image upload failed, keeping inline image', e)
     }
 
-    const imageObj: any = { id: recipeId, width: 1920, height: 1080, uploadedAt: new Date().toISOString() }
-    if (finalKey) imageObj.key = finalKey
-    else imageObj.url = finalUrl
+    // Enforce key-only persistence: require a key (either uploaded or derived)
+    if (!finalKey) {
+      toast({ variant: 'destructive', title: 'エラー', description: '画像はキー形式で管理されます。アップロードしてキーを取得してください。' })
+      return
+    }
+
+    const imageObj: any = { id: recipeId, width: 1920, height: 1080, uploadedAt: new Date().toISOString(), key: finalKey }
 
     const recipe: Recipe = {
       id: recipeId,
@@ -106,10 +129,6 @@ export default function RecipeNewPage() {
     try {
       const body: any = { recipeId, id: recipeId, width: 1920, height: 1080 }
       if (finalKey) body.key = finalKey
-      else {
-        // CASE A: do not persist full URLs to the server DB. Skip server upsert when no key available.
-        console.warn('[v0] no finalKey obtained; skipping server persist to avoid storing URLs in DB')
-      }
       await apiFetch('/api/admin/recipe-images/upsert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

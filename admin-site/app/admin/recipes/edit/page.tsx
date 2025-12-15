@@ -944,13 +944,14 @@ export default function RecipeEditPage() {
       }
 
       // Prefer persisting canonical keys only. If we obtained a key from upload,
-      // persist `imageKey`. Do NOT include full public URLs in payloads.
+      // persist `imageKey`. Do NOT include full public URLs or inline data URLs in payloads.
       if (finalImageKey) {
         payload.imageKey = finalImageKey
-        payload.imageDataUrl = undefined
       } else if (imageDataUrl && imageDataUrl.startsWith("data:")) {
-        // inline data URL: persist only as imageDataUrl temporarily (will be uploaded by server ideally)
-        payload.imageDataUrl = imageDataUrl
+        // We attempted to upload an inline data URL but did not obtain a key.
+        // Do not persist raw data URLs to the DB — require an upload (key) first.
+        toast({ title: "エラー", description: "画像のアップロードに失敗しました。もう一度アップロードしてください。", variant: "destructive" })
+        return
       } else {
         // No upload key available and not an inline data URL. Do not persist public URLs here.
         payload.imageDataUrl = undefined
