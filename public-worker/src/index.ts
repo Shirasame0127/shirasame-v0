@@ -890,7 +890,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
         if (wantCount) {
           // Call select(...) first so Postgrest query builder methods like
           // .order()/.range() are available consistently across versions.
-          let query: any = supabase.from('collections').select('*', { count: 'exact' }).order('created_at', { ascending: false })
+          let query: any = supabase.from('collections').select('*', { count: 'exact' }).order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
           if (reqUserId) query = query.eq('user_id', reqUserId)
           else {
             const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
@@ -902,7 +902,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
           // @ts-ignore
           total = typeof res.count === 'number' ? res.count : null
         } else {
-          let query: any = supabase.from('collections').select('*').order('created_at', { ascending: false })
+          let query: any = supabase.from('collections').select('*').order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
           if (reqUserId) query = query.eq('user_id', reqUserId)
           else {
             const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
@@ -913,7 +913,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
           collections = res.data || []
         }
       } else {
-        let query: any = supabase.from('collections').select('*').order('created_at', { ascending: false })
+        let query: any = supabase.from('collections').select('*').order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
         if (reqUserId) query = query.eq('user_id', reqUserId)
         else {
           const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
@@ -1481,7 +1481,7 @@ app.get('/api/collections', async (c) => mirrorGet(c, async (c2) => {
       let total: number | null = null
       if (limit && limit > 0) {
         if (wantCount) {
-          let query: any = supabase.from('collections').select('*', { count: 'exact' }).order('created_at', { ascending: false })
+          let query: any = supabase.from('collections').select('*', { count: 'exact' }).order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
           if (reqUserId) query = query.eq('user_id', reqUserId)
           else {
             const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
@@ -1493,7 +1493,7 @@ app.get('/api/collections', async (c) => mirrorGet(c, async (c2) => {
           // @ts-ignore
           total = typeof res.count === 'number' ? res.count : null
         } else {
-          let query: any = supabase.from('collections').select('*').order('created_at', { ascending: false })
+          let query: any = supabase.from('collections').select('*').order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
           if (reqUserId) query = query.eq('user_id', reqUserId)
           else {
             const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
@@ -1504,7 +1504,7 @@ app.get('/api/collections', async (c) => mirrorGet(c, async (c2) => {
           collections = res.data || []
         }
       } else {
-        let query: any = supabase.from('collections').select('*').order('created_at', { ascending: false })
+        let query: any = supabase.from('collections').select('*').order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
         if (reqUserId) query = query.eq('user_id', reqUserId)
         else {
           const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
@@ -1710,6 +1710,34 @@ app.post('/api/admin/collections', async (c) => {
     return new Response(JSON.stringify({ data: Array.isArray(insData) && insData.length > 0 ? insData[0] : null }), { status: 200, headers: merged })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '作成中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: reorder collections
+app.post('/api/admin/collections/reorder', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    let body: any = {}
+    try { body = await c.req.json() } catch { body = {} }
+    const orderList = Array.isArray(body.order) ? body.order : []
+    if (!Array.isArray(orderList)) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'order の配列が必要です', null, 'invalid_body', 400)
+
+    // Normalize entries: accept { id, order } or { id, position }
+    const normalized = orderList.map((it: any) => ({ id: it.id, order: typeof it.order === 'number' ? it.order : (typeof it.position === 'number' ? it.position : null) })).filter((it: any) => it.id && it.order !== null)
+
+    for (const entry of normalized) {
+      const { id, order } = entry
+      const { error: updErr } = await supabase.from('collections').update({ order }).eq('id', id)
+      if (updErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collections の並び替え更新に失敗しました', updErr.message || updErr, 'db_error', 500)
+    }
+
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: { success: true } }), { headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '並べ替え処理中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
 })
 
