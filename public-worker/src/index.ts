@@ -1667,6 +1667,73 @@ app.get('/api/admin/collections', async (c) => mirrorGet(c, async (c2) => {
   })
 }))
 
+// Inspect a collection: return counts of items, existing products, and missing items
+app.get('/api/admin/collections/:id/inspect', async (c) => {
+  try {
+    const id = c.req.param('id')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '無効なIDです', null, 'invalid_id', 400)
+    const supabase = getSupabase(c.env)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    // fetch collection items
+    const { data: items = [], error: itemsErr } = await supabase.from('collection_items').select('*').eq('collection_id', id)
+    if (itemsErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の取得に失敗しました', itemsErr.message || itemsErr, 'db_error', 500)
+    const totalCount = Array.isArray(items) ? items.length : 0
+    const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id)))
+
+    let existingCount = 0
+    if (productIds.length > 0) {
+      const { data: prods = [], error: prodErr } = await supabase.from('products').select('id').in('id', productIds)
+      if (prodErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'products の取得に失敗しました', prodErr.message || prodErr, 'db_error', 500)
+      existingCount = Array.isArray(prods) ? prods.length : 0
+    }
+
+    const missingCount = Math.max(0, totalCount - existingCount)
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ data: { totalCount, existingCount, missingCount } }), { headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '検査中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Sync collection: remove collection_items that reference missing products
+app.post('/api/admin/collections/:id/sync', async (c) => {
+  try {
+    const id = c.req.param('id')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '無効なIDです', null, 'invalid_id', 400)
+    const supabase = getSupabase(c.env)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    const { data: items = [], error: itemsErr } = await supabase.from('collection_items').select('*').eq('collection_id', id)
+    if (itemsErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の取得に失敗しました', itemsErr.message || itemsErr, 'db_error', 500)
+    const totalCount = Array.isArray(items) ? items.length : 0
+    const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id)))
+
+    let existingIds: string[] = []
+    if (productIds.length > 0) {
+      const { data: prods = [], error: prodErr } = await supabase.from('products').select('id').in('id', productIds)
+      if (prodErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'products の取得に失敗しました', prodErr.message || prodErr, 'db_error', 500)
+      existingIds = Array.isArray(prods) ? prods.map((p: any) => p.id) : []
+    }
+
+    const missingIds = productIds.filter((pid) => !existingIds.includes(pid))
+    if (missingIds.length > 0) {
+      const { error: delErr } = await supabase.from('collection_items').delete().in('product_id', missingIds).eq('collection_id', id)
+      if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '欠損商品の削除に失敗しました', delErr.message || delErr, 'db_error', 500)
+    }
+
+    const newTotal = Math.max(0, totalCount - missingIds.length)
+    const existingCount = newTotal
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: { totalCount: newTotal + missingIds.length, existingCount, missingCount: missingIds.length } }), { headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '同期中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
 app.get('/api/profile', async (c) => mirrorGet(c, async (c2) => {
   const supabase = getSupabase(c2.env)
   const key = `profile`
