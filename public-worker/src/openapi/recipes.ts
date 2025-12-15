@@ -1,4 +1,4 @@
-export const recipesPaths = {
+﻿export const recipesPaths = {
   '/api/recipes': {
     get: {
       tags: ['レシピ'],
@@ -21,7 +21,7 @@ export const recipesPaths = {
                 }
               }
             }
-
+          }
         }
       },
       security: [{ bearerAuth: [] }]
@@ -53,6 +53,6 @@ export const recipesPaths = {
       security: [{ bearerAuth: [] }]
     }
   }
-}
+};
 
 export default recipesPaths;
