@@ -1714,6 +1714,43 @@ app.post('/api/admin/collections', async (c) => {
   }
 })
 
+// Admin: update collection (title/description/visibility etc.)
+app.put('/api/admin/collections/*', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const path = c.req.path || (new URL(c.req.url)).pathname
+    const id = path.replace('/api/admin/collections/', '')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクションIDが必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+
+    // Check ownership
+    const { data: existing = [], error: existErr } = await supabase.from('collections').select('user_id').eq('id', id).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクションの検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+    const ownerId = existing && existing[0] ? existing[0].user_id : null
+    if (ownerId && ownerId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    const updates: any = {}
+    if (typeof body.title !== 'undefined') updates.title = body.title
+    if (typeof body.description !== 'undefined') updates.description = body.description
+    if (typeof body.visibility !== 'undefined') updates.visibility = body.visibility
+    if (typeof body.order !== 'undefined') updates.order = body.order
+
+    if (Object.keys(updates).length === 0) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '更新するフィールドがありません', null, 'invalid_body', 400)
+
+    const { data: upd = [], error: updErr } = await supabase.from('collections').update(updates).eq('id', id).select('*')
+    if (updErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクションの更新に失敗しました', updErr.message || updErr, 'db_error', 500)
+
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: Array.isArray(upd) && upd.length > 0 ? upd[0] : null }), { headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '更新中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
 // Admin: reorder collections
 app.post('/api/admin/collections/reorder', async (c) => {
   try {

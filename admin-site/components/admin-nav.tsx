@@ -1,6 +1,5 @@
 "use client"
 
-import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
@@ -73,6 +72,7 @@ export function AdminNav() {
   const [isHydrated, setIsHydrated] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
+  const [profileImageResponsive, setProfileImageResponsive] = useState<{ src: string | null; srcSet: string | null; sizes?: string | undefined } | null>(null)
   const [profileData, setProfileData] = useState<any | null>(null)
 
   useEffect(() => {
@@ -114,6 +114,7 @@ export function AdminNav() {
         }
 
         let image: string | null = null
+        let resp: { src: string | null; srcSet: string | null; sizes?: string | undefined } | null = null
         // Align with site-settings: prefer canonical key, prefer local upload cache,
         // then generate a public URL via `getPublicImageUrl` before calling
         // `responsiveImageForUsage` so admin-nav matches site-settings behavior.
@@ -125,17 +126,27 @@ export function AdminNav() {
           // generate public base from either cached preview or canonical key
           const publicBase = getPublicImageUrl(baseInput) || ((baseInput && (baseInput.startsWith('http') || baseInput.startsWith('/'))) ? baseInput : String(profileKey))
           try {
-            const resp = responsiveImageForUsage(publicBase, 'avatar')
+            resp = responsiveImageForUsage(publicBase, 'avatar')
             image = resp?.src || publicBase
           } catch (e) {
             image = publicBase
+            resp = { src: publicBase, srcSet: null, sizes: undefined }
           }
         } else {
           image = data?.avatarUrl || data?.profileImage || null
+          if (image) {
+            try {
+              resp = responsiveImageForUsage(image, 'avatar')
+              image = resp?.src || image
+            } catch (e) {
+              resp = { src: image, srcSet: null, sizes: undefined }
+            }
+          }
         }
         if (active) {
           setProfileData(data)
           setProfileImageUrl(image || null)
+          setProfileImageResponsive(resp)
           try {
             if (typeof window !== 'undefined' && data) {
               const mirror = { id: data.id, email: data.email || null, username: data.username || data.displayName || null }
@@ -239,12 +250,16 @@ export function AdminNav() {
     <div className="flex h-full flex-col">
       <div className="flex h-16 items-center justify-between border-b px-3">
         <div className="flex items-center gap-2">
-          {profileImageUrl ? (
-            <Image
-              src={profileImageUrl}
+            {profileImageUrl ? (
+            <img
+              src={profileImageResponsive?.src || profileImageUrl || undefined}
+              srcSet={profileImageResponsive?.srcSet || undefined}
+              sizes={profileImageResponsive?.sizes}
               alt="プロフィール画像"
               width={40}
               height={40}
+              loading="lazy"
+              decoding="async"
               className="h-10 w-10 rounded-full border border-primary/20 object-cover"
             />
           ) : (
@@ -267,11 +282,15 @@ export function AdminNav() {
             className={cn("flex items-center gap-3", !isExpanded && "justify-center")}
           >
             {profileImageUrl ? (
-              <Image
-                src={profileImageUrl}
+              <img
+                src={profileImageResponsive?.src || profileImageUrl || undefined}
+                srcSet={profileImageResponsive?.srcSet || undefined}
+                sizes={profileImageResponsive?.sizes}
                 alt="プロフィール画像"
                 width={40}
                 height={40}
+                loading="lazy"
+                decoding="async"
                 className="h-10 w-10 rounded-full border border-border object-cover"
               />
             ) : (
@@ -297,11 +316,15 @@ export function AdminNav() {
             )}
           >
             {profileImageUrl ? (
-              <Image
-                src={profileImageUrl}
+              <img
+                src={profileImageResponsive?.src || profileImageUrl || undefined}
+                srcSet={profileImageResponsive?.srcSet || undefined}
+                sizes={profileImageResponsive?.sizes}
                 alt="プロフィール画像"
                 width={40}
                 height={40}
+                loading="lazy"
+                decoding="async"
                 className="h-10 w-10 rounded-full border border-border object-cover"
               />
             ) : (
@@ -352,11 +375,15 @@ export function AdminNav() {
     <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-background/95 px-4 py-3 backdrop-blur md:hidden">
       <div className="flex items-center gap-3">
         {profileImageUrl ? (
-          <Image
-            src={profileImageUrl}
+          <img
+            src={profileImageResponsive?.src || profileImageUrl || undefined}
+            srcSet={profileImageResponsive?.srcSet || undefined}
+            sizes={profileImageResponsive?.sizes}
             alt="プロフィール画像"
             width={40}
             height={40}
+            loading="lazy"
+            decoding="async"
             className="h-10 w-10 rounded-full border border-primary/20 object-cover"
           />
         ) : (
@@ -385,14 +412,18 @@ export function AdminNav() {
       <div className="flex h-16 items-center justify-between border-b px-4">
         <div className="flex items-center gap-3">
           {profileImageUrl ? (
-            <Image
-              src={profileImageUrl}
-              alt="プロフィール画像"
-              width={36}
-              height={36}
-              className="h-9 w-9 rounded-full border border-border object-cover"
-            />
-          ) : (
+          <img
+            src={profileImageResponsive?.src || profileImageUrl || undefined}
+            srcSet={profileImageResponsive?.srcSet || undefined}
+            sizes={profileImageResponsive?.sizes}
+            alt="プロフィール画像"
+            width={36}
+            height={36}
+            loading="lazy"
+            decoding="async"
+            className="h-9 w-9 rounded-full border border-border object-cover"
+          />
+        ) : (
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
               {initials !== "?" ? initials : "Sh"}
             </div>
