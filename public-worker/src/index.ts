@@ -1667,6 +1667,35 @@ app.get('/api/admin/collections', async (c) => mirrorGet(c, async (c2) => {
   })
 }))
 
+// Admin: create a new collection
+app.post('/api/admin/collections', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    let body: any = {}
+    try { body = await c.req.json() } catch { body = {} }
+    const title = (body.title || '').toString().trim()
+    const description = typeof body.description === 'string' ? body.description : (body.description || null)
+    const visibility = (body.visibility || 'public').toString()
+
+    if (!title) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タイトルが必要です', null, 'invalid_body', 400)
+
+    const userId = ctx.userId || ((c.env.PUBLIC_OWNER_USER_ID || '').toString().trim() || null)
+    if (!userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'ユーザーが特定できません', null, 'invalid_user', 400)
+
+    const insertBody: any = { user_id: userId, title, description, visibility }
+    const { data: insData = [], error: insErr } = await supabase.from('collections').insert(insertBody).select('*')
+    if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクションの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: Array.isArray(insData) && insData.length > 0 ? insData[0] : null }), { status: 200, headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '作成中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
 // Inspect a collection: return counts of items, existing products, and missing items
 app.get('/api/admin/collections/:id/inspect', async (c) => {
   try {
