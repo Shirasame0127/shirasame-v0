@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { makeWeakEtag } from './utils/etag'
 import { getSupabase } from './supabase'
+import { openapi } from './openapi'
 import { isAdmin, makeErrorResponse } from './helpers'
 import { getPublicImageUrl, buildResizedImageUrl, responsiveImageForUsage } from '../../shared/lib/image-usecases'
 
@@ -85,6 +86,47 @@ app.use('/api/*', async (c, next) => {
 app.put('/api/admin/products/*/published', async (c) => {
   try {
     const supabase = getSupabase(c.env)
+    try {
+      const maybeToken = await getTokenFromRequest(c)
+      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
+        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      const maybeToken = await getTokenFromRequest(c)
+      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
+        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      const maybeToken = await getTokenFromRequest(c)
+      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
+        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      const maybeToken = await getTokenFromRequest(c)
+      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
+        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+      }
+    } catch (e) {}
+    try {
+      const maybeToken = await getTokenFromRequest(c)
+      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
+        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+      }
+    } catch (e) {}
+    // If a SERVICE_ROLE key is NOT configured, the client runs with anon key
+    // and Supabase will enforce RLS based on the Authorization token. In
+    // that case, attach the user's token (from cookie/bearer) to the
+    // client so INSERT/UPDATE operations are executed under that user's
+    // identity and RLS succeeds.
+    try {
+      const maybeToken = await getTokenFromRequest(c)
+      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
+        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+      }
+    } catch (e) {}
     const path = (new URL(c.req.url)).pathname || ''
     const id = path.replace('/api/admin/products/', '').replace('/published', '').replace(/\/+$/,'')
     if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '無効なIDです', null, 'invalid_id', 400)
@@ -2168,6 +2210,27 @@ app.get('/api/tag-groups', async (c) => mirrorGet(c, async (c2) => {
     return makeErrorResponse(c2, 'タググループの取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
 }))
+
+// Serve OpenAPI JSON for SwaggerUI
+app.get('/api/openapi.json', async (c) => {
+  try {
+    const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify(openapi), { headers })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'OpenAPI 生成に失敗しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Serve a small Swagger UI page (uses CDN)
+app.get('/api/docs', async (c) => {
+  try {
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>API Docs</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="swagger"></div><script src="https://unpkg.com/swagger-ui-dist@4/swagger-ui-bundle.js"></script><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@4/swagger-ui.css"/><script>window.onload=function(){const ui=window.SwaggerUIBundle({url:'/api/openapi.json',dom_id:'#swagger'});window.ui=ui;};</script></body></html>`
+    const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'text/html; charset=utf-8' })
+    return new Response(html, { headers })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'ドキュメント表示に失敗しました', e?.message || String(e), 'server_error', 500)
+  }
+})
 
 app.get('/api/tags', async (c) => mirrorGet(c, async (c2) => {
   const supabase = getSupabase(c2.env)
