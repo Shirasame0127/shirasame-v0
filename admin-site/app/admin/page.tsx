@@ -21,6 +21,8 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true)
   const [productCount, setProductCount] = useState<number | null>(null)
   const [publishedCount, setPublishedCount] = useState<number | null>(null)
+  const [collectionCount, setCollectionCount] = useState<number | null>(null)
+  const [publishedCollectionCount, setPublishedCollectionCount] = useState<number | null>(null)
   const [collections, setCollections] = useState<any[]>([])
 
   const pathname = usePathname()
@@ -70,6 +72,25 @@ export default function AdminDashboard() {
         console.warn('[v0] failed to fetch product count', e)
         setProductCount(loadedProducts.length)
         setPublishedCount(loadedProducts.filter((p) => p.published).length)
+      }
+
+      // Fetch authoritative collections counts for dashboard
+      try {
+        const collRes = await apiFetch('/api/admin/collections/counts')
+        if (collRes && collRes.ok) {
+          const collJson = await collRes.json().catch(() => null)
+          const total = collJson?.data?.totalCount ?? null
+          const pub = collJson?.data?.publicCount ?? null
+          setCollectionCount(typeof total === 'number' ? total : loadedCollections.length)
+          setPublishedCollectionCount(typeof pub === 'number' ? pub : loadedCollections.filter((c) => c.visibility === 'public').length)
+        } else {
+          setCollectionCount(loadedCollections.length)
+          setPublishedCollectionCount(loadedCollections.filter((c) => c.visibility === 'public').length)
+        }
+      } catch (e) {
+        console.warn('[v0] failed to fetch collection counts', e)
+        setCollectionCount(loadedCollections.length)
+        setPublishedCollectionCount(loadedCollections.filter((c) => c.visibility === 'public').length)
       }
 
       console.log("[v0] Dashboard: Products loaded:", loadedProducts.length)
@@ -140,9 +161,9 @@ export default function AdminDashboard() {
     },
     {
       title: "コレクション数",
-      value: collections.length,
+      value: collectionCount ?? collections.length,
       icon: TrendingUp,
-      description: `${collections.filter((c) => c.visibility === 'public').length}件公開中`,
+      description: `${publishedCollectionCount ?? collections.filter((c) => c.visibility === 'public').length}件公開中`,
       link: "/admin/collections",
     },
   ]

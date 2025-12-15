@@ -95,7 +95,8 @@ export default function AdminSettingsPage() {
   // Sanitize server-provided user row into a client-friendly updates object
   function sanitizeServerUserForCache(srv: any) {
     if (!srv) return {}
-    const headerKeysRaw = srv.header_image_keys || srv.headerImageKeys || srv.headerImages || srv.headerImage || srv.headerImageKey || []
+    // Only accept canonical key-based fields from server. Do not read legacy full-URL fields.
+    const headerKeysRaw = srv.header_image_keys || srv.headerImageKeys || []
     function extractKeyFromUrl(u: any) {
       if (!u || typeof u !== 'string') return null
       try {
@@ -128,7 +129,6 @@ export default function AdminSettingsPage() {
       profileImageKey:
         srv.profile_image_key ||
         srv.profileImageKey ||
-        (srv.profileImage ? (extractKeyFromUrl(srv.profileImage) as any) : null) ||
         null,
       avatarUrl: null,
       headerImageKeys: headerKeys,
@@ -169,11 +169,11 @@ export default function AdminSettingsPage() {
             }
           }
 
-          const headerKeysFromServer = serverUser.headerImageKeys || (Array.isArray(serverUser.headerImages) ? serverUser.headerImages.map(extractKey).filter(Boolean) : serverUser.headerImageKey ? [serverUser.headerImageKey] : serverUser.headerImage ? [extractKey(serverUser.headerImage)].filter(Boolean) : [])
+          const headerKeysFromServer = serverUser.headerImageKeys || serverUser.header_image_keys || []
           setHeaderImageKeys(headerKeysFromServer)
 
           // Prefer profile image key over legacy full URL
-          const profileKey = serverUser.profile_image_key || serverUser.profileImageKey || (serverUser.profileImage ? extractKey(serverUser.profileImage) : null)
+          const profileKey = serverUser.profile_image_key || serverUser.profileImageKey || null
           if (profileKey) setAvatarUploadedKey(profileKey)
           return
         }
@@ -192,7 +192,7 @@ export default function AdminSettingsPage() {
           setAmazonSecretKey(currentUser.amazonSecretKey || "")
           setAmazonAssociateId(currentUser.amazonAssociateId || "")
           setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
-          const profileKeyLocal = currentUser.profileImageKey || currentUser.profile_image_key || (currentUser.profileImage ? (currentUser.profileImage.includes('/') ? currentUser.profileImage : null) : null)
+          const profileKeyLocal = currentUser.profileImageKey || currentUser.profile_image_key || null
           if (profileKeyLocal) setAvatarUploadedKey(profileKeyLocal)
         }
       } catch (e) {

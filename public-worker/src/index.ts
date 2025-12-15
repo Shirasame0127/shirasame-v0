@@ -1030,13 +1030,14 @@ app.get('/profile', zValidator('query', listQuery.partial()), async (c) => {
         name: user.name || null,
         displayName: user.display_name || user.displayName || user.name || null,
         email: user.email || null,
-        avatarUrl: user.avatar_url || user.profile_image || null,
-        profileImage: (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : (user.profile_image || null)),
+        // Prefer explicit key fields. Do not expose legacy full-URL columns.
+        avatarUrl: user.avatar_url || (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
+        profileImage: (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
         profileImageKey: user.profile_image_key || null,
-        headerImage: user.header_image || null,
+        // header images: build resized variants only from the canonical key array
         headerImages: (Array.isArray(user.header_image_keys) ? user.header_image_keys.map((k:any) => buildResizedImageUrl(k, { width: 800 }, c.env.IMAGES_DOMAIN)).filter(Boolean) : null),
         headerImageKey: user.header_image_key || null,
-        headerImageKeys: user.header_image_keys || null,
+        headerImageKeys: Array.isArray(user.header_image_keys) ? user.header_image_keys : null,
         bio: user.bio || null,
         socialLinks: user.social_links || null,
       }
@@ -2079,7 +2080,7 @@ app.get('/api/profile', async (c) => mirrorGet(c, async (c2) => {
         const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
         return new Response(JSON.stringify({ data: null }), { headers: merged })
       }
-      const transformed = { id: user.id, name: user.name || null, displayName: user.display_name || user.displayName || user.name || null, email: user.email || null, avatarUrl: user.avatar_url || user.profile_image || null }
+      const transformed = { id: user.id, name: user.name || null, displayName: user.display_name || user.displayName || user.name || null, email: user.email || null, avatarUrl: user.avatar_url || (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c2.env.IMAGES_DOMAIN) : null) }
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
       return new Response(JSON.stringify({ data: transformed }), { headers: merged })
@@ -3380,11 +3381,11 @@ app.get('/api/admin/settings', async (c) => {
                 displayName: u.display_name || u.displayName || u.name || null,
                 bio: u.bio || null,
                 email: u.email || null,
-                profileImage: (u.profile_image_key ? getPublicImageUrl(u.profile_image_key, c.env.IMAGES_DOMAIN) : (u.profile_image || null)),
-                profileImageKey: u.profile_image_key || u.profileImageKey || u.profile_image_key || null,
-                headerImageKeys: mapHeaderKeys(u.header_image_keys || u.headerImageKeys || u.header_images || u.header_images_keys),
-                headerImages: (function(keys:any[]){ try { return (Array.isArray(keys) ? keys : []).map(k=> buildResizedImageUrl(k, { width: 800 }, c.env.IMAGES_DOMAIN)).filter(Boolean) } catch { return [] } })(mapHeaderKeys(u.header_image_keys || u.headerImageKeys || u.header_images || u.header_images_keys)),
-                headerImage: u.header_image || null,
+                // Use canonical key only; do not rely on legacy full-URL columns
+                profileImage: (u.profile_image_key ? getPublicImageUrl(u.profile_image_key, c.env.IMAGES_DOMAIN) : null),
+                profileImageKey: u.profile_image_key || u.profileImageKey || null,
+                headerImageKeys: mapHeaderKeys(u.header_image_keys || u.headerImageKeys),
+                headerImages: (function(keys:any[]){ try { return (Array.isArray(keys) ? keys : []).map(k=> buildResizedImageUrl(k, { width: 800 }, c.env.IMAGES_DOMAIN)).filter(Boolean) } catch { return [] } })(mapHeaderKeys(u.header_image_keys || u.headerImageKeys)),
                 backgroundType: u.background_type || u.backgroundType || null,
                 backgroundValue: u.background_value || u.backgroundValue || null,
                 backgroundImageKey: u.background_image_key || u.backgroundImageKey || null,

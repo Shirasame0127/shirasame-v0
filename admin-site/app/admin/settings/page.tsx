@@ -95,7 +95,8 @@ export default function AdminSettingsPage() {
   // Sanitize server-provided user row into a client-friendly updates object
   function sanitizeServerUserForCache(srv: any) {
     if (!srv) return {}
-    const headerKeysRaw = srv.header_image_keys || srv.headerImageKeys || srv.headerImages || srv.headerImage || srv.headerImageKey || []
+    // Only accept canonical key-based fields from server. Do not read legacy full-URL fields.
+    const headerKeysRaw = srv.header_image_keys || srv.headerImageKeys || []
     function extractKeyFromUrl(u: any) {
       if (!u || typeof u !== 'string') return null
       try {
