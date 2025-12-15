@@ -1713,6 +1713,48 @@ app.post('/api/admin/collections', async (c) => {
   }
 })
 
+// Admin: collection counts (total and public) for dashboard
+app.get('/api/admin/collections/counts', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    const reqUserId = ctx.userId
+    const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
+
+    // If user is specified, return counts scoped to that user; otherwise prefer ownerId; fallback to public visibility counts
+    let totalCount = 0
+    let publicCount = 0
+
+    if (reqUserId) {
+      const { data: all = [], error: allErr, count: allCount } = await supabase.from('collections').select('id', { count: 'exact' }).eq('user_id', reqUserId)
+      if (allErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collections の取得に失敗しました', allErr.message || allErr, 'db_error', 500)
+      totalCount = typeof allCount === 'number' ? allCount : (Array.isArray(all) ? all.length : 0)
+      const { data: pub = [], error: pubErr, count: pubCount } = await supabase.from('collections').select('id', { count: 'exact' }).eq('user_id', reqUserId).eq('visibility', 'public')
+      if (pubErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'public collections の取得に失敗しました', pubErr.message || pubErr, 'db_error', 500)
+      publicCount = typeof pubCount === 'number' ? pubCount : (Array.isArray(pub) ? pub.length : 0)
+    } else if (ownerId) {
+      const { data: all = [], error: allErr, count: allCount } = await supabase.from('collections').select('id', { count: 'exact' }).eq('user_id', ownerId)
+      if (allErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collections の取得に失敗しました', allErr.message || allErr, 'db_error', 500)
+      totalCount = typeof allCount === 'number' ? allCount : (Array.isArray(all) ? all.length : 0)
+      const { data: pub = [], error: pubErr, count: pubCount } = await supabase.from('collections').select('id', { count: 'exact' }).eq('user_id', ownerId).eq('visibility', 'public')
+      if (pubErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'public collections の取得に失敗しました', pubErr.message || pubErr, 'db_error', 500)
+      publicCount = typeof pubCount === 'number' ? pubCount : (Array.isArray(pub) ? pub.length : 0)
+    } else {
+      const { data: pub = [], error: pubErr, count: pubCount } = await supabase.from('collections').select('id', { count: 'exact' }).eq('visibility', 'public')
+      if (pubErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'public collections の取得に失敗しました', pubErr.message || pubErr, 'db_error', 500)
+      totalCount = typeof pubCount === 'number' ? pubCount : (Array.isArray(pub) ? pub.length : 0)
+      publicCount = totalCount
+    }
+
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: { totalCount, publicCount } }), { headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '集計中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
 // Inspect a collection: return counts of items, existing products, and missing items
 app.get('/api/admin/collections/:id/inspect', async (c) => {
   try {
@@ -1898,6 +1940,49 @@ app.delete('/api/admin/collection-items', async (c) => {
     return new Response(JSON.stringify({ data: { itemCount } }), { headers: merged })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '削除処理中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: reorder items in a collection
+app.post('/api/admin/collection-items/reorder', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    let body: any = {}
+    try { body = await c.req.json() } catch { body = {} }
+    const collectionId = body.collectionId || body.collection_id || ''
+    const orderList = Array.isArray(body.order) ? body.order : []
+    if (!collectionId || !Array.isArray(orderList)) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collectionId と order の配列が必要です', null, 'invalid_body', 400)
+
+    // Normalize entries: accept { productId, order } or { product_id, order }
+    const normalized = orderList.map((it: any) => ({ productId: it.productId || it.product_id, order: typeof it.order === 'number' ? it.order : null })).filter((it: any) => it.productId && it.order !== null)
+
+    // Apply updates (best-effort). Use sequential updates to avoid partial state complexities.
+    for (const entry of normalized) {
+      const { productId, order } = entry
+      const { error: updErr } = await supabase.from('collection_items').update({ order }).eq('collection_id', collectionId).eq('product_id', productId)
+      if (updErr) {
+        return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の並び替え更新に失敗しました', updErr.message || updErr, 'db_error', 500)
+      }
+    }
+
+    // return updated count of items referencing existing products
+    const { data: itemsAfter = [], error: itemsErr } = await supabase.from('collection_items').select('product_id').eq('collection_id', collectionId)
+    if (itemsErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の取得に失敗しました', itemsErr.message || itemsErr, 'db_error', 500)
+    const productIdsAfter = Array.from(new Set((itemsAfter || []).map((it: any) => it.product_id)))
+    let finalCount = 0
+    if (productIdsAfter.length > 0) {
+      const { data: prodsAfter = [] } = await supabase.from('products').select('id').in('id', productIdsAfter)
+      const existingAfter = Array.isArray(prodsAfter) ? prodsAfter.map((p: any) => p.id) : []
+      finalCount = productIdsAfter.filter((pid) => existingAfter.includes(pid)).length
+    }
+
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: { itemCount: finalCount } }), { headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '並べ替え処理中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
 })
 

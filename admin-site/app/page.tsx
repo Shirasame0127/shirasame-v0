@@ -17,6 +17,7 @@ const AdminSaleCalendar = dynamic(() => import('@/components/admin-sale-calendar
 export default function AdminDashboard() {
   const [products, setProducts] = useState<Product[]>([])
   const [recipes, setRecipes] = useState<Recipe[]>([])
+  const [collections, setCollections] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   const pathname = usePathname()
@@ -34,6 +35,7 @@ export default function AdminDashboard() {
       try {
         // Refresh using admin endpoint when on admin pages so cookies/X-User-Id are respected
         await db.products.refreshAdmin(currentUser?.id)
+        await (db.collections as any)?.refreshAdmin?.(currentUser?.id).catch(() => {})
       } catch (e) {
         console.warn('[v0] products.refresh warning', e)
       }
@@ -47,12 +49,14 @@ export default function AdminDashboard() {
 
       const loadedProducts = db.products.getAll(userId)
       const loadedRecipes = db.recipes.getAll(userId)
+      const loadedCollections = db.collections.getAll(userId)
 
       console.log("[v0] Dashboard: Products loaded:", loadedProducts.length)
       console.log("[v0] Dashboard: Recipes loaded:", loadedRecipes.length)
 
       setProducts(loadedProducts)
       setRecipes(loadedRecipes)
+      setCollections(loadedCollections)
     } catch (error) {
       console.error("[v0] Dashboard: Error loading data:", error)
     } finally {
@@ -113,10 +117,11 @@ export default function AdminDashboard() {
       description: "今月の合計",
     },
     {
-      title: "クリック数",
-      value: "567",
+      title: "コレクション数",
+      value: collections.length,
       icon: TrendingUp,
-      description: "アフィリエイトリンク",
+      description: `${collections.filter((c) => c.visibility === 'public').length}件公開中`,
+      link: "/admin/collections",
     },
   ]
 

@@ -269,6 +269,34 @@ export default function AdminCollectionsPage() {
     )
   }
 
+  // SortableProduct component used inside the manage-products modal
+  function SortableProduct({ id, product }: { id: string; product: any }) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+    const style: any = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      zIndex: isDragging ? 50 : undefined,
+    }
+    return (
+      <div ref={setNodeRef} style={{ ...style, touchAction: 'none', userSelect: 'none' }} className="relative">
+        <div className="absolute left-2 top-2 z-10">
+          <button {...attributes} {...listeners} type="button" aria-label="ドラッグ" className="h-8 w-8 rounded bg-white/80 flex items-center justify-center shadow">
+            <GripVertical className="w-4 h-4" />
+          </button>
+        </div>
+        <ProductCard product={product} isAdminMode={true} />
+        <Button
+          size="sm"
+          variant="outline"
+          className="absolute top-2 right-2"
+          onClick={() => handleRemoveProduct(managingCollectionId as string, product.id)}
+        >
+          解除
+        </Button>
+      </div>
+    )
+  }
+
   const handleAddProduct = (collectionId: string, productId: string) => {
     ;(async () => {
       try {
@@ -358,6 +386,42 @@ export default function AdminCollectionsPage() {
     const currentUser = getCurrentUser && getCurrentUser()
     const uid = currentUser?.id || undefined
     return db.products.getAll(uid).filter((p) => !collectionProductIds.includes(p.id))
+  }
+
+  const getManagedProductsOrdered = (collectionId: string) => {
+    if (managingCollectionId === collectionId && managingCollectionProductIds.length > 0 && productsList.length > 0) {
+      return managingCollectionProductIds.map((id) => productsList.find((p) => p.id === id)).filter(Boolean)
+    }
+    return getCollectionProducts(collectionId)
+  }
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(MouseSensor)
+  )
+
+  const handleManageProductsDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || !managingCollectionId) return
+    if (active.id === over.id) return
+    const oldIndex = managingCollectionProductIds.findIndex((id) => String(id) === String(active.id))
+    const newIndex = managingCollectionProductIds.findIndex((id) => String(id) === String(over.id))
+    if (oldIndex < 0 || newIndex < 0) return
+    const next = arrayMove(managingCollectionProductIds, oldIndex, newIndex)
+    setManagingCollectionProductIds(next)
+
+    ;(async () => {
+      try {
+        await apiFetch('/api/admin/collection-items/reorder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ collectionId: managingCollectionId, order: next.map((productId, order) => ({ productId, order })) }),
+        })
+      } catch (err) {
+        console.warn('collection items reorder persist failed', err)
+      }
+    })()
   }
 
   const handleToggleVisibility = async (collectionId: string, toVisibility: "public" | "draft") => {
@@ -596,24 +660,18 @@ export default function AdminCollectionsPage() {
               <div className="space-y-6">
                 <div>
                   <h3 className="font-semibold mb-3">含まれている商品</h3>
-                  <div className="grid grid-cols-3 md:grid-cols-2 gap-4">
-                    {getCollectionProducts(managingCollectionId).map((product: any) => (
-                      <div key={product.id} className="relative">
-                        <ProductCard product={product} isAdminMode={true} />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="absolute top-2 right-2"
-                          onClick={() => handleRemoveProduct(managingCollectionId, product.id)}
-                        >
-                          解除
-                        </Button>
+                  <DndContext sensors={sensors} onDragEnd={handleManageProductsDragEnd}>
+                    <SortableContext items={managingCollectionProductIds} strategy={rectSortingStrategy}>
+                      <div className="grid grid-cols-3 md:grid-cols-2 gap-4">
+                        {getManagedProductsOrdered(managingCollectionId).map((product: any) => (
+                          <SortableProduct key={product.id} id={product.id} product={product} />
+                        ))}
+                        {getManagedProductsOrdered(managingCollectionId).length === 0 && (
+                          <p className="col-span-full text-center text-muted-foreground py-8">商品がありません</p>
+                        )}
                       </div>
-                    ))}
-                    {getCollectionProducts(managingCollectionId).length === 0 && (
-                      <p className="col-span-full text-center text-muted-foreground py-8">商品がありません</p>
-                    )}
-                  </div>
+                    </SortableContext>
+                  </DndContext>
                 </div>
 
                 <div className="border-t pt-6">
