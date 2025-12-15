@@ -42,4 +42,21 @@ export class RecipesService {
     const json = await res.json().catch(() => null)
     return !!json?.ok
   }
+
+  static async getCounts() {
+    try {
+      const res = await apiFetch('/api/recipes/counts')
+      const json = await res.json().catch(() => null)
+      return json && json.data ? json.data : { total: 0, published: 0 }
+    } catch (e) {
+      return { total: 0, published: 0 }
+    }
+  }
+
+  static async reorder(orders: Array<{ id: string; order: number }>) {
+    // calls admin reorder endpoint; may return 501 if not implemented on server
+    const res = await apiFetch('/api/admin/recipes/reorder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orders }) })
+    const json = await res.json().catch(() => null)
+    return res.ok && (json?.ok || json?.updated || json?.status === 'ok')
+  }
 }

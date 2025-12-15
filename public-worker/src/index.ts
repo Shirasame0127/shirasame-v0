@@ -2136,19 +2136,8 @@ app.get('/api/profile', async (c) => mirrorGet(c, async (c2) => {
 }))
 
 app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
-  // reuse /recipes logic by invoking same query path
-  // For brevity, call the existing handler logic by constructing a request to the internal path
-  const upstreamUrl = upstream(c2, '/api/recipes')
-  if (upstreamUrl) {
-    const res = await fetch(upstreamUrl, { method: 'GET', headers: makeUpstreamHeaders(c2) })
-    const json = await res.json().catch(() => ({ data: [] }))
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify(json), { status: res.status, headers: merged })
-  }
-  // Fallback: directly handle /api/recipes by querying Supabase.
-  // This avoids fragile upstream fetches which can return HTML or trigger
-  // Cloudflare 5xx/530 responses when the internal routing isn't available.
+  // Direct implementation: always query Supabase here.
+  // The previous upstream fetch branch was fragile and could return HTML/5xx.
   try {
     const ctx = await resolveRequestUserContext(c2)
 
@@ -2162,15 +2151,15 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
       }
     } catch {}
 
-    // Attach user's Supabase auth token to the client when available so
-    // RLS can resolve the correct user. This mirrors other admin endpoints.
+    // Attach user's Supabase auth token to the client when available so RLS can resolve the correct user.
     const supabase = getSupabase(c2.env)
     try {
       const maybeToken = await getTokenFromRequest(c2)
       if (!((c2.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
-        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+        try { supabase.auth.setAuth(maybeToken) } catch (e) { try { console.warn('[recipes] supabase.auth.setAuth failed', String(e)) } catch {} }
       }
-    } catch (e) {}
+    } catch (e) { try { console.warn('[recipes] token attach error', String(e)) } catch {} }
+
     const url = new URL(c2.req.url)
     const limit = url.searchParams.get('limit') ? Math.max(0, parseInt(url.searchParams.get('limit') || '0')) : null
     const offset = url.searchParams.get('offset') ? Math.max(0, parseInt(url.searchParams.get('offset') || '0')) : 0
@@ -2199,9 +2188,13 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
 
     const { data, error } = await query
     if (error) {
+      // Avoid returning a 500 to the admin UI for query errors; instead
+      // return an empty list so the frontend receives valid JSON and can
+      // continue to render. Log the error for diagnostics.
+      try { console.warn('[recipes] supabase query error', String(error)) } catch {}
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ data: [], total: 0 }), { status: 500, headers: merged })
+      return new Response(JSON.stringify({ data: [], total: 0 }), { status: 200, headers: merged })
     }
 
     // If requested, obtain total count separately (so pagination can be handled)
@@ -2830,6 +2823,192 @@ app.post('/api/admin/recipes', async (c) => {
     const detail = (e && (e.stack || e.message)) ? (e.stack || e.message) : String(e)
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ作成中にサーバーエラーが発生しました', detail, 'server_error', 500)
   }
+})
+
+// Admin: recipe detail
+app.get('/api/admin/recipes/:id', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const id = c.req.param('id')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピIDが必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    const { data: resData, error: resErr } = await supabase.from('recipes').select('*, images:recipe_images(id,recipe_id,key,width,height,role,caption), tags').eq('id', id).limit(1).maybeSingle()
+    if (resErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピの取得に失敗しました', resErr.message || resErr, 'db_error', 500)
+    const r = resData || null
+    if (!r) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピが見つかりません', null, 'not_found', 404)
+
+    // fetch pins for this recipe
+    let pins: any[] = []
+    try {
+      const { data: pData = [], error: pErr } = await supabase.from('recipe_pins').select('*').eq('recipe_id', id)
+      if (!pErr && Array.isArray(pData)) pins = pData
+    } catch (e) {}
+
+    const transformed = {
+      id: r.id,
+      userId: r.user_id,
+      title: r.title,
+      slug: r.slug,
+      body: r.body,
+      pins: Array.isArray(r.pins) ? r.pins : null,
+      pinsNormalized: Array.isArray(pins) ? pins.map((p:any) => ({ id: p.id, recipeId: p.recipe_id, productId: p.product_id, userId: p.user_id, tagDisplayText: p.tag_display_text || p.tag_text || null, dotXPercent: Number(p.dot_x_percent || 0), dotYPercent: Number(p.dot_y_percent || 0), tagXPercent: Number(p.tag_x_percent || 0), tagYPercent: Number(p.tag_y_percent || 0), dotSizePercent: Number(p.dot_size_percent || 0), tagFontSizePercent: Number(p.tag_font_size_percent || 0), lineWidthPercent: Number(p.line_width_percent || 0), tagPaddingXPercent: Number(p.tag_padding_x_percent || 0), tagPaddingYPercent: Number(p.tag_padding_y_percent || 0), tagBorderRadiusPercent: Number(p.tag_border_radius_percent || 0), tagBorderWidthPercent: Number(p.tag_border_width_percent || 0), dotColor: p.dot_color, dotShape: p.dot_shape, tagText: p.tag_text, tagFontFamily: p.tag_font_family, tagFontWeight: p.tag_font_weight, tagTextColor: p.tag_text_color, tagTextShadow: p.tag_text_shadow, tagBackgroundColor: p.tag_background_color, tagBackgroundOpacity: Number(p.tag_background_opacity || 1), tagBorderColor: p.tag_border_color, tagShadow: p.tag_shadow, lineType: p.line_type })) : [],
+      images: Array.isArray(r.images) ? r.images.map((img: any) => ({ id: img.id, recipeId: img.recipe_id, key: img.key ?? null, width: img.width, height: img.height, role: img.role, caption: img.caption })) : [],
+      createdAt: r.created_at || null,
+      updatedAt: r.updated_at || null,
+      published: !!r.published,
+      items: r.items || null,
+      imageDataUrl: r.image_data_url || null,
+    }
+
+    return new Response(JSON.stringify({ data: transformed }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: update recipe (full save)
+app.put('/api/admin/recipes/:id', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const id = c.req.param('id')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピIDが必要です', null, 'invalid_request', 400)
+    const body = await c.req.json().catch(() => ({}))
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+
+    // verify ownership or admin
+    const { data: existing = [], error: existErr } = await supabase.from('recipes').select('user_id').eq('id', id).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピの検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+    const ownerId = existing && existing[0] ? existing[0].user_id : null
+    const isAdminUser = isAdmin(actingUser, c.env)
+    if (ownerId && ownerId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    const now = new Date().toISOString()
+    const upd: any = {}
+    if (typeof body.title !== 'undefined') upd.title = body.title
+    if (typeof body.slug !== 'undefined') upd.slug = body.slug
+    if (typeof body.body !== 'undefined') upd.body = body.body
+    if (typeof body.published !== 'undefined') upd.published = !!body.published
+    if (typeof body.tags !== 'undefined') upd.tags = Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null)
+    if (typeof body.main_image_key !== 'undefined') upd.main_image_key = body.main_image_key || null
+    if (typeof body.attachment_image_keys !== 'undefined') upd.attachment_image_keys = Array.isArray(body.attachment_image_keys) ? body.attachment_image_keys : null
+    if (typeof body.items !== 'undefined') upd.items = body.items
+    if (typeof body.pins !== 'undefined') upd.pins = body.pins
+    if (typeof body.image_data_url !== 'undefined') upd.image_data_url = body.image_data_url
+    if (typeof body.image_width !== 'undefined') upd.image_width = body.image_width
+    if (typeof body.image_height !== 'undefined') upd.image_height = body.image_height
+    upd.updated_at = now
+
+    const { data: upres, error: upErr } = await supabase.from('recipes').update(upd).eq('id', id).select('*')
+    if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ更新に失敗しました', upErr.message || upErr, 'db_error', 500)
+
+    // Handle normalized pins: replace existing pins for this recipe by acting user
+    try {
+      if (Array.isArray(body.pins)) {
+        await supabase.from('recipe_pins').delete().eq('recipe_id', id).eq('user_id', actingUser)
+        const rows = body.pins.map((p: any) => ({
+          id: p.id || (crypto && typeof (crypto as any).randomUUID === 'function' ? (crypto as any).randomUUID() : (p.id || null)),
+          recipe_id: id,
+          product_id: p.productId || p.product_id || null,
+          user_id: actingUser,
+          tag_display_text: p.tagDisplayText || p.tag_text || null,
+          dot_x_percent: p.dotXPercent || 0,
+          dot_y_percent: p.dotYPercent || 0,
+          tag_x_percent: p.tagXPercent || 0,
+          tag_y_percent: p.tagYPercent || 0,
+          dot_size_percent: p.dotSizePercent || 0,
+          tag_font_size_percent: p.tagFontSizePercent || 0,
+          line_width_percent: p.lineWidthPercent || 0,
+          tag_padding_x_percent: p.tagPaddingXPercent || 0,
+          tag_padding_y_percent: p.tagPaddingYPercent || 0,
+          tag_border_radius_percent: p.tagBorderRadiusPercent || 0,
+          tag_border_width_percent: p.tagBorderWidthPercent || 0,
+          dot_color: p.dotColor || null,
+          dot_shape: p.dotShape || null,
+          tag_text: p.tagText || p.tag_text || null,
+          tag_font_family: p.tagFontFamily || null,
+          tag_font_weight: p.tagFontWeight || null,
+          tag_text_color: p.tagTextColor || null,
+          tag_text_shadow: p.tagTextShadow || null,
+          tag_background_color: p.tagBackgroundColor || null,
+          tag_background_opacity: typeof p.tagBackgroundOpacity !== 'undefined' ? p.tagBackgroundOpacity : 1,
+          tag_border_color: p.tagBorderColor || null,
+          tag_shadow: p.tagShadow || null,
+          line_type: p.lineType || null,
+        }))
+        if (rows.length > 0) {
+          const { error: pinInsErr } = await supabase.from('recipe_pins').insert(rows)
+          if (pinInsErr) {
+            try { console.warn('[DBG] recipe_pins insert error', pinInsErr) } catch {}
+          }
+        }
+      }
+    } catch (e) { try { console.warn('[DBG] pins update error', String(e)) } catch {} }
+
+    return new Response(JSON.stringify({ ok: true, data: upres && upres[0] ? upres[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ更新中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: delete recipe
+app.delete('/api/admin/recipes/*', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const path = c.req.path || (new URL(c.req.url)).pathname
+    const id = path.replace('/api/admin/recipes/', '')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピIDが必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+
+    const { data: existing = [], error: existErr } = await supabase.from('recipes').select('user_id').eq('id', id).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピの検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+    const ownerId = existing && existing[0] ? existing[0].user_id : null
+    if (ownerId && ownerId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    const { error: delPinsErr } = await supabase.from('recipe_pins').delete().eq('recipe_id', id)
+    if (delPinsErr) try { console.warn('[DBG] recipe_pins delete error', delPinsErr) } catch {}
+    const { error: delErr } = await supabase.from('recipes').delete().eq('id', id)
+    if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ削除に失敗しました', delErr.message || delErr, 'db_error', 500)
+    return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ削除中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Public: counts for current user (total and published)
+app.get('/api/recipes/counts', async (c) => mirrorGet(c, async (c2) => {
+  try {
+    const supabase = getSupabase(c2.env)
+    const ctx = await resolveRequestUserContext(c2)
+    if (!ctx.trusted || !ctx.userId) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+    }
+    const userId = ctx.userId
+    const totalQ: any = getSupabase(c2.env).from('recipes').select('id', { count: 'exact', head: true }).eq('user_id', userId)
+    const publishedQ: any = getSupabase(c2.env).from('recipes').select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('published', true)
+    const totalRes: any = await totalQ
+    const pubRes: any = await publishedQ
+    const total = typeof totalRes?.count === 'number' ? totalRes.count : 0
+    const published = typeof pubRes?.count === 'number' ? pubRes.count : 0
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify({ data: { total, published } }), { status: 200, headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c2.env, computeCorsHeaders, req: c2.req }, '件数取得中にサーバーエラー', e?.message || String(e), 'server_error', 500)
+  }
+}))
+
+// Admin: reorder recipes - not implemented (schema change required)
+app.post('/api/admin/recipes/reorder', async (c) => {
+  return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '並び替えAPIはスキーマ変更が必要なため未実装です', null, 'not_implemented', 501)
 })
 
 // Admin: delete product
