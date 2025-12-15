@@ -102,18 +102,22 @@ export const auth = {
             }
           } catch (e) {}
 
-          if (!serverSet) {
-            // Fallback for static admin / external API_BASE: persist tokens locally
-            try {
-              if (typeof localStorage !== 'undefined') {
-                localStorage.setItem('sb-access-token', session.access_token)
-                if (session.refresh_token) localStorage.setItem('sb-refresh-token', session.refresh_token)
-              }
-              try { ;(window as any).__SUPABASE_SESSION = { access_token: session.access_token, refresh_token: session.refresh_token } } catch {}
-            } catch (e) {
-              console.warn('[auth] failed to persist tokens locally', e)
+          // Persist tokens locally as a mirror regardless of serverSet status.
+          // This allows the client-side `apiFetch` to attach an Authorization
+          // header when calling an external public-worker origin so the
+          // worker can resolve the user from the token. We still attempt to
+          // set a server-side cookie (serverSet) for same-origin flows.
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('sb-access-token', session.access_token)
+              if (session.refresh_token) localStorage.setItem('sb-refresh-token', session.refresh_token)
             }
-          } else {
+            try { ;(window as any).__SUPABASE_SESSION = { access_token: session.access_token, refresh_token: session.refresh_token } } catch {}
+          } catch (e) {
+            console.warn('[auth] failed to persist tokens locally', e)
+          }
+
+          if (!serverSet) {
             // If serverSet is true (we POSTed to same-origin), verify that the
             // cookie was actually synchronized by calling whoami. Only treat
             // login as successful if whoami confirms the server session.
@@ -213,18 +217,18 @@ export const auth = {
             }
           } catch (e) {}
 
-          if (!serverSet) {
-            // Fallback for static admin / external API_BASE: persist tokens locally
-            try {
-              if (typeof localStorage !== 'undefined') {
-                localStorage.setItem('sb-access-token', session.access_token)
-                if (session.refresh_token) localStorage.setItem('sb-refresh-token', session.refresh_token)
-              }
-              try { ;(window as any).__SUPABASE_SESSION = { access_token: session.access_token, refresh_token: session.refresh_token } } catch {}
-            } catch (e) {
-              console.warn('[auth] failed to persist tokens locally', e)
+          // Persist tokens locally as a mirror regardless of serverSet status.
+          try {
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('sb-access-token', session.access_token)
+              if (session.refresh_token) localStorage.setItem('sb-refresh-token', session.refresh_token)
             }
-          } else {
+            try { ;(window as any).__SUPABASE_SESSION = { access_token: session.access_token, refresh_token: session.refresh_token } } catch {}
+          } catch (e) {
+            console.warn('[auth] failed to persist tokens locally', e)
+          }
+
+          if (!serverSet) {
             // Verify server-side cookie was set
             try {
               const who = await apiFetch('/api/auth/whoami', { method: 'GET' })
