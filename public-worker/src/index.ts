@@ -2737,6 +2737,8 @@ app.post('/api/admin/recipes', async (c) => {
 
     const now = new Date().toISOString()
     const insertBody: any = {
+      // allow client-provided id so client-side generated ids (recipe-...) are preserved
+      ...(body && body.id ? { id: body.id } : {}),
       title: body.title || null,
       slug: body.slug || null,
       short_description: body.short_description || null,
