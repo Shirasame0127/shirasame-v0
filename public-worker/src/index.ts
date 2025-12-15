@@ -35,6 +35,36 @@ export type Env = {
 
 const app = new Hono<{ Bindings: Env }>()
 
+// Early docs/openapi bypass: some proxies rewrite or prefix paths so the later
+// middleware checks may not match. Serve docs and OpenAPI JSON early when the
+// incoming path contains the docs/openapi segments to ensure the page is
+// reachable without requiring authentication or a user_id.
+app.use('*', async (c, next) => {
+  try {
+    const reqPath = (new URL(c.req.url)).pathname || ''
+    if (reqPath.includes('/api/openapi.json')) {
+      try {
+        const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+        return new Response(JSON.stringify(openapi), { headers })
+      } catch (e) {
+        // fallback to normal flow
+      }
+    }
+    if (reqPath.includes('/api/docs')) {
+      try {
+        const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>API ドキュメント — Shirasame</title><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@4/swagger-ui.css"/></head><body><div style="max-width:960px;margin:18px auto;padding:12px"><h1>Shirasame API ドキュメント</h1><p>このドキュメントでは各機能（商品、レシピ、タグ等）の API を確認できます。<strong>認証</strong>について: 通常はブラウザの HttpOnly Cookie（<code>sb-access-token</code>）を利用しますが、テスト時は下の <strong>Authorize</strong> ボタンから Bearer トークンを入力できます。Bearer を使う場合は <code>Authorization: Bearer &lt;token&gt;</code> を指定してください。</p><div id="swagger"></div></div><script src="https://unpkg.com/swagger-ui-dist@4/swagger-ui-bundle.js"></script><script>window.onload=function(){const ui=window.SwaggerUIBundle({url:'/api/openapi.json',dom_id:'#swagger',presets:[window.SwaggerUIBundle.presets.apis],layout:'BaseLayout'});window.ui=ui;};</script></body></html>`
+        const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'text/html; charset=utf-8' })
+        return new Response(html, { headers })
+      } catch (e) {
+        // fallback to normal flow
+      }
+    }
+  } catch (e) {
+    // ignore and continue
+  }
+  return await next()
+})
+
 // (ハンドラ自動ラップは危険な互換性リスクがあるため差し替え済み)
 
 // Short-circuit GET /api/* requests to accept user_id from header/query.
@@ -49,7 +79,8 @@ app.use('/api/*', async (c, next) => {
     try {
       const reqPath = (new URL(c.req.url)).pathname || ''
       // Allow unauthenticated access to auth endpoints and docs/openapi JSON
-      if (reqPath.startsWith('/api/auth') || reqPath === '/api/docs' || reqPath === '/api/openapi.json') {
+      // Accept variants like trailing slash or sub-paths to be robust behind proxies
+      if (reqPath.startsWith('/api/auth') || reqPath.startsWith('/api/docs') || reqPath.includes('/api/openapi.json')) {
         return await next()
       }
     } catch {}
