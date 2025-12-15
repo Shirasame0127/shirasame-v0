@@ -1802,9 +1802,9 @@ app.post('/api/admin/collection-items', async (c) => {
     // Some Postgres schemas expect a non-null 'id' without a default, so
     // generate a local id when missing to avoid 'null value in column "id"' errors.
     const genId = `col-item-${Date.now()}`
-    const now = new Date().toISOString()
     const itemUserId = ctx.userId || ((c.env.PUBLIC_OWNER_USER_ID || '').toString().trim() || null)
-    const insertBody: any = { id: genId, collection_id: collectionId, product_id: productId, order: nextOrder, user_id: itemUserId, created_at: now, updated_at: now }
+    // Some schemas may not have created_at/updated_at on collection_items — avoid inserting them to prevent schema cache errors
+    const insertBody: any = { id: genId, collection_id: collectionId, product_id: productId, order: nextOrder, user_id: itemUserId }
     const { data: ins, error: insErr } = await supabase.from('collection_items').insert(insertBody).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の挿入に失敗しました', insErr.message || insErr, 'db_error', 500)
     // After inserting, ensure we only count items that reference existing products
