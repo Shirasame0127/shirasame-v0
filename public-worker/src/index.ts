@@ -48,7 +48,8 @@ app.use('/api/*', async (c, next) => {
     if (!crudMethods.includes(method)) return await next()
     try {
       const reqPath = (new URL(c.req.url)).pathname || ''
-      if (reqPath.startsWith('/api/auth')) {
+      // Allow unauthenticated access to auth endpoints and docs/openapi JSON
+      if (reqPath.startsWith('/api/auth') || reqPath === '/api/docs' || reqPath === '/api/openapi.json') {
         return await next()
       }
     } catch {}
