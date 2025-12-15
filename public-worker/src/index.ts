@@ -1449,6 +1449,9 @@ app.get('/api/site-settings', async (c) => {
 // that include the /api prefix are handled consistently.
 const mirrorGet = async (c: any, handler: (c: any) => Promise<Response>) => {
   try {
+    try {
+      console.log('[MIRROR] incoming', { host: c.req.header('host') || c.req.header('Host'), path: (new URL(c.req.url)).pathname, url: c.req.url })
+    } catch {}
     return await handler(c)
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
@@ -3249,6 +3252,11 @@ function deriveBasePathFromUrl(urlOrKey?: string | null, env?: Env): string | nu
 // /products はSupabase anon直取得
 // Shared handler for products listing; used by both `/products` and `/api/products`.
 async function productsHandler(c: any): Promise<Response> {
+  try {
+    try {
+      console.log('[ROUTE] /products handler', { host: c.req.header('host') || c.req.header('Host'), path: (new URL(c.req.url)).pathname, url: c.req.url })
+    } catch {}
+  } catch {}
   const supabase = getSupabase(c.env)
   const q = c.req.query()
   const shallow = q.shallow === 'true'
