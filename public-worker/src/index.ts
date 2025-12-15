@@ -2170,7 +2170,7 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
     // NOTE: omit optional/legacy columns (e.g. `draft`, `short_description`) from shallow select
     // because some DBs do not have those columns and PostgREST will error.
     const selectShallow = 'id,user_id,title,slug,published,main_image_key,attachment_image_keys,created_at,updated_at'
-    const selectFull = '*,images:recipe_images(id,recipe_id,key,width,height,role,caption),tags'
+    const selectFull = '*,images:recipe_images(id,recipe_id,key,width,height,role,caption)'
 
     let query: any = supabase.from('recipes').select(shallow ? selectShallow : selectFull)
     // Determine effective user scope: prefer explicit user_id query param,
@@ -2215,19 +2215,26 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
 
     // Normalize response shape expected by admin client
     const transformed = (Array.isArray(data) ? data : []).map((r: any) => {
-      const images = Array.isArray(r.images) ? r.images.map((img: any) => ({ id: img.id, recipeId: img.recipe_id, key: img.key, width: img.width, height: img.height, role: img.role, caption: img.caption })) : []
+      // Normalize images from joined recipe_images; fall back to images jsonb
+      const imgsFromJoin = Array.isArray(r.images) ? r.images.map((img: any) => ({ id: img.id, recipeId: img.recipe_id, key: img.key, width: img.width, height: img.height, role: img.role, caption: img.caption })) : []
+      const imgsFromJsonb = Array.isArray(r.images) && r.images.length > 0 && typeof r.images[0] === 'object' ? r.images : []
+      const images = imgsFromJoin.length > 0 ? imgsFromJoin : (Array.isArray(imgsFromJsonb) ? imgsFromJsonb.map((img: any) => ({ id: img.id || null, recipeId: r.id, key: img.key || img.basePath || (typeof img.url === 'string' ? img.url : null), width: img.width || null, height: img.height || null, role: img.role || null, caption: img.caption || null })) : [])
+
+      // Determine primary image reference: prefer explicit base_image_id, otherwise first image key
+      const mainImageId = r.base_image_id || null
+      const mainImageKey = mainImageId || (images.length > 0 ? images[0].key || null : null)
+      const attachmentImageKeys = images.length > 1 ? images.slice(1).map((im: any) => im.key || null).filter(Boolean) : null
+
       return {
         id: r.id,
         userId: r.user_id,
         title: r.title,
         slug: r.slug,
-        shortDescription: r.short_description || null,
         body: r.body || null,
-        tags: r.tags || null,
-        draft: !!r.draft,
         published: !!r.published,
-        mainImageKey: r.main_image_key || null,
-        attachmentImageKeys: Array.isArray(r.attachment_image_keys) ? r.attachment_image_keys : null,
+        mainImageId: mainImageId,
+        mainImageKey: mainImageKey || null,
+        attachmentImageKeys: attachmentImageKeys,
         images: images,
         createdAt: r.created_at || null,
         updatedAt: r.updated_at || null,
@@ -2769,26 +2776,10 @@ app.post('/api/admin/recipes', async (c) => {
       }
     } catch (e) { try { console.warn('[admin/recipes] token attach error', String(e)) } catch {} }
 
-    // Derive main_image_key and attachment_image_keys from body.images if not explicitly provided
-    try {
-      if (typeof body.main_image_key !== 'undefined') {
-        insertBody.main_image_key = body.main_image_key || null
-      } else if (Array.isArray(body.images) && body.images.length > 0) {
-        const first = body.images.find((img: any) => img && (img.role === 'main' || !img.role)) || body.images[0]
-        const candidate = first && (first.key || first.basePath || (typeof first.url === 'string' ? first.url : null)) ? (first.key || first.basePath || first.url) : null
-        if (candidate && typeof candidate === 'string' && !candidate.startsWith('http')) insertBody.main_image_key = candidate
-      }
-
-      if (typeof body.attachment_image_keys !== 'undefined' && Array.isArray(body.attachment_image_keys)) {
-        insertBody.attachment_image_keys = (body.attachment_image_keys || []).filter((k: any) => typeof k === 'string' && !k.startsWith('http'))
-      } else if (Array.isArray(body.images) && body.images.length > 0) {
-        const att = body.images.filter((img: any) => img && (img.role === 'attachment' || (!img.role && img !== body.images[0])))
-        const keys = att.map((a: any) => a.key || a.basePath || (typeof a.url === 'string' ? a.url : null)).filter((k: any) => typeof k === 'string' && !k.startsWith('http'))
-        if (keys.length > 0) insertBody.attachment_image_keys = keys
-      }
-    } catch (e) {
-      try { console.warn('[DBG] deriving recipe-level image keys failed', String(e)) } catch {}
-    }
+    // Note: do not derive or include optional/legacy product-level image
+    // columns (e.g. main_image_key, attachment_image_keys). Images are
+    // stored in `recipe_images` and `images` jsonb; keep insert body minimal
+    // to avoid schema mismatch across deployments.
 
     try {
       const { data: ins, error: insErr } = await supabase.from('recipes').insert([insertBody]).select('*')
