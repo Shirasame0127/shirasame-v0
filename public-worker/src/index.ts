@@ -3247,7 +3247,8 @@ function deriveBasePathFromUrl(urlOrKey?: string | null, env?: Env): string | nu
 }
 
 // /products はSupabase anon直取得
-app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
+// Shared handler for products listing; used by both `/products` and `/api/products`.
+async function productsHandler(c: any): Promise<Response> {
   const supabase = getSupabase(c.env)
   const q = c.req.query()
   const shallow = q.shallow === 'true'
@@ -3271,8 +3272,6 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
       else if (tag) query = supabase.from('products').select(shallow ? shallowSelect : baseSelect).contains('tags', [tag])
       else if (published) query = supabase.from('products').select(shallow ? shallowSelect : baseSelect).eq('published', true)
 
-      // 単一オーナーの公開サイト前提の場合の追加絞り込み
-      // Prefer authenticated user scope when available; otherwise fall back to PUBLIC_OWNER_USER_ID for single-owner sites
       const ctx = await resolveRequestUserContext(c)
       const reqUserId = ctx.trusted ? ctx.userId : null
       if (!id && !slug) {
@@ -3342,7 +3341,6 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
           showPrice: p.show_price,
           notes: p.notes,
           relatedLinks: p.related_links,
-          // preserve original images array with keys + public urls
           images: Array.isArray(p.images)
             ? p.images.map((img: any) => ({
                   id: img.id,
@@ -3356,7 +3354,6 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
                   basePath: deriveBasePath(c, img.key || img.url),
                 }))
             : [],
-          // Expose canonical key fields if present in DB so admin UI can read them directly
           main_image_key: p.main_image_key ?? null,
           attachment_image_keys: Array.isArray(p.attachment_image_keys) ? p.attachment_image_keys : (p.attachment_image_keys || []),
           affiliateLinks: Array.isArray(p.affiliateLinks)
@@ -3377,7 +3374,11 @@ app.get('/products', zValidator('query', listQuery.partial()), async (c) => {
       return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500 })
     }
   })
-})
+}
+
+// Route registrations use the shared handler
+app.get('/products', zValidator('query', listQuery.partial()), async (c) => productsHandler(c))
+app.get('/api/products', async (c) => mirrorGet(c, async (c2) => productsHandler(c2)))
 
 function deriveBasePath(c: any, url?: string | null) {
   return deriveBasePathFromUrl(url || null, c.env)
