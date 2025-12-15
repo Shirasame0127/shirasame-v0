@@ -157,8 +157,20 @@ export default function RecipesManagementPage() {
   }
 
   function createNew() {
-    // Open the dedicated new-recipe screen which handles creation flow
-    router.push('/admin/recipes/new')
+    // Prompt for a recipe title first, then create a draft and go to the
+    // upload/creation screen with the draft id so the uploaded image can
+    // be attached to the draft before editing.
+    try {
+      const title = String(prompt('新しいレシピ名を入力してください（例: 私のデスクセットアップ）') || '').trim()
+      if (!title) return
+      // create a draft in local cache and persist to server (best-effort)
+      const currentUser = getCurrentUser()
+      const draft = db.recipes.create({ title, published: false, pins: [], images: [] , userId: currentUser?.id })
+      // navigate to the new recipe flow with draft id
+      router.push(`/admin/recipes/new?draft=${encodeURIComponent(draft.id)}`)
+    } catch (e) {
+      console.error('[v0] createNew prompt/create failed', e)
+    }
   }
 
   if (loading) {

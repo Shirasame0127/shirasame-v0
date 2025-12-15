@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -35,7 +35,36 @@ export default function RecipeNewPage() {
   const [title, setTitle] = useState("")
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imageUrl, setImageUrl] = useState<string>("")
+  const [draftId, setDraftId] = useState<string | null>(null)
   const { toast } = useToast()
+
+  // If navigated here with ?draft=<id>, load draft info and prefill
+  // (skip creating a new recipe on save; instead attach uploaded image)
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return
+      const qp = new URLSearchParams(window.location.search)
+      const d = qp.get('draft')
+      if (d) {
+        setDraftId(d)
+        // Try to fill title from local cache if available
+        try {
+          const cached = db.recipes.getById(d)
+          if (cached) {
+            setTitle(cached.title || '')
+            // try to show existing primary image if present
+            try {
+              const imgs = Array.isArray((cached as any).images) ? (cached as any).images : []
+              if (imgs.length > 0) {
+                const k = imgs[0]?.key || imgs[0]?.id || null
+                if (k) setImageUrl(getPublicImageUrl(k) || '')
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }, [])
 
   const handleImageChange = async (file: File | null) => {
     setImageFile(file)
@@ -62,7 +91,8 @@ export default function RecipeNewPage() {
       return
     }
 
-    const recipeId = `recipe-${Date.now()}`
+    // If we were given a draft id, reuse it; otherwise create new id
+    const recipeId = draftId || `recipe-${Date.now()}`
 
     let finalUrl = imageUrl
     let finalKey: string | null = null
@@ -124,7 +154,14 @@ export default function RecipeNewPage() {
           : { id: img.id, width: img.width, height: img.height, uploadedAt: img.uploadedAt }
       ),
     }
-    const created = db.recipes.create(safeForServer)
+    // If draftId exists, update the draft in cache/server; otherwise create
+    let created: any = null
+    if (draftId) {
+      db.recipes.update(recipeId, safeForServer)
+      created = db.recipes.getById(recipeId)
+    } else {
+      created = db.recipes.create(safeForServer)
+    }
 
     try {
       const body: any = { recipeId, id: recipeId, width: 1920, height: 1080 }
@@ -134,6 +171,13 @@ export default function RecipeNewPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
+      // also update recipe row to include image key in images[]
+      try {
+        const imageEntry = { id: recipeId, key: finalKey, width: 1920, height: 1080, uploadedAt: new Date().toISOString() }
+        await db.recipes.update(recipeId, { images: [imageEntry], baseImageId: recipeId })
+      } catch (e) {
+        console.warn('[v0] failed to attach image to recipe draft in cache/server', e)
+      }
     } catch (e) {
       console.warn('[v0] failed to persist new recipe image to server', e)
     }
@@ -142,6 +186,7 @@ export default function RecipeNewPage() {
       title: "作成完了",
       description: "レシピを作成しました"
     })
+    // After attaching image, navigate to edit page for the draft
     router.push(`/admin/recipes/${recipeId}/edit`)
   }
 
