@@ -2329,7 +2329,44 @@ app.get('/api/openapi.json', async (c) => {
 // Serve a small Swagger UI page (uses CDN)
 app.get('/api/docs', async (c) => {
   try {
-    const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>API ドキュメント — Shirasame</title><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@4/swagger-ui.css"/></head><body><div style="max-width:960px;margin:18px auto;padding:12px"><h1>Shirasame API ドキュメント</h1><p>このドキュメントでは各機能（商品、レシピ、タグ等）の API を確認できます。<strong>認証</strong>について: 通常はブラウザの HttpOnly Cookie（<code>sb-access-token</code>）を利用しますが、テスト時は下の <strong>Authorize</strong> ボタンから Bearer トークンを入力できます。Bearer を使う場合は <code>Authorization: Bearer &lt;token&gt;</code> を指定してください。</p><div id="swagger"></div></div><script src="https://unpkg.com/swagger-ui-dist@4/swagger-ui-bundle.js"></script><script>window.onload=function(){const ui=window.SwaggerUIBundle({url:'/api/openapi.json',dom_id:'#swagger',presets:[window.SwaggerUIBundle.presets.apis],layout:'BaseLayout',requestInterceptor:function(req){try{req.credentials='include'}catch(e){}return req}});window.ui=ui;};</script></body></html>`
+    const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>API ドキュメント — Shirasame</title><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@4/swagger-ui.css"/></head><body><div style="max-width:960px;margin:18px auto;padding:12px"><h1>Shirasame API ドキュメント</h1><p>このドキュメントでは各機能（商品、レシピ、タグ等）の API を確認できます。<strong>認証</strong>について: 通常はブラウザの HttpOnly Cookie（<code>sb-access-token</code>）を利用しますが、テスト時は下の <strong>Authorize</strong> ボタンから Bearer トークンを入力できます。Bearer を使う場合は <code>Authorization: Bearer &lt;token&gt;</code> を指定してください。</p>
+    <div style="margin:8px 0;padding:8px;border:1px solid #eee;background:#fafafa">
+      <label style="display:block;margin-bottom:6px;font-weight:600">Debug: Inject X-Debug-User header (optional)</label>
+      <input id="swagger-debug-user" placeholder="paste user id for debug" style="width:60%;padding:6px;margin-right:8px" />
+      <button id="swagger-set-debug" style="padding:6px 10px">Set</button>
+      <button id="swagger-clear-debug" style="padding:6px 10px;margin-left:6px">Clear</button>
+      <div style="margin-top:8px;font-size:13px;color:#555">Tip: paste a user id from the admin session to simulate authentication for testing. This sets the <code>X-Debug-User</code> header on requests (works only when worker DEBUG_WORKER=true).</div>
+    </div>
+    <div id="swagger"></div></div><script src="https://unpkg.com/swagger-ui-dist@4/swagger-ui-bundle.js"></script><script>
+    // Debug UI behaviour
+    (function(){
+      const input = document.getElementById('swagger-debug-user');
+      const setBtn = document.getElementById('swagger-set-debug');
+      const clrBtn = document.getElementById('swagger-clear-debug');
+      try{ const v = localStorage.getItem('swaggerDebugUser'); if (v) (input as any).value = v }catch(e){}
+      setBtn.addEventListener('click', function(){ try{ localStorage.setItem('swaggerDebugUser',(input as any).value.trim()); alert('Saved debug user id'); }catch(e){alert('failed to save') } });
+      clrBtn.addEventListener('click', function(){ try{ localStorage.removeItem('swaggerDebugUser'); (input as any).value=''; alert('Cleared'); }catch(e){alert('failed') } });
+    })();
+    window.onload=function(){
+      const ui=window.SwaggerUIBundle({
+        url:'/api/openapi.json',
+        dom_id:'#swagger',
+        presets:[window.SwaggerUIBundle.presets.apis],
+        layout:'BaseLayout',
+        requestInterceptor:function(req){
+          try{ req.credentials='include' }catch(e){}
+          try{
+            const dbg = (localStorage.getItem('swaggerDebugUser')||'').trim();
+            if (dbg) {
+              req.headers['X-Debug-User'] = dbg
+            }
+          }catch(e){}
+          return req
+        }
+      });
+      window.ui=ui;
+    };
+  </script></body></html>`
     const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'text/html; charset=utf-8' })
     return new Response(html, { headers })
   } catch (e: any) {
