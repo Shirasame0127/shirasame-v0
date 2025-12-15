@@ -1676,6 +1676,13 @@ app.post('/api/admin/collections', async (c) => {
 
     let body: any = {}
     try { body = await c.req.json() } catch { body = {} }
+    // DEBUG: log incoming payload and resolved auth context to help diagnose 400
+    try {
+      if ((c.env as any).DEBUG_WORKER === 'true') {
+        console.log('POST /api/admin/collections body=', JSON.stringify(body))
+        console.log('POST /api/admin/collections ctx=', { userId: ctx.userId, authType: ctx.authType, trusted: ctx.trusted })
+      }
+    } catch (e) {}
     const title = (body.title || '').toString().trim()
     const description = typeof body.description === 'string' ? body.description : (body.description || null)
     const visibility = (body.visibility || 'public').toString()
