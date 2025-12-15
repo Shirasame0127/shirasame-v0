@@ -2585,13 +2585,32 @@ app.post('/api/admin/tags/reorder', async (c) => {
 })
 
 app.get('/api/products', async (c) => mirrorGet(c, async (c2) => {
-  // proxy to local path '/products'
-  const res = await fetch(new URL(c2.req.url.replace('/api/', '/')))
-  const buf = await res.arrayBuffer()
-  const outHeaders: Record<string, string> = {}
-  try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
-  const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
-  return new Response(buf, { status: res.status, headers: merged })
+  // Proxy to the configured public worker host to resolve the canonical
+  // '/products' path. If WORKER_PUBLIC_HOST is not configured, return a
+  // JSON 404 to avoid unintentionally fetching a frontend HTML page.
+  try {
+    const workerHost = (c2.env && (c2.env.WORKER_PUBLIC_HOST || c2.env.WORKER_PUBLIC_HOST === '')) ? (c2.env.WORKER_PUBLIC_HOST as string) : ''
+    if (!workerHost) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ error: 'no_internal_handler', message: 'WORKER_PUBLIC_HOST not configured; internal API not found' }), { status: 404, headers: merged })
+    }
+
+    const urlObj = new URL(c2.req.url)
+    const path = urlObj.pathname.replace(/^\/api\//, '/')
+    const target = workerHost.replace(/\/$/, '') + path + (urlObj.search || '')
+    const headers = makeUpstreamHeaders(c2)
+    const res = await fetch(target, { method: 'GET', headers })
+    const buf = await res.arrayBuffer()
+    const outHeaders: Record<string, string> = {}
+    try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
+    return new Response(buf, { status: res.status, headers: merged })
+  } catch (e: any) {
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify({ error: 'upstream_fetch_failed', message: String(e?.message || e) }), { status: 502, headers: merged })
+  }
 }))
 
 app.get('/api/recipe-pins', async (c) => mirrorGet(c, async (c2) => {
