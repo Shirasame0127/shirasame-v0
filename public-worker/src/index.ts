@@ -1752,7 +1752,8 @@ app.post('/api/admin/collection-items', async (c) => {
     if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の取得に失敗しました', existErr.message || existErr, 'db_error', 500)
     const nextOrder = (Array.isArray(existing) && existing.length > 0 && typeof existing[0].order === 'number') ? (existing[0].order + 1) : 1
 
-    const insertBody = { collection_id: collectionId, product_id: productId, order: nextOrder, added_at: new Date().toISOString() }
+    // DB schema does not have an 'added_at' column by default; avoid inserting it.
+    const insertBody = { collection_id: collectionId, product_id: productId, order: nextOrder }
     const { data: ins, error: insErr } = await supabase.from('collection_items').insert(insertBody).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の挿入に失敗しました', insErr.message || insErr, 'db_error', 500)
 
@@ -1762,6 +1763,26 @@ app.post('/api/admin/collection-items', async (c) => {
     return new Response(JSON.stringify({ data: { itemCount, item: ins && ins[0] ? ins[0] : null } }), { headers: merged })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '追加処理中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// List items for a collection (admin UI uses this to build product list)
+app.get('/api/admin/collections/:id/items', async (c) => {
+  try {
+    const id = c.req.param('id')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '無効なIDです', null, 'invalid_id', 400)
+    const supabase = getSupabase(c.env)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+
+    const { data: items = [], error: itemsErr } = await supabase.from('collection_items').select('product_id').eq('collection_id', id).order('order', { ascending: true })
+    if (itemsErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'collection_items の取得に失敗しました', itemsErr.message || itemsErr, 'db_error', 500)
+
+    const out = (items || []).map((it: any) => ({ productId: it.product_id }))
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: out }), { headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
 })
 
