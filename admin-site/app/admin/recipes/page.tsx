@@ -72,23 +72,23 @@ export default function RecipesManagementPage() {
     setLoading(true)
     const me = getCurrentUser()
     const userId = me?.id
-    const data = db.recipes.getAll(userId)
-    if (!data || data.length === 0) {
-      // If cache is empty, attempt a refresh from server
+
+    // If we have a signed-in user, always refresh from server to ensure we
+    // show that user's recipes (avoid stale cache containing other users')
+    if (userId) {
       db.recipes
         .refresh(userId)
         .then((fresh: any) => {
           const normalizedFresh = normalizeRecipes(fresh || [])
           console.log("[v0] Refreshed recipes from server:", normalizedFresh.length)
-          const payloadBase = { event: 'recipes.refresh', userId: userId || null, total: (fresh || []).length }
-          // debug logging disabled in UI to avoid leaking endpoint URLs
-          if (userId) {
-            // When refresh provided userId, server filtering should already apply.
-            const visible = (normalizedFresh || []).filter((r: any) => r?.userId === userId)
-            setRecipes(visible)
-          } else {
-            setRecipes(normalizedFresh || [])
-          }
+          const visible = (normalizedFresh || []).filter((r: any) => r?.userId === userId)
+          setRecipes(visible)
+          // Refresh recipe pins for the user's recipes
+          try {
+            ;(visible || []).forEach((r: any) => {
+              try { db.recipePins.refresh(r.id).catch(() => {}) } catch (e) {}
+            })
+          } catch (e) {}
         })
         .catch((e) => {
           console.warn('[v0] recipes.refresh failed', e)
@@ -98,49 +98,33 @@ export default function RecipesManagementPage() {
       return
     }
 
-    if (userId) {
-      // Cache path: filter by current user
-      const normalized = normalizeRecipes(data || [])
-      const visible = (normalized || []).filter((r: any) => r?.userId === userId)
-      console.log("[v0] Loaded recipes:", visible.length)
-      // debug logging disabled in UI to avoid leaking endpoint URLs
-      setRecipes(visible)
-      // Refresh pins only for this user's recipes to avoid fetching other users' pins
-      try {
-        ;(visible || []).forEach((r: any) => {
-          try { db.recipePins.refresh(r.id).catch(() => {}) } catch (e) {}
-        })
-      } catch (e) {}
+    // No signed-in user: fall back to cache or local sample data
+    const data = db.recipes.getAll()
+    const normalized = normalizeRecipes(data || [])
+    console.log("[v0] Loaded recipes (no user):", normalized.length)
+    if ((normalized || []).length === 0) {
+      const fallback = [{
+        idx: 0,
+        id: 'recipe-1764910964954',
+        user_id: '7b9743e9-fb19-4fb7-9512-c6c24e1d5ef4',
+        title: 'テストデータ',
+        base_image_id: null,
+        image_data_url: null,
+        image_width: null,
+        image_height: null,
+        aspect_ratio: null,
+        pins: null,
+        published: false,
+        created_at: '2025-12-05 05:03:22.029+00',
+        updated_at: '2025-12-05 07:58:44.851+00',
+        body: null,
+        slug: null,
+        images: '[]',
+        items: '[]'
+      }]
+      setRecipes(normalizeRecipes(fallback))
     } else {
-      // No signed-in user info — use cache as-is (preserves previous behaviour)
-      const normalized = normalizeRecipes(data || [])
-      console.log("[v0] Loaded recipes (no user):", normalized.length)
-      // debug logging disabled in UI to avoid leaking endpoint URLs
-      // if cache is empty, try a local fallback sample so UI can render during dev
-      if ((normalized || []).length === 0) {
-        const fallback = [{
-          idx: 0,
-          id: 'recipe-1764910964954',
-          user_id: '7b9743e9-fb19-4fb7-9512-c6c24e1d5ef4',
-          title: 'テストデータ',
-          base_image_id: null,
-          image_data_url: null,
-          image_width: null,
-          image_height: null,
-          aspect_ratio: null,
-          pins: null,
-          published: false,
-          created_at: '2025-12-05 05:03:22.029+00',
-          updated_at: '2025-12-05 07:58:44.851+00',
-          body: null,
-          slug: null,
-          images: '[]',
-          items: '[]'
-        }]
-        setRecipes(normalizeRecipes(fallback))
-      } else {
-        setRecipes(normalized)
-      }
+      setRecipes(normalized)
     }
     setLoading(false)
   }
@@ -173,9 +157,8 @@ export default function RecipesManagementPage() {
   }
 
   function createNew() {
-    const newId = `recipe-${Date.now()}`
-    console.log("[v0] Creating new recipe:", newId)
-    router.push(`/admin/recipes/${newId}/edit`)
+    // Open the dedicated new-recipe screen which handles creation flow
+    router.push('/admin/recipes/new')
   }
 
   if (loading) {
