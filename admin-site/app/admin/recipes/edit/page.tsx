@@ -37,6 +37,8 @@ import { WEB_FONTS, getFontsByCategory } from "@/lib/fonts/web-fonts"
 import { getCurrentUser } from "@/lib/auth"
 import { getPublicImageUrl } from "@/lib/image-url"
 import apiFetch from '@/lib/api-client'
+import { ImageUpload } from '@/components/image-upload'
+import { RecipesService } from '@/lib/services/recipes.service'
 // Helper: ensure we can obtain an image key from an image object or URL
 function ensureImageKey(imgOrUrl: any): string | null {
   try {
@@ -215,6 +217,8 @@ export default function RecipeEditPage() {
   const [showTitleModal, setShowTitleModal] = useState(false) // タイトル入力モーダル用のステート追加
   const [tempTitle, setTempTitle] = useState("") // タイトル入力モーダル用のステート追加
   const [scale, setScale] = useState(1) // スケールをstateで管理
+  const [recipeImageKeys, setRecipeImageKeys] = useState<string[]>([])
+  const [showUploadModal, setShowUploadModal] = useState(false)
 
   const [customFonts, setCustomFonts] = useState<any[]>([])
   const [favoriteFonts, setFavoriteFonts] = useState<string[]>([])
@@ -283,6 +287,14 @@ export default function RecipeEditPage() {
     }
 
     if (recipe) {
+      // normalize recipe_image_keys (new canonical field)
+      const keysFromRecipe = Array.isArray(recipe.recipe_image_keys) ? recipe.recipe_image_keys : (Array.isArray(recipe.recipeImageKeys) ? recipe.recipeImageKeys : [])
+      setRecipeImageKeys(keysFromRecipe || [])
+      // If there are no image keys yet, open the upload modal so admin can add images immediately
+      if ((!keysFromRecipe || keysFromRecipe.length === 0) && (recipe.title || '').trim()) {
+        // small timeout so page paint completes before modal opens
+        setTimeout(() => setShowUploadModal(true), 160)
+      }
       setTitle(recipe.title || "")
       setPublished(Boolean(recipe.published))
       // Prefer inline data URL, then explicit imageUrl, otherwise fall back to the first mapped image's url
@@ -387,6 +399,36 @@ export default function RecipeEditPage() {
         setSelectedProductIds(convertedPins.map((p: any) => p.productId))
       }
     }
+
+      // Handle upload completion from ImageUpload dialog: append key to recipes.recipe_image_keys
+      async function handleUploadCompleteKey(key?: string) {
+        if (!key) return
+        try {
+          const existing = Array.isArray(recipeImageKeys) ? recipeImageKeys : []
+          if (existing.includes(key)) {
+            // already present
+            return
+          }
+          const merged = Array.from(new Set([...existing, key]))
+          // update server via recipes service (PUT /api/admin/recipes/:id)
+          try {
+            await RecipesService.update(recipeId, { recipe_image_keys: merged })
+          } catch (e) {
+            // fallback: try raw apiFetch
+            try {
+              await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipe_image_keys: merged }) })
+            } catch (e2) {}
+          }
+          setRecipeImageKeys(merged)
+          // update local preview area: use getPublicImageUrl helper to create CDN URL
+          try {
+            const cdn = getPublicImageUrl(key)
+            if (cdn) setImageDataUrl(cdn)
+          } catch (e) {}
+        } finally {
+          // keep modal open for multiple uploads, but allow parent to close
+        }
+      }
 
     // すべての商品を取得（現在のユーザーにスコープ）
     const productsData = db.products.getAll(uid)
@@ -1358,6 +1400,22 @@ export default function RecipeEditPage() {
           </div>
         </div>
       </div>
+        {/* Auto-open upload modal for newly created drafts without images */}
+        <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>レシピ画像を追加</DialogTitle>
+            </DialogHeader>
+            <div className="py-2">
+              <p className="text-sm text-muted-foreground mb-3">このレシピにはまだ画像が登録されていません。ここで画像をアップロードしてください。</p>
+              <ImageUpload open={showUploadModal} onOpenChange={setShowUploadModal} aspectRatioType="recipe" onUploadComplete={(k) => handleUploadCompleteKey(k)} />
+            </div>
+            <div className="flex justify-end mt-3">
+              <Button variant="outline" onClick={() => setShowUploadModal(false)}>閉じる</Button>
+              <Button className="ml-2" onClick={() => { setShowUploadModal(false); router.push(`/admin/recipes/${recipeId}/edit`) }}>編集画面へ</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
       {/* ===========================
           メインコンテンツエリア
