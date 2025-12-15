@@ -32,6 +32,26 @@ export default function AdminCollectionsPage() {
   const [managingCollectionProductIds, setManagingCollectionProductIds] = useState<string[]>([])
   const { toast } = useToast()
 
+  // When the manage-products modal is closed, reflect the authoritative
+  // item count in the collections list so the UI updates immediately.
+  useEffect(() => {
+    if (!manageProductsDialogOpen && managingCollectionId) {
+      const newCount = managingCollectionProductIds.length
+      setCollections((prev) => prev.map((c) => {
+        if (c.id !== managingCollectionId) return c
+        const prevInspect = (c as any).inspect || {}
+        const total = typeof prevInspect.totalCount === 'number' ? prevInspect.totalCount : newCount
+        const existing = newCount
+        const missing = Math.max(0, total - existing)
+        return { ...c, inspect: { ...prevInspect, totalCount: total, existingCount: existing, missingCount: missing } }
+      }))
+      // clear managing state
+      setManagingCollectionId(null)
+      setProductsList([])
+      setManagingCollectionProductIds([])
+    }
+  }, [manageProductsDialogOpen])
+
   const [formData, setFormData] = useState({
     title: "",
     description: "",
