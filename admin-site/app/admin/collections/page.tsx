@@ -37,13 +37,14 @@ export default function AdminCollectionsPage() {
   useEffect(() => {
     if (!manageProductsDialogOpen && managingCollectionId) {
       const newCount = managingCollectionProductIds.length
-      setCollections((prev) => prev.map((c) => {
+        setCollections((prev) => prev.map((c) => {
         if (c.id !== managingCollectionId) return c
         const prevInspect = (c as any).inspect || {}
         const total = typeof prevInspect.totalCount === 'number' ? prevInspect.totalCount : newCount
         const existing = newCount
         const missing = Math.max(0, total - existing)
-        return { ...c, inspect: { ...prevInspect, totalCount: total, existingCount: existing, missingCount: missing } }
+        // also update itemCount property so cards relying on itemCount update immediately
+        return { ...c, inspect: { ...prevInspect, totalCount: total, existingCount: existing, missingCount: missing }, itemCount: existing }
       }))
       // clear managing state
       setManagingCollectionId(null)
