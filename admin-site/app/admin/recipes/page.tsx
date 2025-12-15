@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import AdminLoading from '@/components/admin-loading'
 import { db } from "@/lib/db/storage"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { getPublicImageUrl } from "@/lib/image-url"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -63,6 +64,9 @@ export default function RecipesManagementPage() {
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState("")
+  const [showNewModal, setShowNewModal] = useState(false)
+  const [newTitle, setNewTitle] = useState("")
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     loadRecipes()
@@ -157,19 +161,33 @@ export default function RecipesManagementPage() {
   }
 
   function createNew() {
-    // Prompt for a recipe title first, then create a draft and go to the
-    // upload/creation screen with the draft id so the uploaded image can
-    // be attached to the draft before editing.
+    // Open modal to accept a title (server will persist)
+    setNewTitle("")
+    setShowNewModal(true)
+  }
+
+  async function handleCreateRecipe() {
+    const title = (newTitle || '').trim()
+    if (!title) return
+    setCreating(true)
     try {
-      const title = String(prompt('新しいレシピ名を入力してください（例: 私のデスクセットアップ）') || '').trim()
-      if (!title) return
-      // create a draft in local cache and persist to server (best-effort)
-      const currentUser = getCurrentUser()
-      const draft = db.recipes.create({ title, published: false, pins: [], images: [] , userId: currentUser?.id })
-      // navigate to the new recipe flow with draft id
-      router.push(`/admin/recipes/new?draft=${encodeURIComponent(draft.id)}`)
+      const res = await apiFetch('/api/admin/recipes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
+      const json = await res.json().catch(() => null)
+      if (res.ok && json && json.data && json.data.id) {
+        // refresh local cache and navigate to edit page
+        try { await db.recipes.refresh(json.data.user_id || json.data.userId || undefined) } catch (e) {}
+        setShowNewModal(false)
+        router.push(`/admin/recipes/${json.data.id}/edit`)
+        return
+      }
+      // fallback: log error
+      console.warn('[v0] create recipe failed', res.status, json)
+      alert('レシピの作成に失敗しました。詳細はコンソールを確認してください。')
     } catch (e) {
-      console.error('[v0] createNew prompt/create failed', e)
+      console.error('[v0] create recipe exception', e)
+      alert('レシピ作成中にエラーが発生しました')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -190,6 +208,31 @@ export default function RecipesManagementPage() {
           新規作成
         </Button>
       </div>
+
+      {/* 新規レシピ名入力モーダル */}
+      <Dialog open={showNewModal} onOpenChange={setShowNewModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>新しいレシピを作成</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">レシピ名</label>
+              <Input
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="例: 私のデスクセットアップ 2025"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateRecipe() }}
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowNewModal(false)}>キャンセル</Button>
+            <Button onClick={handleCreateRecipe} disabled={creating}>{creating ? '作成中…' : '画像選択へ進む'}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* レシピ一覧 */}
       {recipes.length === 0 ? (
