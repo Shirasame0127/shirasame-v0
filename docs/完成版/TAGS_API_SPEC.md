@@ -1,124 +1,201 @@
-# Tags API 仕様書
+# タグ API 仕様書＆実装チェックレポート
 
-このドキュメントは管理画面・ワーカー側で提供されるタグ関連 API を整理したものです。
+このドキュメントは「タグ（`tags` テーブル）」に関する API をまとめたものです。admin サイト（`admin-site`）からの呼び出しを想定し、public-worker 側の実装状況、エンドポイント仕様、呼び出し例、返却フォーマット、テーブル想定スキーマ、サンプルを記載しています。
 
 ---
 
-## 概要
-- テーブル: `tags`
-- 代表的なカラム（snake_case）:
-  - `id` (text)
-  - `user_id` (text)
-  - `name` (text)
-  - `group` (text | nullable)
-  - `link_url` (text | nullable)
-  - `link_label` (text | nullable)
-  - `sort_order` (integer | nullable)
-  - `created_at` (timestamp)
+**現状（実装場所）**
+- admin サイト側エンドポイント（ブラウザ→同一オリジン）: `admin-site/app/api/tags/route.ts`（`forwardToPublicWorker` 経由で public-worker に中継されるプロキシがある想定）。
+- public-worker 実装: `public-worker/src/index.ts` に管理向けのタグ関連エンドポイントが実装されています（`GET /api/admin/tags`, `POST /api/admin/tags/*`, `POST /api/admin/tags/reorder` など）。
 
-サンプルデータ:
+---
+
+## 目的（管理画面で必要な主な API）
+1. タグ一覧を取得する API（ユーザーごと）
+2. 単一タグを取得する API（編集画面用）
+3. タグを作成 / 一括 upsert する API
+4. タグを更新する API
+5. タグを削除する API
+6. 並び順（`sort_order`）や `group` を一括反映する `reorder` API
+7. クライアント（public）向けタグ一覧（user-scoped）
+
+---
+
+## 1) タグ一覧を取得する API
+- 実装場所: `public-worker/src/index.ts` — `GET /api/admin/tags`
+- 呼び出し例（admin クライアント）: `GET /api/admin/tags`（または same-origin `/api/tags` を admin サーバーが proxy で forward）
+- 推奨呼び出し:
+  - URL: `GET https://admin.shirasame.com/api/admin/tags`
+  - ヘッダ: セッション cookie（`sb-access-token`）や `Authorization: Bearer <token>`
+  - クエリパラメータ（実装によりサポート）: `id`, `userId`, `limit`, `offset`, `shallow`
+- 返却（成功）:
+  - JSON: `{ ok: true, data: [ ...tags ], meta?: { total, limit, offset } }`
+  - item 例:
 
 ```json
-[{"idx":0,"id":"tag-1763815665826-638","name":"Amazon","group":"リンク先","link_url":null,"link_label":"Amazonで見る","user_id":"7b9743e9-fb19-4fb7-9512-c6c24e1d5ef4","created_at":"2025-11-22 12:47:47.226991+00","sort_order":3}]
+{
+  "id": "tag-1763815665826-638",
+  "user_id": "7b9743e9-fb19-4fb7-9512-c6c24e1d5ef4",
+  "name": "Amazon",
+  "group": "リンク先",
+  "link_url": null,
+  "link_label": "Amazonで見る",
+  "sort_order": 3,
+  "created_at": "2025-11-22T12:47:47.226991+00"
+}
 ```
 
 ---
 
-## 共通ルール
-- 認証: `resolveRequestUserContext` による検証を行います。ブラウザからは HttpOnly cookie (`sb-access-token`) を基本とし、必要に応じて `Authorization: Bearer <token>` も利用可能。
-- スコープ: 書き込み系のエンドポイントは `user_id` スコープ内で実行します。管理者は `userId` を指定して他ユーザーの操作が可能（ただし `isAdmin` チェックあり）。
-- レスポンス: 正常系は `{ ok: true, data: ... }`。エラーは `makeErrorResponse` に準拠する JSON を返します。
+## 2) 単一タグ取得 API（編集画面用）
+- 実装場所: `GET /api/admin/tags/:id` または `GET /api/admin/tags?id=<id>`（public-worker）
+- 呼び出し: `GET /api/admin/tags/<id>`
+- ヘッダ: セッション cookie / Authorization
+- 返却: `{ ok: true, data: <tag> }`
 
 ---
 
-## エンドポイント一覧（管理）
+## 3) タグ作成 / upsert（複数）
+- 実装場所: 例: `POST /api/admin/tags/save`（upsert） / `POST /api/admin/tags/custom`（create）
+- 呼び出し:
+  - URL: `POST https://admin.shirasame.com/api/admin/tags/save`
+  - ヘッダ: `Content-Type: application/json` + セッション cookie
+  - ボディ例:
 
-1. GET `/api/admin/tags` — list / get-by-id
-   - 説明: ユーザー固有のタグ一覧を取得。`?id=<id>` を指定すると単一項目を返す。
-   - クエリ:
-     - `id` (任意): 単一取得
-     - `userId` (管理者のみ任意): 別ユーザーのタグを取得する
-   - 認証: 必須
-   - 返却例（一覧）:
-     ```json
-     { "ok": true, "data": [ { "id": "...", "name": "...", "group": "...", "link_url": null, "link_label": "...", "user_id": "...", "sort_order": 3, "created_at": "..." } ] }
-     ```
-   - 返却例（単一）:
-     ```json
-     { "ok": true, "data": { "id": "...", "name": "...", "group": "..." } }
-     ```
-
-2. POST `/api/admin/tags/save` — upsert multiple
-   - 説明: 複数タグを一括で upsert（id があれば update、なければ insert）。重複（同名+同グループ）がある場合はエラー。
-   - ボディ:
-     ```json
-     { "tags": [ { "id": "optional-id", "name": "タグ名", "group": "グループ名", "linkUrl": "", "linkLabel": "", "sortOrder": 1 } ], "userId": "optional-for-admin" }
-     ```
-   - 返却:
-     ```json
-     { "ok": true, "data": [ <created_or_updated_rows_or_provisional_objects> ] }
-     ```
-   - 備考: RLS 等で DB が更新後の行を返せない場合は `provisional: true` を付けたオブジェクトが返ることがあります。クライアントは保存完了後に `/api/admin/tags` を再フェッチすることを推奨します。
-
-3. POST `/api/admin/tags/custom` — create (single/multiple) excluding duplicates
-   - 説明: ユーザーのスコープで新しいタグを作成。重複があればエラー。
-   - ボディ: 同上（`tags` 配列）
-   - 返却: `{ ok: true, data: [ <inserted_rows> ] }`
-
-4. POST `/api/admin/tags/reorder` — update sort_order / group
-   - 説明: 並び順や group を複数反映する軽量エンドポイント。各要素は `{ id: 'tag-id', order: 2, group: 'カテゴリ' }`。
-   - ボディ例:
-     ```json
-     { "tags": [ { "id": "tag-...", "order": 1 }, { "id": "tag-...", "order": 2 } ], "userId": "optional-for-admin" }
-     ```
-   - 返却: `{ ok: true }` またはエラー（更新対象が 0 件だった場合は 403 を返すことがあります）
-
-5. DELETE `/api/admin/tags` — delete tag(s)
-   - 説明: id または ids 指定でタグを削除する。管理者は `userId` を指定可能（権限チェックあり）。
-   - ボディ例:
-     ```json
-     { "id": "tag-176...", "userId": "optional-for-admin" }
-     // or
-     { "ids": ["tag-1","tag-2"] }
-     ```
-   - 返却: `{ ok: true, data: [ <deleted_rows> ] }`
-
-6. GET `/api/tags` — client-facing list (user-scoped)
-   - 説明: ブラウザ側で通常使うタグ一覧。認証必須（cookie ベース）。
-   - 返却: `{ data: [ ...mapped items...] }`（`name` を `name`, `group` を `group`、`link_url` -> `linkUrl` として整形）
-
----
-
-## クライアント実装上の注意点
-- 保存操作後は `/api/admin/tags` を再度フェッチして authoritative なリストで UI を上書きしてください。特に RLS によって書き込み後に行が SELECT できない環境では重要です。
-- 並び替え（reorder）は fire-and-forget ではなく更新結果を監視し、エラーが返った場合は UI をロールバックしてください。
-- 重複チェックはサーバ側で行われるため、クライアント側でも予防的に名前のユニーク性を示す UI を出すと UX が良くなります。
-
----
-
-## 例: 新規タグ作成フロー（PowerShell/curl）
-
-PowerShell (admin-site からの呼び出し想定):
-
-```powershell
-$uri = 'https://admin.shirasame.com/api/admin/tags/custom'
-$body = @{ tags = @(@{ name = 'Amazon'; group = 'リンク先'; linkLabel = 'Amazonで見る' }) } | ConvertTo-Json
-Invoke-RestMethod -Uri $uri -Method POST -Headers @{ 'Content-Type' = 'application/json' } -Body $body
+```json
+{
+  "tags": [
+    { "id": "optional-id", "name": "タグ名", "group": "グループ名", "linkUrl": "", "linkLabel": "", "sortOrder": 1 }
+  ],
+  "userId": "optional-for-admin"
+}
 ```
 
-curl:
+- サーバ側注意点:
+  - RLS 環境ではワーカー側で `user_id` を解決して付与することを推奨します（クライアント任せにしない）。
+  - DB が更新後の行を返さない環境があるため、アップサート後にクライアントが `GET /api/admin/tags` を再フェッチする運用を推奨します。
+- 返却:
+  - 成功: `{ ok: true, data: [ <created_or_updated_rows_or_provisional_objects> ] }`
 
-```bash
-curl -X POST 'https://admin.shirasame.com/api/admin/tags/custom' \
-  -H 'Content-Type: application/json' \
-  -d '{"tags":[{"name":"Amazon","group":"リンク先","linkLabel":"Amazonで見る"}] }'
+---
+
+## 4) タグ更新 API
+- 実装場所: `PUT /api/admin/tags/:id`（public-worker）
+- 呼び出し:
+  - URL: `PUT https://admin.shirasame.com/api/admin/tags/<id>`
+  - ヘッダ: `Content-Type: application/json` + セッション cookie
+  - ボディ: 部分更新を想定（`name`, `group`, `linkUrl`, `linkLabel`, `sortOrder` 等）
+- 権限: 呼び出しユーザーが対象 `tag.user_id` と同一、または admin 権限が必要
+- 返却: `{ ok: true, data: <updated_tag> }`
+
+---
+
+## 5) タグ削除 API
+- 実装場所: `DELETE /api/admin/tags/:id` または bulk で `DELETE /api/admin/tags`（実装に依存）
+- 呼び出し例:
+  - `DELETE https://admin.shirasame.com/api/admin/tags/<id>`
+  - または `POST/DELETE` で `{ ids: [...] }` を受け付ける実装もある
+- 権限: 所有者または admin のみ
+- 返却: `{ ok: true, data?: <deleted_rows> }`
+
+---
+
+## 6) 並び替え（reorder）API
+- 実装場所: `POST /api/admin/tags/reorder`
+- 目的: UI のドラッグ＆ドロップ結果を永続化する軽量エンドポイント
+- ボディ例:
+
+```json
+{
+  "tags": [
+    { "id": "tag-...", "order": 1 },
+    { "id": "tag-...", "order": 2 }
+  ],
+  "userId": "optional-for-admin"
+}
+```
+
+- 実装ノート: 一括 UPDATE / トランザクションでの更新を推奨します（逐次 UPDATE は途中失敗で整合性が崩れるリスク）。
+- 返却: `{ ok: true }` または `{ ok: true, updated: <count> }`
+
+---
+
+## 7) クライアント向け一覧（public / user-scoped）
+- 実装場所: `GET /api/tags`（user-scoped, public-facing）
+- 説明: ブラウザからの通常のタグ一覧取得。HttpOnly cookie による認証で user スコープを解決するのが基本。
+- 返却例: `{ data: [ { id, name, group, linkUrl, linkLabel } ] }`（フロントで camelCase に整形して返すことが多い）
+
+---
+
+## tags テーブル想定スキーマ（抜粋）
+- `tags` テーブル（例）:
+  - `id`: text (PK)
+  - `user_id`: text
+  - `name`: text
+  - `group`: text (nullable)
+  - `link_url`: text (nullable)
+  - `link_label`: text (nullable)
+  - `sort_order`: integer (nullable)
+  - `created_at`, `updated_at`: timestamp
+
+注意: 環境によっては `created_at`/`updated_at` が存在しない場合があるため、INSERT 時に不要フィールドを渡すと 500 エラーになる可能性があります。ワーカー側は不要なタイムスタンプを挿入しない設計が望ましいです。
+
+---
+
+## 実装チェックリスト
+- [x] 管理向け一覧取得（`GET /api/admin/tags`）が存在することを確認
+- [x] 一括 upsert / create のエンドポイント（`POST /api/admin/tags/save` 等）があることを確認（実装に依存）
+- [x] `POST /api/admin/tags/reorder` が利用可能であることを確認
+- [x] 書き込み系ハンドラが RLS 環境で動くように、リクエスト者のトークンを Supabase クライアントにセットするかサービスロールを使用する実装であることを確認
+- [ ] 必要なら `GET /api/tags`（client-facing）で camelCase 整形レスポンスを用意する
+
+---
+
+## サンプルリクエスト / レスポンス
+- GET `/api/admin/tags` レスポンス例:
+
+```json
+{
+  "ok": true,
+  "data": [
+    {
+      "id": "tag-1763815665826-638",
+      "user_id": "7b9743e9-fb19-4fb7-9512-c6c24e1d5ef4",
+      "name": "Amazon",
+      "group": "リンク先",
+      "link_url": null,
+      "link_label": "Amazonで見る",
+      "sort_order": 3,
+      "created_at": "2025-11-22T12:47:47.226991+00"
+    }
+  ]
+}
+```
+
+- POST `/api/admin/tags/reorder` ボディ例:
+
+```json
+{
+  "tags": [
+    { "id": "tag-1", "order": 0 },
+    { "id": "tag-2", "order": 1 }
+  ]
+}
 ```
 
 ---
 
-必要なら、admin-site 側の `ProductsService` / `Tags` UI に対して「保存後に `/api/admin/tags` を再フェッチして authoritative な配列で置き換える」小さなパッチを作成します。希望があれば実装します。 
+## 推奨・注意点
+- 保存操作後は `/api/admin/tags` を再フェッチして authoritative なリストで UI を置き換えてください。特に RLS により書き込み後に行が SELECT できない環境では重要です。
+- 並び替えは可能な限りトランザクションまたは一括 SQL 更新で処理してください。
+- クライアントは `name` の重複を事前にチェックし、サーバ側でも重複防止を行ってください。
 
 ---
 
-ファイル: `docs/完成版/TAGS_API_SPEC.md`
+## 次アクション候補
+- admin 側での保存後に `/api/admin/tags` を再取得する小さなパッチを admin-site に追加（希望があれば実装します）
+- `tags` の bulk delete / bulk upsert のエンドポイント仕様を OpenAPI に変換して `/api/docs` で公開する
 
+---
+
+ファイル: `docs/完成版/TAGS_API_SPEC.clean.md`

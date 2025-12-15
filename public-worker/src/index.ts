@@ -2624,6 +2624,144 @@ app.put('/api/admin/products/*', async (c) => {
   }
 })
 
+// Admin: upsert recipe image (accepts image metadata key-only)
+app.post('/api/admin/recipe-images/upsert', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+
+    // Expect body to be { key, width?, height?, aspect?, role?, caption?, cf_id? }
+    if (!body || !body.key || typeof body.key !== 'string') return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '画像キーが必要です', null, 'invalid_request', 400)
+
+    const now = new Date().toISOString()
+    const row: any = {
+      key: body.key,
+      width: body.width || null,
+      height: body.height || null,
+      aspect: body.aspect || null,
+      role: body.role || 'attachment',
+      caption: body.caption || null,
+      cf_id: body.cf_id || null,
+      created_at: now,
+      user_id: actingUser,
+    }
+
+    try {
+      const { data, error } = await supabase.from('recipe_images').insert([row]).select('*')
+      if (error) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '画像の保存に失敗しました', error.message || error, 'db_error', 500)
+      return new Response(JSON.stringify({ ok: true, data: data && data[0] ? data[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    } catch (e) {
+      try { console.error('[DBG] exception inserting recipe_images', String(e)) } catch {}
+      return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '画像の保存中にエラーが発生しました', String(e), 'server_error', 500)
+    }
+  } catch (e: any) {
+    const detail = (e && (e.stack || e.message)) ? (e.stack || e.message) : String(e)
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '画像アップサート中にサーバーエラーが発生しました', detail, 'server_error', 500)
+  }
+})
+
+// Admin: create recipe
+app.post('/api/admin/recipes', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+
+    const now = new Date().toISOString()
+    const insertBody: any = {
+      title: body.title || null,
+      slug: body.slug || null,
+      short_description: body.short_description || null,
+      body: body.body || null,
+      tags: Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null),
+      draft: !!body.draft,
+      user_id: actingUser,
+      created_at: now,
+      updated_at: now,
+    }
+
+    // Derive main_image_key and attachment_image_keys from body.images if not explicitly provided
+    try {
+      if (typeof body.main_image_key !== 'undefined') {
+        insertBody.main_image_key = body.main_image_key || null
+      } else if (Array.isArray(body.images) && body.images.length > 0) {
+        const first = body.images.find((img: any) => img && (img.role === 'main' || !img.role)) || body.images[0]
+        const candidate = first && (first.key || first.basePath || (typeof first.url === 'string' ? first.url : null)) ? (first.key || first.basePath || first.url) : null
+        if (candidate && typeof candidate === 'string' && !candidate.startsWith('http')) insertBody.main_image_key = candidate
+      }
+
+      if (typeof body.attachment_image_keys !== 'undefined' && Array.isArray(body.attachment_image_keys)) {
+        insertBody.attachment_image_keys = (body.attachment_image_keys || []).filter((k: any) => typeof k === 'string' && !k.startsWith('http'))
+      } else if (Array.isArray(body.images) && body.images.length > 0) {
+        const att = body.images.filter((img: any) => img && (img.role === 'attachment' || (!img.role && img !== body.images[0])))
+        const keys = att.map((a: any) => a.key || a.basePath || (typeof a.url === 'string' ? a.url : null)).filter((k: any) => typeof k === 'string' && !k.startsWith('http'))
+        if (keys.length > 0) insertBody.attachment_image_keys = keys
+      }
+    } catch (e) {
+      try { console.warn('[DBG] deriving recipe-level image keys failed', String(e)) } catch {}
+    }
+
+    try {
+      const { data: ins, error: insErr } = await supabase.from('recipes').insert([insertBody]).select('*')
+      if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+
+      // If images were provided, persist them to recipe_images
+      try {
+        const createdRecipe = ins && ins[0] ? ins[0] : null
+        const imagesRaw = body && (body.images || body.images) ? (body.images || body.images) : null
+        if (createdRecipe && Array.isArray(imagesRaw) && imagesRaw.length > 0) {
+          try {
+            const now2 = new Date().toISOString()
+            const rows = imagesRaw
+              .filter((img: any) => img && (img.key || img.url || img.basePath))
+              .map((img: any, idx: number) => ({
+                recipe_id: createdRecipe.id,
+                key: img.key || img.basePath || (typeof img.url === 'string' ? img.url : null),
+                width: img.width || null,
+                height: img.height || null,
+                aspect: img.aspect || null,
+                role: img.role || (idx === 0 ? 'main' : 'attachment'),
+                caption: img.caption || null,
+                cf_id: img.cf_id || null,
+                created_at: now2,
+                user_id: createdRecipe.user_id || null,
+              }))
+            if (rows.length > 0) {
+              try {
+                const { data: imgData, error: imgErr } = await supabase.from('recipe_images').insert(rows).select('*')
+                if (imgErr) {
+                  try { console.warn('[DBG] recipe_images insert error', imgErr) } catch (e) {}
+                } else {
+                  try { console.log('[DBG] recipe_images inserted count=', Array.isArray(imgData) ? imgData.length : 0) } catch (e) {}
+                }
+              } catch (e) {
+                try { console.warn('[DBG] exception inserting recipe_images', String(e)) } catch (e) {}
+              }
+            }
+          } catch (e) {
+            try { console.warn('[DBG] recipe_images processing error', String(e)) } catch (e) {}
+          }
+        }
+      } catch (e) {
+        try { console.warn('[DBG] recipe_images top-level error', String(e)) } catch (e) {}
+      }
+
+      return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    } catch (e) {
+      try { console.error('[DBG] exception during recipe insert handler', String(e), e && e.stack) } catch {}
+      throw e
+    }
+  } catch (e: any) {
+    const detail = (e && (e.stack || e.message)) ? (e.stack || e.message) : String(e)
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ作成中にサーバーエラーが発生しました', detail, 'server_error', 500)
+  }
+})
+
 // Admin: delete product
 app.delete('/api/admin/products/*', async (c) => {
   try {

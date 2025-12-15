@@ -1,4 +1,5 @@
-````markdown
+# 商品 API 仕様書＆実装チェックレポート
+
 # 商品 API 仕様書＆実装チェックレポート
 
 このドキュメントは「商品（products テーブル）」に関する API を整理したものです。
@@ -46,21 +47,24 @@ admin サイト（`admin-site`）から呼び出せるように、public-worker 
   - 権限: 認証済みかつ worker での trust 判定済み（`resolveRequestUserContext` の `trusted` が true）で実行可能。admin が他ユーザーの一覧を見たい場合は body/query には `user_id` を付ける（権限判定あり）。
 
 - 返却（成功）:
-  - JSON: { data: [ ...products ], meta?: { total, limit, offset } }
+  - JSON の基本形: `{ data: [ ...products ], meta?: { total, limit, offset } }`
   - Shallow レスポンス item 例:
-    {
-      "id": "...",
-      "user_id": "...",
-      "title": "...",
-      "slug": "...",
-      "short_description": "...",
-      "tags": ["tag1"],
-      "price": 1234,
-      "published": true,
-      "created_at": "...",
-      "updated_at": "...",
-      "images": [ { id,... } ]
-    }
+
+```json
+{
+  "id": "...",
+  "user_id": "...",
+  "title": "...",
+  "slug": "...",
+  "short_description": "...",
+  "tags": ["tag1"],
+  "price": 1234,
+  "published": true,
+  "created_at": "...",
+  "updated_at": "...",
+  "images": [ { "id": "..." } ]
+}
+```
 
 ---
 
@@ -251,5 +255,3 @@ admin 側の `db.storage` もローカル mirror キャッシュ (`db.products`)
 - `count` を返す軽量専用エンドポイントを追加（ダッシュボード最適化）
 
 ---
-
-``` 
