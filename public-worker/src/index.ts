@@ -80,7 +80,7 @@ app.use('/api/*', async (c, next) => {
       const reqPath = (new URL(c.req.url)).pathname || ''
       // Allow unauthenticated access to auth endpoints and docs/openapi JSON
       // Accept variants like trailing slash or sub-paths to be robust behind proxies
-      if (reqPath.startsWith('/api/auth') || reqPath.startsWith('/api/docs') || reqPath.includes('/api/openapi.json')) {
+      if (reqPath.startsWith('/api/auth') || reqPath.startsWith('/api/docs') || reqPath.startsWith('/api/debug') || reqPath.includes('/api/openapi.json')) {
         return await next()
       }
     } catch {}
@@ -293,7 +293,7 @@ app.use('*', async (c, next) => {
     // Let auth endpoints handle themselves (e.g. /api/auth/whoami)
     try {
       const reqPath = (new URL(c.req.url)).pathname || ''
-      if (reqPath.startsWith('/api/auth')) {
+      if (reqPath.startsWith('/api/auth') || reqPath.startsWith('/api/debug')) {
         return await next()
       }
     } catch {}
@@ -437,6 +437,67 @@ app.get('/_debug', async (c) => {
     const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
     headers['Content-Type'] = 'application/json; charset=utf-8'
     return new Response(JSON.stringify({ ok: true, bindings }), { headers })
+  } catch (e: any) {
+    const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
+    headers['Content-Type'] = 'application/json; charset=utf-8'
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers })
+  }
+})
+
+// Diagnostic: show which headers the worker actually receives and how
+// the request would be interpreted by auth helpers. DO NOT enable this
+// endpoint in public production for long — use only for short-term debugging
+// and remove afterwards.
+app.get('/api/debug/headers', async (c) => {
+  try {
+    const hdr = (name: string) => (c.req.header(name) || c.req.header(name.toLowerCase()) || '')
+    const authorization = hdr('authorization') as string
+    const cookie = hdr('cookie') as string
+    const xUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '') as string
+    const xDebugUser = (c.req.header('x-debug-user') || c.req.header('X-Debug-User') || '') as string
+
+    // mask token for safety
+    const mask = (s: string | null | undefined) => {
+      if (!s) return null
+      try {
+        if (s.length <= 12) return '****'
+        return s.slice(0, 6) + '...' + s.slice(-4)
+      } catch { return '****' }
+    }
+
+    const tokenFromHelper = await getTokenFromRequest(c)
+    const resolved = await resolveRequestUserContext(c)
+
+    const envFlags = {
+      SUPABASE_URL: !!(c.env as any).SUPABASE_URL,
+      SUPABASE_ANON_KEY: !!(c.env as any).SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: !!(c.env as any).SUPABASE_SERVICE_ROLE_KEY,
+      DEBUG_WORKER: (c.env as any).DEBUG_WORKER === 'true'
+    }
+
+    const payload = {
+      ok: true,
+      method: c.req.method,
+      url: (new URL(c.req.url)).pathname,
+      received: {
+        authorization_present: !!authorization,
+        authorization_masked: mask(authorization),
+        cookie_present: !!cookie,
+        cookie_masked_preview: (() => {
+          const m = cookie ? cookie.match(/(?:^|; )sb-access-token=([^;]+)/) : null
+          return m && m[1] ? mask(decodeURIComponent(m[1])) : null
+        })(),
+        x_user_id: xUser || null,
+        x_debug_user: xDebugUser || null
+      },
+      helper_token: tokenFromHelper ? mask(tokenFromHelper) : null,
+      resolved_context: resolved,
+      env: envFlags
+    }
+
+    const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
+    headers['Content-Type'] = 'application/json; charset=utf-8'
+    return new Response(JSON.stringify(payload, null, 2), { headers })
   } catch (e: any) {
     const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
     headers['Content-Type'] = 'application/json; charset=utf-8'
@@ -1556,11 +1617,20 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
       const target = workerHost.replace(/\/$/, '') + p
       res = await fetch(target, { method: 'GET', headers: makeUpstreamHeaders(c2) })
     } else {
-      res = await fetch(new URL(c2.req.url.replace('/api/', '/')), { method: 'GET', headers: makeUpstreamHeaders(c2) })
+      // Safety: avoid fetching the origin (which can return HTML pages) when
+      // WORKER_PUBLIC_HOST is not configured. Returning a JSON 404 makes it
+      // explicit that the internal API route is unavailable and prevents
+      // accidentally proxying to a frontend page.
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+      return new Response(JSON.stringify({ error: 'no_internal_handler', message: 'WORKER_PUBLIC_HOST not configured; internal API not found' }), { status: 404, headers: merged })
     }
   } catch (e) {
-    // If the fetch to the worker host fails, fall back to origin fetch.
-    res = await fetch(new URL(c2.req.url.replace('/api/', '/')), { method: 'GET', headers: makeUpstreamHeaders(c2) })
+    // If fetching the configured worker host fails, return a JSON 502 rather
+    // than falling back to the origin which may return HTML.
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
+    return new Response(JSON.stringify({ error: 'upstream_fetch_failed', message: 'Failed to fetch configured WORKER_PUBLIC_HOST' }), { status: 502, headers: merged })
   }
   const buf = await res.arrayBuffer()
   const outHeaders: Record<string, string> = {}
