@@ -23,6 +23,20 @@ export class RecipesService {
     }
   }
 
+  // Admin-specific: fetch single recipe via admin endpoint (returns single object)
+  static async getAdminById(id: string) {
+    try {
+      if (!id) return null
+      const res = await apiFetch(`/api/admin/recipes/${encodeURIComponent(id)}`)
+      const json = await res.json().catch(() => null)
+      // admin endpoint returns { data: { ... } }
+      const d = json?.data
+      return d || null
+    } catch (e) {
+      return null
+    }
+  }
+
   static async create(data: any) {
     const res = await apiFetch('/api/admin/recipes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
     const json = await res.json().catch(() => null)

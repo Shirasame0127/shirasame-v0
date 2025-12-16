@@ -305,7 +305,15 @@ export default function RecipeEditPage() {
     const uid = currentUser?.id || currentUserId || undefined
     // Always attempt to fetch authoritative recipe from API first
     try {
-      const fresh = await RecipesService.getById(recipeId)
+      // Prefer admin endpoint for authoritative draft/admin-scoped records.
+      // If admin fetch fails (unauthenticated or not found), fall back to public getById.
+      let fresh: any = null
+      if (recipeId) {
+        fresh = await RecipesService.getAdminById(recipeId)
+      }
+      if (!fresh && recipeId) {
+        fresh = await RecipesService.getById(recipeId)
+      }
       if (fresh) {
         const keysFromRecipe = Array.isArray(fresh.recipe_image_keys) ? fresh.recipe_image_keys : (Array.isArray(fresh.recipeImageKeys) ? fresh.recipeImageKeys : [])
         setRecipeImageKeys(keysFromRecipe || [])
