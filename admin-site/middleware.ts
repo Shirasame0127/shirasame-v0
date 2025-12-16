@@ -10,12 +10,15 @@ const DEFAULT_API_BASE = process.env.API_BASE_ORIGIN || process.env.NEXT_PUBLIC_
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // 1) If this is an API request, proxy to the public worker
+  // 1) If this is an API request, proxy to the public worker only when
+  // an external API base is explicitly configured. If no external API is
+  // configured, allow Next.js internal `/api` routes to handle the request
+  // (useful for local development where the admin site implements APIs).
   if (pathname.startsWith('/api/')) {
-    // 本番方針: /api/* は常に public-worker（外部 API ゲートウェイ）に送る
     const destOrigin = process.env.API_BASE_ORIGIN || process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE
     if (!destOrigin) {
-      return new NextResponse(JSON.stringify({ error: 'API_BASE origin is not configured on admin-site. /api/* must be proxied to public-worker.' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+      // No external API configured: let Next.js internal API routes handle it.
+      return NextResponse.next()
     }
 
     // Normalize: for most routes strip leading `/api` so that public-worker

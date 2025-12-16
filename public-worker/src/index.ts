@@ -344,7 +344,12 @@ function computeCorsHeaders(origin: string | null, env: any) {
   const allowed = ((env as any).PUBLIC_ALLOWED_ORIGINS || '').split(',').map((s: string) => s.trim()).filter(Boolean)
   let acOrigin = '*'
   if (origin) {
-    if (allowed.length === 0 || allowed.indexOf('*') !== -1 || allowed.indexOf(origin) !== -1) {
+    // If allowed list is empty, default behavior is to echo the origin
+    // which permits any origin. When an explicit allow-list exists, we
+    // also allow common local-development origins (localhost/127.0.0.1)
+    // to ease local testing even if they are not present in the list.
+    const isLocalOrigin = origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1') || origin.startsWith('https://localhost') || origin.startsWith('https://127.0.0.1')
+    if (allowed.length === 0 || allowed.indexOf('*') !== -1 || allowed.indexOf(origin) !== -1 || isLocalOrigin) {
       acOrigin = origin
     } else if (allowed.length > 0) {
       acOrigin = allowed[0]
