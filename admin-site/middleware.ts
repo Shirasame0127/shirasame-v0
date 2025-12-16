@@ -22,13 +22,15 @@ export async function middleware(req: NextRequest) {
     }
 
     // Normalize: for most routes strip leading `/api` so that public-worker
-    // (which hosts routes at root like `/tag-groups`) receives the expected
-    // path. However, preserve `/api/admin/*` paths: these are implemented
-    // on the public-worker under the `/api/admin/*` namespace and must be
-    // proxied with the `/api` prefix intact.
+    // (which hosts many routes at root like `/products`) receives the
+    // expected path. However, preserve `/api/admin/*` and `/api/auth/*`
+    // paths: these are implemented on the public-worker under the
+    // `/api/admin/*` and `/api/auth/*` namespaces and must be proxied with
+    // the `/api` prefix intact. This ensures auth/session endpoints map
+    // correctly and internal admin APIs continue to function.
     let incomingPath: string
-    if (req.nextUrl.pathname.startsWith('/api/admin/')) {
-      incomingPath = req.nextUrl.pathname // keep /api/admin/...
+    if (req.nextUrl.pathname.startsWith('/api/admin/') || req.nextUrl.pathname.startsWith('/api/auth/')) {
+      incomingPath = req.nextUrl.pathname // keep /api/admin/... and /api/auth/...
     } else {
       incomingPath = req.nextUrl.pathname.replace(/^\/api(?=\/|$)/, '')
     }
