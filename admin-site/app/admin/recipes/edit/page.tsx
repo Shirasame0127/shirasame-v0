@@ -426,6 +426,56 @@ export default function RecipeEditPage() {
         setPins(convertedPins as Pin[])
         setSelectedProductIds(convertedPins.map((p: any) => p.productId))
       }
+
+      // 非同期でサーバからも最新データを取得して上書きする（作成直後のリダイレクトに備える）
+      ;(async () => {
+        try {
+          const fresh = await RecipesService.getById(recipeId)
+          if (fresh) {
+            const keysFromRecipe = Array.isArray(fresh.recipe_image_keys) ? fresh.recipe_image_keys : (Array.isArray(fresh.recipeImageKeys) ? fresh.recipeImageKeys : [])
+            setRecipeImageKeys(keysFromRecipe || [])
+            if ((!keysFromRecipe || keysFromRecipe.length === 0) && (fresh.title || '').trim()) {
+              setTimeout(() => setShowUploadModal(true), 160)
+            }
+            setTitle(fresh.title || "")
+            setPublished(Boolean(fresh.published))
+            const fallbackImageUrl = (fresh.images && fresh.images.length > 0 && fresh.images[0].url) || null
+            setImageDataUrl(fresh.imageDataUrl || fresh.imageUrl || fallbackImageUrl || "")
+            setImageWidth(fresh.imageWidth || 1920)
+            setImageHeight(fresh.imageHeight || 1080)
+            try { await db.recipePins.refresh(recipeId) } catch (e) {}
+            const recipePinsFresh = db.recipePins.getByRecipeId(recipeId)
+            if (recipePinsFresh && recipePinsFresh.length > 0) {
+              setPins(recipePinsFresh.map((p: any) => ({
+                ...p,
+                tagTextStrokeColor: p.tagTextStrokeColor || "transparent",
+                tagTextStrokeWidth: p.tagTextStrokeWidth || 0,
+                tagBackgroundWidthPercent: p.tagBackgroundWidthPercent || 0,
+                tagBackgroundHeightPercent: p.tagBackgroundHeightPercent || 0,
+                tagBackgroundOffsetXPercent: p.tagBackgroundOffsetXPercent || 0,
+                tagBackgroundOffsetYPercent: p.tagBackgroundOffsetYPercent || 0,
+                tagShadowColor: p.tagShadowColor || "#000000",
+                tagShadowOpacity: p.tagShadowOpacity ?? 0.5,
+                tagShadowBlur: p.tagShadowBlur ?? 2,
+                tagShadowDistance: p.tagShadowDistance ?? 2,
+                tagShadowAngle: p.tagShadowAngle ?? 45,
+                tagTextAlign: p.tagTextAlign || "left",
+                tagVerticalWriting: p.tagVerticalWriting || false,
+                tagLetterSpacing: p.tagLetterSpacing || 0,
+                tagLineHeight: p.tagLineHeight || 1.5,
+                tagBold: p.tagBold || false,
+                tagItalic: p.tagItalic || false,
+                tagUnderline: p.tagUnderline || false,
+                tagTextTransform: p.tagTextTransform || "none",
+                tagDisplayText: p.tagDisplayText || "",
+              })) as Pin[])
+              setSelectedProductIds(recipePinsFresh.map((p: any) => p.productId))
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      })()
     }
 
       
