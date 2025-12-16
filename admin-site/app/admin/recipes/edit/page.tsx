@@ -6,7 +6,7 @@ import type React from "react"
 // インポート: 必要なライブラリとコンポーネント
 // ===========================
 import { useEffect, useState, useRef } from "react"
-import { useRouter, useParams } from "next/navigation"
+import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { db } from "@/lib/db/storage"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -164,7 +164,9 @@ export default function RecipeEditPage() {
   // ===========================
   const router = useRouter() // ページ遷移用
   const params = useParams() // URLパラメータ取得用
-  const recipeId = params.id as string // レシピID
+  const searchParams = useSearchParams && useSearchParams()
+  // recipeId may be passed as a path param or as ?id=<id> query param depending on navigation
+  const recipeId = (params && (params as any).id) || (searchParams ? searchParams.get('id') : null) || ''
 
   // ===========================
   // ステート変数: レシピの基本情報
@@ -422,8 +424,20 @@ export default function RecipeEditPage() {
         }
         setTitle(recipe.title || "")
         setPublished(Boolean(recipe.published))
-        const fallbackImageUrl = (recipe.images && recipe.images.length > 0 && recipe.images[0].url) || null
-        setImageDataUrl(recipe.imageDataUrl || recipe.imageUrl || fallbackImageUrl || "")
+        // Prefer canonical recipe_image_keys for preview
+        if (Array.isArray(keysFromRecipe) && keysFromRecipe.length > 0) {
+          try {
+            const cdn = getPublicImageUrl(keysFromRecipe[0])
+            if (cdn) setImageDataUrl(cdn)
+            else setImageDataUrl(recipe.imageDataUrl || recipe.imageUrl || "")
+          } catch (e) {
+            const fallbackImageUrl = (recipe.images && recipe.images.length > 0 && recipe.images[0].url) || null
+            setImageDataUrl(recipe.imageDataUrl || recipe.imageUrl || fallbackImageUrl || "")
+          }
+        } else {
+          const fallbackImageUrl = (recipe.images && recipe.images.length > 0 && recipe.images[0].url) || null
+          setImageDataUrl(recipe.imageDataUrl || recipe.imageUrl || fallbackImageUrl || "")
+        }
         setImageWidth(recipe.imageWidth || 1920)
         setImageHeight(recipe.imageHeight || 1080)
 
@@ -1168,17 +1182,31 @@ export default function RecipeEditPage() {
         // ignore errors and continue
       }
 
-      if (recipe) {
-        db.recipes.update(recipeId, payload)
-      } else {
-        db.recipes.create({
-          id: recipeId,
-          userId: uid,
-          published: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          ...payload,
-        })
+      // Persist update to server: editing an existing recipe MUST use UPDATE.
+      if (!recipeId) {
+        toast({ variant: 'destructive', title: 'エラー', description: '編集対象のレシピIDが見つかりません。新規作成画面から作成してください。' })
+        return
+      }
+
+      try {
+        // Ensure recipe_image_keys exists on payload (canonical single-key or empty array)
+        if (!payload.recipe_image_keys) payload.recipe_image_keys = Array.isArray(recipeImageKeys) && recipeImageKeys.length > 0 ? recipeImageKeys : []
+
+        const updated = await RecipesService.update(recipeId, payload)
+        if (updated) {
+          try { db.recipes.update(recipeId, payload) } catch (e) {}
+        } else {
+          // fallback to direct PUT if service helper fails
+          try {
+            await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          } catch (e2) {
+            throw e2
+          }
+        }
+      } catch (e) {
+        console.error('[v0] failed to persist recipe to server', e)
+        toast({ variant: 'destructive', title: '保存失敗', description: 'レシピの保存に失敗しました（サーバー）。' })
+        return
       }
 
       // Persist images to server-side recipes.images via admin upsert endpoint.

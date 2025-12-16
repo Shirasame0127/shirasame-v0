@@ -2948,7 +2948,13 @@ app.put('/api/admin/recipes/:id', async (c) => {
     if (typeof body.published !== 'undefined') upd.published = !!body.published
     if (typeof body.tags !== 'undefined') upd.tags = Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null)
     // Normalize image keys: recipe-level canonical field is `recipe_image_keys`
-    if (typeof body.recipe_image_keys !== 'undefined') upd.recipe_image_keys = Array.isArray(body.recipe_image_keys) ? body.recipe_image_keys : null
+    if (typeof body.recipe_image_keys !== 'undefined') {
+      // Enforce key-only policy: allow [] or ["key"], but reject explicit empty array on update
+      if (Array.isArray(body.recipe_image_keys) && body.recipe_image_keys.length === 0) {
+        return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'recipe_image_keys が空の配列は許可されていません。画像キーを1件以上指定してください。', null, 'invalid_body', 400)
+      }
+      upd.recipe_image_keys = Array.isArray(body.recipe_image_keys) ? body.recipe_image_keys : null
+    }
     if (typeof body.items !== 'undefined') upd.items = body.items
     if (typeof body.pins !== 'undefined') upd.pins = body.pins
     // image_data_url is deprecated and intentionally ignored/removed
