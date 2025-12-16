@@ -32,9 +32,54 @@ function normalizeRecipe(r: any) {
   // parse JSON string fields
   normalized.images = parseJsonField(normalized.images)
   normalized.items = parseJsonField(normalized.items)
-  // legacy image fields normalization
-  if (!normalized.imageUrl && (normalized.base_image_id || normalized.image_data_url || normalized.image_data_url)) {
-    normalized.imageUrl = normalized.image_data_url || normalized.base_image_id || null
+
+  // Map common snake_case DB columns to camelCase used by UI
+  if (typeof normalized.base_image_id !== 'undefined' && typeof normalized.baseImageId === 'undefined') normalized.baseImageId = normalized.base_image_id
+  if (typeof normalized.image_width !== 'undefined' && typeof normalized.imageWidth === 'undefined') normalized.imageWidth = normalized.image_width
+  if (typeof normalized.image_height !== 'undefined' && typeof normalized.imageHeight === 'undefined') normalized.imageHeight = normalized.image_height
+  if (typeof normalized.aspect_ratio !== 'undefined' && typeof normalized.aspectRatio === 'undefined') normalized.aspectRatio = normalized.aspect_ratio
+  if (typeof normalized.created_at !== 'undefined' && typeof normalized.createdAt === 'undefined') normalized.createdAt = normalized.created_at
+  if (typeof normalized.updated_at !== 'undefined' && typeof normalized.updatedAt === 'undefined') normalized.updatedAt = normalized.updated_at
+
+  // Ensure canonical recipe_image_keys is exposed in both snake and camel forms
+  try {
+    const keys = Array.isArray(normalized.recipe_image_keys)
+      ? normalized.recipe_image_keys
+      : (Array.isArray(normalized.recipeImageKeys) ? normalized.recipeImageKeys : [])
+    normalized.recipe_image_keys = keys
+    normalized.recipeImageKeys = keys
+  } catch (e) {
+    normalized.recipe_image_keys = normalized.recipe_image_keys || []
+    normalized.recipeImageKeys = normalized.recipeImageKeys || []
+  }
+
+  // Normalize images array entries: prefer key then url
+  try {
+    if (Array.isArray(normalized.images)) {
+      normalized.images = normalized.images.map((img: any) => {
+        if (!img) return img
+        const out: any = { ...img }
+        // unify possible key fields
+        if (!out.key && out.key === undefined) {
+          out.key = out.key || out.image_key || out.r2_key || null
+        }
+        // unify url
+        out.url = out.url || out.imageUrl || out.image_url || out.src || null
+        // if we have a key but no url, try to build public url
+        if (out.key && !out.url) {
+          try { out.url = getPublicImageUrl(out.key) || null } catch { out.url = null }
+        }
+        return out
+      })
+    }
+  } catch (e) {}
+
+  // legacy image/url compatibility: if main image key exists, expose imageUrl
+  if (!normalized.imageUrl) {
+    const mainKey = normalized.main_image_key || normalized.mainImageKey || (Array.isArray(normalized.recipe_image_keys) && normalized.recipe_image_keys[0]) || null
+    if (mainKey) {
+      try { normalized.imageUrl = getPublicImageUrl(mainKey) || null } catch { normalized.imageUrl = null }
+    }
   }
   // ensure booleans/defaults
   if (typeof normalized.published !== 'boolean') normalized.published = !!normalized.published
