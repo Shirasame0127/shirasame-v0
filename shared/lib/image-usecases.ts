@@ -93,8 +93,11 @@ export function getPublicImageUrl(raw?: string | null, domainOverride?: string |
   }
   // Normalize raw key strings (remove leading slashes, collapse duplicate segments)
   let k = String(raw).replace(/^\/+/, '')
+  // If a key was accidentally stored with a leading `images/` segment,
+  // strip it to avoid constructing URLs like `/images/images/...`.
+  if (k.startsWith('images/')) k = k.slice('images/'.length)
   k = k.replace(/(^|\/)uploads\/+uploads\//, '$1uploads/')
-  k = k.replace(/\/+/g, '/')
+  k = k.replace(/\/+/, '/')
   return `${imagesRoot}/${k}`
 }
 
