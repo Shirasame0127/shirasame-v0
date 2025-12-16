@@ -3664,6 +3664,81 @@ app.get('/api/recipe-pins', async (c) => mirrorGet(c, async (c2) => {
   }
 }))
 
+// Admin: bulk upsert recipe pins for a recipe (replace acting user's pins)
+app.post('/api/admin/recipe-pins/bulk', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    // Allow admin to specify userId for multi-user operations
+    const targetUser = (body.userId && isAdmin(actingUser, c.env)) ? String(body.userId) : actingUser
+    const recipeId = body.recipeId ? String(body.recipeId) : null
+    if (!recipeId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'recipeId が必要です', null, 'invalid_request', 400)
+
+    // Normalize pins
+    const pinsArr = Array.isArray(body.pins) ? body.pins : []
+    // Delete existing pins for this recipe by this user
+    try {
+      const { error: delErr } = await supabase.from('recipe_pins').delete().eq('recipe_id', recipeId).eq('user_id', targetUser)
+      if (delErr) {
+        try { console.warn('[DBG] recipe_pins bulk delete error', delErr) } catch (e) {}
+      }
+    } catch (e) {
+      try { console.warn('[DBG] recipe_pins bulk delete exception', String(e)) } catch (e2) {}
+    }
+
+    if (pinsArr.length > 0) {
+      const rows = pinsArr.map((p: any) => ({
+        id: p.id || (typeof crypto !== 'undefined' && (crypto as any).randomUUID ? (crypto as any).randomUUID() : null),
+        recipe_id: recipeId,
+        product_id: p.productId || p.product_id || null,
+        user_id: targetUser,
+        tag_display_text: p.tagDisplayText || p.tag_text || null,
+        dot_x_percent: p.dotXPercent || 0,
+        dot_y_percent: p.dotYPercent || 0,
+        tag_x_percent: p.tagXPercent || 0,
+        tag_y_percent: p.tagYPercent || 0,
+        dot_size_percent: p.dotSizePercent || 0,
+        tag_font_size_percent: p.tagFontSizePercent || 0,
+        line_width_percent: p.lineWidthPercent || 0,
+        tag_padding_x_percent: p.tagPaddingXPercent || 0,
+        tag_padding_y_percent: p.tagPaddingYPercent || 0,
+        tag_border_radius_percent: p.tagBorderRadiusPercent || 0,
+        tag_border_width_percent: p.tagBorderWidthPercent || 0,
+        dot_color: p.dotColor || null,
+        dot_shape: p.dotShape || null,
+        tag_text: p.tagText || p.tag_text || null,
+        tag_font_family: p.tagFontFamily || null,
+        tag_font_weight: p.tagFontWeight || null,
+        tag_text_color: p.tagTextColor || null,
+        tag_text_shadow: p.tagTextShadow || null,
+        tag_background_color: p.tagBackgroundColor || null,
+        tag_background_opacity: typeof p.tagBackgroundOpacity !== 'undefined' ? p.tagBackgroundOpacity : 1,
+        tag_border_color: p.tagBorderColor || null,
+        tag_shadow: p.tagShadow || null,
+        line_type: p.lineType || null,
+      }))
+
+      try {
+        const { error: insErr } = await supabase.from('recipe_pins').insert(rows)
+        if (insErr) {
+          try { console.warn('[DBG] recipe_pins bulk insert error', insErr) } catch (e) {}
+        }
+      } catch (e) {
+        try { console.warn('[DBG] recipe_pins bulk insert exception', String(e)) } catch (e2) {}
+      }
+    }
+
+    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: merged })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'recipe-pins のバルク更新中にサーバーエラー', e?.message || String(e), 'server_error', 500)
+  }
+})
+
 app.get('/api/custom-fonts', async (c) => mirrorGet(c, async (c2) => {
   const base = { 'Content-Type': 'application/json; charset=utf-8' }
   const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
