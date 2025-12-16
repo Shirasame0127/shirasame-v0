@@ -301,49 +301,27 @@ export default function RecipeEditPage() {
     // Resolve current user id early so refreshes can be scoped
     const currentUser = getCurrentUser && getCurrentUser()
     const uid = currentUser?.id || currentUserId || undefined
+    // Always attempt to fetch authoritative recipe from API first
+    try {
+      const fresh = await RecipesService.getById(recipeId)
+      if (fresh) {
+        const keysFromRecipe = Array.isArray(fresh.recipe_image_keys) ? fresh.recipe_image_keys : (Array.isArray(fresh.recipeImageKeys) ? fresh.recipeImageKeys : [])
+        setRecipeImageKeys(keysFromRecipe || [])
+        if ((!keysFromRecipe || keysFromRecipe.length === 0) && (fresh.title || '').trim()) {
+          setTimeout(() => setShowUploadModal(true), 160)
+        }
+        setTitle(fresh.title || "")
+        setPublished(Boolean(fresh.published))
+        const fallbackImageUrl = (fresh.images && fresh.images.length > 0 && fresh.images[0].url) || null
+        setImageDataUrl(fresh.imageDataUrl || fresh.imageUrl || fallbackImageUrl || "")
+        setImageWidth(fresh.imageWidth || 1920)
+        setImageHeight(fresh.imageHeight || 1080)
 
-    // Try to read from cache first
-    let recipe: any = db.recipes.getById(recipeId)
-
-    // If not found in cache, refresh recipes from server once and re-check
-    if (!recipe) {
-      try {
-        await db.recipes.refresh(uid)
-        recipe = db.recipes.getById(recipeId)
-      } catch (e) {
-        console.warn('[v0] recipes.refresh failed in loadData', e)
-      }
-    }
-
-    if (recipe) {
-      // normalize recipe_image_keys (new canonical field)
-      const keysFromRecipe = Array.isArray(recipe.recipe_image_keys) ? recipe.recipe_image_keys : (Array.isArray(recipe.recipeImageKeys) ? recipe.recipeImageKeys : [])
-      setRecipeImageKeys(keysFromRecipe || [])
-      // If there are no image keys yet, open the upload modal so admin can add images immediately
-      if ((!keysFromRecipe || keysFromRecipe.length === 0) && (recipe.title || '').trim()) {
-        // small timeout so page paint completes before modal opens
-        setTimeout(() => setShowUploadModal(true), 160)
-      }
-      setTitle(recipe.title || "")
-      setPublished(Boolean(recipe.published))
-      // Prefer inline data URL, then explicit imageUrl, otherwise fall back to the first mapped image's url
-      const fallbackImageUrl = (recipe.images && recipe.images.length > 0 && recipe.images[0].url) || null
-      setImageDataUrl(recipe.imageDataUrl || recipe.imageUrl || fallbackImageUrl || "")
-      setImageWidth(recipe.imageWidth || 1920)
-      setImageHeight(recipe.imageHeight || 1080)
-
-      // Ensure recipe pins cache for this recipe is fresh (avoid warmCache race)
-      try {
-        await db.recipePins.refresh(recipeId)
-      } catch (e) {
-        /* best-effort */
-      }
-
-      // ピンデータを取得（新スキーマ優先、古いスキーマもフォールバック）
-      const recipePins = db.recipePins.getByRecipeId(recipeId)
-      if (recipePins && recipePins.length > 0) {
-        setPins(
-          recipePins.map((p: any) => ({
+        // Ensure recipe pins cache for this recipe is fresh (avoid warmCache race)
+        try { await db.recipePins.refresh(recipeId) } catch (e) { /* best-effort */ }
+        const recipePinsFresh = db.recipePins.getByRecipeId(recipeId)
+        if (recipePinsFresh && recipePinsFresh.length > 0) {
+          setPins(recipePinsFresh.map((p: any) => ({
             ...p,
             tagTextStrokeColor: p.tagTextStrokeColor || "transparent",
             tagTextStrokeWidth: p.tagTextStrokeWidth || 0,
@@ -365,118 +343,170 @@ export default function RecipeEditPage() {
             tagUnderline: p.tagUnderline || false,
             tagTextTransform: p.tagTextTransform || "none",
             tagDisplayText: p.tagDisplayText || "",
-          })) as Pin[],
-        )
-        setSelectedProductIds(recipePins.map((p: any) => p.productId))
-      } else if (recipe.pins && recipe.pins.length > 0) {
-        const convertedPins = recipe.pins.map((oldPin: any) => ({
-          id: oldPin.id || `pin-${Date.now()}-${oldPin.productId}`,
-          productId: oldPin.productId,
-          // 位置（パーセント）
-          dotXPercent: oldPin.dotXPercent || 20,
-          dotYPercent: oldPin.dotYPercent || 50,
-          tagXPercent: oldPin.tagXPercent || 80,
-          tagYPercent: oldPin.tagYPercent || 50,
-          // サイズ（画像幅に対するパーセント）
-          dotSizePercent: oldPin.dotSize ? (oldPin.dotSize / (recipe.imageWidth || 1920)) * 100 : 1.2,
-          tagFontSizePercent: oldPin.tagFontSize ? (oldPin.tagFontSize / (recipe.imageWidth || 1920)) * 100 : 1.4,
-          lineWidthPercent: oldPin.lineWidth ? (oldPin.lineWidth / (recipe.imageWidth || 1920)) * 100 : 0.2,
-          tagPaddingXPercent: oldPin.tagPaddingX ? (oldPin.tagPaddingX / (recipe.imageWidth || 1920)) * 100 : 1.2,
-          tagPaddingYPercent: oldPin.tagPaddingY ? (oldPin.tagPaddingY / (recipe.imageWidth || 1920)) * 100 : 0.6,
-          tagBorderRadiusPercent: oldPin.tagBorderRadius
-            ? (oldPin.tagBorderRadius / (recipe.imageWidth || 1920)) * 100
-            : 0.4,
-          tagBorderWidthPercent: oldPin.tagBorderWidth
-            ? (oldPin.tagBorderWidth / (recipe.imageWidth || 1920)) * 100
-            : 0,
-          // スタイル
-          dotColor: oldPin.dotColor || "#ffffff",
-          dotShape: oldPin.dotShape || "circle",
-          tagText: oldPin.tagText || oldPin.text || "",
-          tagFontFamily: oldPin.tagFontFamily || "system-ui",
-          tagFontWeight: oldPin.tagFontWeight || "normal",
-          tagTextColor: oldPin.tagTextColor || "#ffffff",
-          tagTextShadow: oldPin.tagTextShadow || "0 2px 4px rgba(0,0,0,0.3)",
-          tagBackgroundColor: oldPin.tagBackgroundColor || "#000000",
-          tagBackgroundOpacity: oldPin.tagBackgroundOpacity ?? 0.8,
-          tagBorderColor: oldPin.tagBorderColor || "#ffffff",
-          tagShadow: oldPin.tagShadow || "0 2px 8px rgba(0,0,0,0.2)",
-          lineType: oldPin.lineType || "solid",
-          lineColor: oldPin.lineColor || "#ffffff",
-          tagTextStrokeColor: "transparent",
-          tagTextStrokeWidth: 0,
-          tagBackgroundWidthPercent: 0,
-          tagBackgroundHeightPercent: 0,
-          tagBackgroundOffsetXPercent: 0,
-          tagBackgroundOffsetYPercent: 0,
-          tagShadowColor: "#000000",
-          tagShadowOpacity: 0.5,
-          tagShadowBlur: 2,
-          tagShadowDistance: 2,
-          tagShadowAngle: 45,
-          tagTextAlign: "left",
-          tagVerticalWriting: false,
-          tagLetterSpacing: 0,
-          tagLineHeight: 1.5,
-          tagBold: false,
-          tagItalic: false,
-          tagUnderline: false,
-          tagTextTransform: "none",
-          tagDisplayText: "",
-        }))
-        setPins(convertedPins as Pin[])
-        setSelectedProductIds(convertedPins.map((p: any) => p.productId))
+          })) as Pin[])
+          setSelectedProductIds(recipePinsFresh.map((p: any) => p.productId))
+        } else if (fresh.pins && fresh.pins.length > 0) {
+          const convertedPins = fresh.pins.map((oldPin: any) => ({
+            id: oldPin.id || `pin-${Date.now()}-${oldPin.productId}`,
+            productId: oldPin.productId,
+            dotXPercent: oldPin.dotXPercent || 20,
+            dotYPercent: oldPin.dotYPercent || 50,
+            tagXPercent: oldPin.tagXPercent || 80,
+            tagYPercent: oldPin.tagYPercent || 50,
+            dotSizePercent: oldPin.dotSize ? (oldPin.dotSize / (fresh.imageWidth || 1920)) * 100 : 1.2,
+            tagFontSizePercent: oldPin.tagFontSize ? (oldPin.tagFontSize / (fresh.imageWidth || 1920)) * 100 : 1.4,
+            lineWidthPercent: oldPin.lineWidth ? (oldPin.lineWidth / (fresh.imageWidth || 1920)) * 100 : 0.2,
+            tagPaddingXPercent: oldPin.tagPaddingX ? (oldPin.tagPaddingX / (fresh.imageWidth || 1920)) * 100 : 1.2,
+            tagPaddingYPercent: oldPin.tagPaddingY ? (oldPin.tagPaddingY / (fresh.imageWidth || 1920)) * 100 : 0.6,
+            tagBorderRadiusPercent: oldPin.tagBorderRadius ? (oldPin.tagBorderRadius / (fresh.imageWidth || 1920)) * 100 : 0.4,
+            tagBorderWidthPercent: oldPin.tagBorderWidth ? (oldPin.tagBorderWidth / (fresh.imageWidth || 1920)) * 100 : 0,
+            dotColor: oldPin.dotColor || "#ffffff",
+            dotShape: oldPin.dotShape || "circle",
+            tagText: oldPin.tagText || oldPin.text || "",
+            tagFontFamily: oldPin.tagFontFamily || "system-ui",
+            tagFontWeight: oldPin.tagFontWeight || "normal",
+            tagTextColor: oldPin.tagTextColor || "#ffffff",
+            tagTextShadow: oldPin.tagTextShadow || "0 2px 4px rgba(0,0,0,0.3)",
+            tagBackgroundColor: oldPin.tagBackgroundColor || "#000000",
+            tagBackgroundOpacity: oldPin.tagBackgroundOpacity ?? 0.8,
+            tagBorderColor: oldPin.tagBorderColor || "#ffffff",
+            tagShadow: oldPin.tagShadow || "0 2px 8px rgba(0,0,0,0.2)",
+            lineType: oldPin.lineType || "solid",
+            lineColor: oldPin.lineColor || "#ffffff",
+            tagTextStrokeColor: "transparent",
+            tagTextStrokeWidth: 0,
+            tagBackgroundWidthPercent: 0,
+            tagBackgroundHeightPercent: 0,
+            tagBackgroundOffsetXPercent: 0,
+            tagBackgroundOffsetYPercent: 0,
+            tagShadowColor: "#000000",
+            tagShadowOpacity: 0.5,
+            tagShadowBlur: 2,
+            tagShadowDistance: 2,
+            tagShadowAngle: 45,
+            tagTextAlign: "left",
+            tagVerticalWriting: false,
+            tagLetterSpacing: 0,
+            tagLineHeight: 1.5,
+            tagBold: false,
+            tagItalic: false,
+            tagUnderline: false,
+            tagTextTransform: "none",
+            tagDisplayText: "",
+          }))
+          setPins(convertedPins as Pin[])
+          setSelectedProductIds(convertedPins.map((p: any) => p.productId))
+        }
+        
+        // we've initialized from API, skip fallback cache path
+        // continue to load products below
+      }
+    } catch (e) {
+      // API fetch failed — fall back to local cache approach
+      console.warn('[v0] RecipesService.getById failed in loadData, falling back to cache', e)
+      let recipe: any = db.recipes.getById(recipeId)
+      if (!recipe) {
+        try {
+          await db.recipes.refresh(uid)
+          recipe = db.recipes.getById(recipeId)
+        } catch (err) {
+          console.warn('[v0] recipes.refresh failed in loadData', err)
+        }
       }
 
-      // 非同期でサーバからも最新データを取得して上書きする（作成直後のリダイレクトに備える）
-      ;(async () => {
-        try {
-          const fresh = await RecipesService.getById(recipeId)
-          if (fresh) {
-            const keysFromRecipe = Array.isArray(fresh.recipe_image_keys) ? fresh.recipe_image_keys : (Array.isArray(fresh.recipeImageKeys) ? fresh.recipeImageKeys : [])
-            setRecipeImageKeys(keysFromRecipe || [])
-            if ((!keysFromRecipe || keysFromRecipe.length === 0) && (fresh.title || '').trim()) {
-              setTimeout(() => setShowUploadModal(true), 160)
-            }
-            setTitle(fresh.title || "")
-            setPublished(Boolean(fresh.published))
-            const fallbackImageUrl = (fresh.images && fresh.images.length > 0 && fresh.images[0].url) || null
-            setImageDataUrl(fresh.imageDataUrl || fresh.imageUrl || fallbackImageUrl || "")
-            setImageWidth(fresh.imageWidth || 1920)
-            setImageHeight(fresh.imageHeight || 1080)
-            try { await db.recipePins.refresh(recipeId) } catch (e) {}
-            const recipePinsFresh = db.recipePins.getByRecipeId(recipeId)
-            if (recipePinsFresh && recipePinsFresh.length > 0) {
-              setPins(recipePinsFresh.map((p: any) => ({
-                ...p,
-                tagTextStrokeColor: p.tagTextStrokeColor || "transparent",
-                tagTextStrokeWidth: p.tagTextStrokeWidth || 0,
-                tagBackgroundWidthPercent: p.tagBackgroundWidthPercent || 0,
-                tagBackgroundHeightPercent: p.tagBackgroundHeightPercent || 0,
-                tagBackgroundOffsetXPercent: p.tagBackgroundOffsetXPercent || 0,
-                tagBackgroundOffsetYPercent: p.tagBackgroundOffsetYPercent || 0,
-                tagShadowColor: p.tagShadowColor || "#000000",
-                tagShadowOpacity: p.tagShadowOpacity ?? 0.5,
-                tagShadowBlur: p.tagShadowBlur ?? 2,
-                tagShadowDistance: p.tagShadowDistance ?? 2,
-                tagShadowAngle: p.tagShadowAngle ?? 45,
-                tagTextAlign: p.tagTextAlign || "left",
-                tagVerticalWriting: p.tagVerticalWriting || false,
-                tagLetterSpacing: p.tagLetterSpacing || 0,
-                tagLineHeight: p.tagLineHeight || 1.5,
-                tagBold: p.tagBold || false,
-                tagItalic: p.tagItalic || false,
-                tagUnderline: p.tagUnderline || false,
-                tagTextTransform: p.tagTextTransform || "none",
-                tagDisplayText: p.tagDisplayText || "",
-              })) as Pin[])
-              setSelectedProductIds(recipePinsFresh.map((p: any) => p.productId))
-            }
-          }
-        } catch (e) {
-          // ignore
+      if (recipe) {
+        const keysFromRecipe = Array.isArray(recipe.recipe_image_keys) ? recipe.recipe_image_keys : (Array.isArray(recipe.recipeImageKeys) ? recipe.recipeImageKeys : [])
+        setRecipeImageKeys(keysFromRecipe || [])
+        if ((!keysFromRecipe || keysFromRecipe.length === 0) && (recipe.title || '').trim()) {
+          setTimeout(() => setShowUploadModal(true), 160)
         }
-      })()
+        setTitle(recipe.title || "")
+        setPublished(Boolean(recipe.published))
+        const fallbackImageUrl = (recipe.images && recipe.images.length > 0 && recipe.images[0].url) || null
+        setImageDataUrl(recipe.imageDataUrl || recipe.imageUrl || fallbackImageUrl || "")
+        setImageWidth(recipe.imageWidth || 1920)
+        setImageHeight(recipe.imageHeight || 1080)
+
+        try { await db.recipePins.refresh(recipeId) } catch (err) {}
+        const recipePins = db.recipePins.getByRecipeId(recipeId)
+        if (recipePins && recipePins.length > 0) {
+          setPins(recipePins.map((p: any) => ({
+            ...p,
+            tagTextStrokeColor: p.tagTextStrokeColor || "transparent",
+            tagTextStrokeWidth: p.tagTextStrokeWidth || 0,
+            tagBackgroundWidthPercent: p.tagBackgroundWidthPercent || 0,
+            tagBackgroundHeightPercent: p.tagBackgroundHeightPercent || 0,
+            tagBackgroundOffsetXPercent: p.tagBackgroundOffsetXPercent || 0,
+            tagBackgroundOffsetYPercent: p.tagBackgroundOffsetYPercent || 0,
+            tagShadowColor: p.tagShadowColor || "#000000",
+            tagShadowOpacity: p.tagShadowOpacity ?? 0.5,
+            tagShadowBlur: p.tagShadowBlur ?? 2,
+            tagShadowDistance: p.tagShadowDistance ?? 2,
+            tagShadowAngle: p.tagShadowAngle ?? 45,
+            tagTextAlign: p.tagTextAlign || "left",
+            tagVerticalWriting: p.tagVerticalWriting || false,
+            tagLetterSpacing: p.tagLetterSpacing || 0,
+            tagLineHeight: p.tagLineHeight || 1.5,
+            tagBold: p.tagBold || false,
+            tagItalic: p.tagItalic || false,
+            tagUnderline: p.tagUnderline || false,
+            tagTextTransform: p.tagTextTransform || "none",
+            tagDisplayText: p.tagDisplayText || "",
+          })) as Pin[])
+          setSelectedProductIds(recipePins.map((p: any) => p.productId))
+        } else if (recipe.pins && recipe.pins.length > 0) {
+          const convertedPins = recipe.pins.map((oldPin: any) => ({
+            id: oldPin.id || `pin-${Date.now()}-${oldPin.productId}`,
+            productId: oldPin.productId,
+            dotXPercent: oldPin.dotXPercent || 20,
+            dotYPercent: oldPin.dotYPercent || 50,
+            tagXPercent: oldPin.tagXPercent || 80,
+            tagYPercent: oldPin.tagYPercent || 50,
+            dotSizePercent: oldPin.dotSize ? (oldPin.dotSize / (recipe.imageWidth || 1920)) * 100 : 1.2,
+            tagFontSizePercent: oldPin.tagFontSize ? (oldPin.tagFontSize / (recipe.imageWidth || 1920)) * 100 : 1.4,
+            lineWidthPercent: oldPin.lineWidth ? (oldPin.lineWidth / (recipe.imageWidth || 1920)) * 100 : 0.2,
+            tagPaddingXPercent: oldPin.tagPaddingX ? (oldPin.tagPaddingX / (recipe.imageWidth || 1920)) * 100 : 1.2,
+            tagPaddingYPercent: oldPin.tagPaddingY ? (oldPin.tagPaddingY / (recipe.imageWidth || 1920)) * 100 : 0.6,
+            tagBorderRadiusPercent: oldPin.tagBorderRadius ? (oldPin.tagBorderRadius / (recipe.imageWidth || 1920)) * 100 : 0.4,
+            tagBorderWidthPercent: oldPin.tagBorderWidth ? (oldPin.tagBorderWidth / (recipe.imageWidth || 1920)) * 100 : 0,
+            dotColor: oldPin.dotColor || "#ffffff",
+            dotShape: oldPin.dotShape || "circle",
+            tagText: oldPin.tagText || oldPin.text || "",
+            tagFontFamily: oldPin.tagFontFamily || "system-ui",
+            tagFontWeight: oldPin.tagFontWeight || "normal",
+            tagTextColor: oldPin.tagTextColor || "#ffffff",
+            tagTextShadow: oldPin.tagTextShadow || "0 2px 4px rgba(0,0,0,0.3)",
+            tagBackgroundColor: oldPin.tagBackgroundColor || "#000000",
+            tagBackgroundOpacity: oldPin.tagBackgroundOpacity ?? 0.8,
+            tagBorderColor: oldPin.tagBorderColor || "#ffffff",
+            tagShadow: oldPin.tagShadow || "0 2px 8px rgba(0,0,0,0.2)",
+            lineType: oldPin.lineType || "solid",
+            lineColor: oldPin.lineColor || "#ffffff",
+            tagTextStrokeColor: "transparent",
+            tagTextStrokeWidth: 0,
+            tagBackgroundWidthPercent: 0,
+            tagBackgroundHeightPercent: 0,
+            tagBackgroundOffsetXPercent: 0,
+            tagBackgroundOffsetYPercent: 0,
+            tagShadowColor: "#000000",
+            tagShadowOpacity: 0.5,
+            tagShadowBlur: 2,
+            tagShadowDistance: 2,
+            tagShadowAngle: 45,
+            tagTextAlign: "left",
+            tagVerticalWriting: false,
+            tagLetterSpacing: 0,
+            tagLineHeight: 1.5,
+            tagBold: false,
+            tagItalic: false,
+            tagUnderline: false,
+            tagTextTransform: "none",
+            tagDisplayText: "",
+          }))
+          setPins(convertedPins as Pin[])
+          setSelectedProductIds(convertedPins.map((p: any) => p.productId))
+        }
+      }
     }
 
       
