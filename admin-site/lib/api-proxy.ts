@@ -166,41 +166,9 @@ export async function forwardToPublicWorker(req: Request) {
     // Copy response headers. Append multiple Set-Cookie values instead of
     // overwriting so we don't lose sb-access-token or sb-refresh-token.
     const respHeaders = new Headers()
-    // Decide whether we should rewrite Set-Cookie attributes for local dev.
-    const isDev = (process.env.NODE_ENV || '').toLowerCase() !== 'production'
-    const forceStrip = String(process.env.ADMIN_PROXY_STRIP_SETCOOKIE_DOMAIN || '').toLowerCase() === 'true'
-    const rewriteCookiesForLocal = isDev || forceStrip
-
     resp.headers.forEach((v, k) => {
-      if (k.toLowerCase() === 'set-cookie') {
-        if (rewriteCookiesForLocal) {
-          try {
-            // Simplest safe rewrite: remove Domain and Secure attributes
-            // and ensure cookie is usable on http://localhost by using
-            // SameSite=Lax (avoids requiring Secure). This is only for
-            // local development — do NOT enable in production.
-            let cookie = v.toString()
-            // remove Domain=...; if present
-            cookie = cookie.replace(/;\s*Domain=[^;]+/i, '')
-            // remove Secure flag
-            cookie = cookie.replace(/;\s*Secure/i, '')
-            // replace SameSite=None with SameSite=Lax to avoid Secure requirement
-            cookie = cookie.replace(/SameSite=None/i, 'SameSite=Lax')
-            // Collapse repeated semicolons/spaces
-            cookie = cookie.replace(/;\s*;/g, ';')
-            cookie = cookie.replace(/;\s*$/, '')
-            // Ensure Path and HttpOnly present
-            if (!/Path=\//i.test(cookie)) cookie += '; Path=/'
-            if (!/HttpOnly/i.test(cookie)) cookie += '; HttpOnly'
-            if (!/SameSite=/i.test(cookie)) cookie += '; SameSite=Lax'
-            respHeaders.append('Set-Cookie', cookie)
-            return
-          } catch (e) {
-            // fallback to forwarding original cookie if rewrite fails
-          }
-        }
-        respHeaders.append('Set-Cookie', v)
-      } else respHeaders.set(k, v)
+      if (k.toLowerCase() === 'set-cookie') respHeaders.append(k, v)
+      else respHeaders.set(k, v)
     })
 
     const body = await resp.arrayBuffer()

@@ -59,7 +59,12 @@ export default function LoginPage() {
     
     if (result.success) {
       toast({ title: 'ログイン成功', description: 'ようこそ！' })
-      try { router.replace('/admin') } catch { window.location.href = '/admin' }
+      try {
+        const r = searchParams?.get('r') || '/admin'
+        router.replace(r)
+      } catch {
+        try { window.location.href = (searchParams?.get('r') || '/admin') } catch { window.location.href = '/admin' }
+      }
     } else {
       toast({ title: 'ログイン失敗', description: result.error, variant: 'destructive' })
     }
@@ -145,7 +150,7 @@ export default function LoginPage() {
                 const target = apiPath('/api/auth/session')
                 let isExternal = false
                 try { const u = new URL(target, window.location.origin); isExternal = u.origin !== window.location.origin } catch (e) {}
-                if (isExternal) {
+                    if (isExternal) {
                   // Persist tokens locally for static admin
                   try {
                     if (typeof localStorage !== 'undefined') {
@@ -168,7 +173,7 @@ export default function LoginPage() {
                   try { console.log('[login] /api/auth/session response', 'status=' + r.status, 'ok=' + r.ok) } catch (e) {}
                   if (r.status === 200) {
                     try { window.history.replaceState({}, document.title, window.location.pathname + window.location.search) } catch (e) {}
-                    try { router.replace('/admin') } catch { window.location.href = '/admin' }
+                    try { const dest = searchParams?.get('r') || '/admin'; router.replace(dest) } catch { window.location.href = (searchParams?.get('r') || '/admin') }
                     return
                   }
                 }

@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-// Do not force a default external API proxy. Proxy only when an explicit
-// environment API base is configured. This allows Next.js internal API
-// routes (e.g. `/api/images/direct-upload`) to handle requests when no
-// external API is desired.
+// Policy:
+// - In development, prefer Next.js internal `/api` routes unless the
+//   developer explicitly opts into using an external API via
+//   `ADMIN_FORCE_EXTERNAL_API=true` (this makes local dev easier).
+// - In production, proxy to an explicit external API base when configured.
 const DEFAULT_API_BASE = process.env.API_BASE_ORIGIN || process.env.NEXT_PUBLIC_API_BASE_URL || ''
+const FORCE_EXTERNAL = String(process.env.ADMIN_FORCE_EXTERNAL_API || '').toLowerCase() === 'true'
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
@@ -16,8 +18,11 @@ export async function middleware(req: NextRequest) {
   // (useful for local development where the admin site implements APIs).
   if (pathname.startsWith('/api/')) {
     const destOrigin = process.env.API_BASE_ORIGIN || process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE
-    if (!destOrigin) {
-      // No external API configured: let Next.js internal API routes handle it.
+    // If we're in development and the developer hasn't explicitly forced
+    // external proxying, prefer Next.js internal API handlers so the
+    // admin site can run standalone locally.
+    const isDev = (process.env.NODE_ENV || '').toLowerCase() !== 'production'
+    if (!destOrigin || (isDev && !FORCE_EXTERNAL)) {
       return NextResponse.next()
     }
 
