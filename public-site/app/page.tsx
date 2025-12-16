@@ -449,7 +449,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen" style={appliedStyle}>
       <InitialLoading />
-      <main className="min-h-screen pb-20 relative">
+      <main className="min-h-screen pt-16 pb-20 relative">
         <PublicNav siteName={user?.displayName || ""} />
         {process.env.NODE_ENV !== 'production' && (
           <div className="max-w-7xl mx-auto px-4 py-4">

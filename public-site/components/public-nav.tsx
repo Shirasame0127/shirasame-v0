@@ -68,7 +68,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+      <header className="fixed top-0 left-0 right-0 z-50 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="relative flex h-16 items-center justify-center px-2">
           <Link href="/" className="absolute left-1/2 -translate-x-1/2 flex items-center">
               <div className="relative h-12 w-auto">

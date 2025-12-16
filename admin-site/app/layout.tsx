@@ -19,10 +19,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           client from being forced to an external API base.
         */}
         <main className="min-h-screen">
-          <header className="bg-card text-card-foreground border-b p-4">
+          <header className="fixed top-0 left-0 right-0 z-50 bg-card text-card-foreground border-b p-4">
             <div className="max-w-6xl mx-auto font-semibold">しらさめ - 管理画面</div>
           </header>
-          <div className="max-w-6xl mx-auto p-4">
+          <div className="max-w-6xl mx-auto p-4 pt-16">
             {children}
           </div>
         </main>

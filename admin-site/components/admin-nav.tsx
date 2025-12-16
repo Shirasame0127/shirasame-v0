@@ -372,7 +372,7 @@ export function AdminNav() {
   )
 
   const mobileHeader = (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-background/95 px-4 py-3 backdrop-blur md:hidden">
+    <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between border-b bg-background/95 px-4 py-3 backdrop-blur md:hidden">
       <div className="flex items-center gap-3">
         {profileImageUrl ? (
           <img
@@ -477,7 +477,7 @@ export function AdminNav() {
       {mobileHeader}
       <aside
         className={cn(
-          "hidden md:flex sticky top-0 self-start shrink-0 border-r bg-card shadow-sm transition-[width] duration-300 min-h-screen",
+          "hidden md:flex fixed top-0 left-0 z-40 self-start shrink-0 border-r bg-card shadow-sm transition-[width] duration-300 h-screen",
           isExpanded ? "w-68" : "w-17"
         )}
       >

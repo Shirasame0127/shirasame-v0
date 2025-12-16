@@ -92,25 +92,23 @@
 **テーブルスキーマ（参照）**
 
 - `recipes`（想定カラム）
+  - id: text, NOT NULL
+  - user_id: text, NULL
+  - title: text, NULL
+  - base_image_id: text, NULL
+  - image_width: integer, NULL
+  - image_height: integer, NULL
+  - aspect_ratio: text, NULL
+  - pins: jsonb, NULL
+  - published: boolean, NULL, default false
+  - created_at: timestamp with time zone, NULL
+  - updated_at: timestamp with time zone, NULL
+  - body: text, NULL
+  - slug: text, NULL
+  - images: jsonb, NULL, default []
+  - items: jsonb, NULL, default []
+  - recipe_image_keys: jsonb, NOT NULL, default []
 
-| name              | type                     | nullable | default     |
-| ----------------- | ------------------------ | -------- | ----------- |
-| id                | text                     | NO       | null        |
-| user_id           | text                     | YES      | null        |
-| title             | text                     | YES      | null        |
-| base_image_id     | text                     | YES      | null        |
-| image_width       | integer                  | YES      | null        |
-| image_height      | integer                  | YES      | null        |
-| aspect_ratio      | text                     | YES      | null        |
-| pins              | jsonb                    | YES      | null        |
-| published         | boolean                  | YES      | false       |
-| created_at        | timestamp with time zone | YES      | null        |
-| updated_at        | timestamp with time zone | YES      | null        |
-| body              | text                     | YES      | null        |
-| slug              | text                     | YES      | null        |
-| images            | jsonb                    | YES      | '[]'::jsonb |
-| items             | jsonb                    | YES      | '[]'::jsonb |
-| recipe_image_keys | jsonb                    | NO       | '[]'::jsonb |
 
 - `recipe_pins`（想定カラム）
   - id: text, NOT NULL
