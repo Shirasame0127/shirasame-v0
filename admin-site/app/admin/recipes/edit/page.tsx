@@ -323,7 +323,18 @@ export default function RecipeEditPage() {
         setTitle(fresh.title || "")
         setPublished(Boolean(fresh.published))
         const fallbackImageUrl = (fresh.images && fresh.images.length > 0 && fresh.images[0].url) || null
-        setImageDataUrl(fresh.imageDataUrl || fresh.imageUrl || fallbackImageUrl || "")
+        // If canonical recipe_image_keys exist, prefer building a public CDN URL from the first key
+        if (Array.isArray(keysFromRecipe) && keysFromRecipe.length > 0) {
+          try {
+            const cdn = getPublicImageUrl(keysFromRecipe[0])
+            if (cdn) setImageDataUrl(cdn)
+            else setImageDataUrl(fresh.imageDataUrl || fresh.imageUrl || fallbackImageUrl || "")
+          } catch (e) {
+            setImageDataUrl(fresh.imageDataUrl || fresh.imageUrl || fallbackImageUrl || "")
+          }
+        } else {
+          setImageDataUrl(fresh.imageDataUrl || fresh.imageUrl || fallbackImageUrl || "")
+        }
         setImageWidth(fresh.imageWidth || 1920)
         setImageHeight(fresh.imageHeight || 1080)
 
@@ -1276,7 +1287,9 @@ export default function RecipeEditPage() {
   async function handleTogglePublished() {
     const next = !published
     setPublished(next)
+    // Immediately update local cache so other UI (lists, caches) reflect the change
     try {
+      try { db.recipes.update(recipeId, { published: next }) } catch (err) { /* best-effort */ }
       const res = await apiFetch('/api/admin/recipes', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1286,7 +1299,9 @@ export default function RecipeEditPage() {
       if (!res.ok) throw new Error(j?.error || 'update failed')
       toast({ title: '更新完了', description: next ? '公開にしました' : '非公開にしました' })
     } catch (e) {
+      // rollback UI + cache on failure
       setPublished(!next)
+      try { db.recipes.update(recipeId, { published: !next }) } catch (err) {}
       console.error('[v0] toggle publish failed', e)
       toast({ title: 'エラー', description: '公開状態の更新に失敗しました', variant: 'destructive' })
     }
