@@ -16,6 +16,7 @@ import {
   Upload,
   X,
   Package,
+  Plus,
   AlignLeft,
   AlignCenter,
   AlignRight,
@@ -615,6 +616,49 @@ export default function RecipeEditPage() {
         return [...prev, productId]
       }
     })
+  }
+
+  // Open the product-selection modal and load authoritative product list
+  async function openProductModal() {
+    try {
+      // fetch authoritative product list for admin
+      const res = await apiFetch('/api/admin/products')
+      const json = await res.json().catch(() => ({ data: [] }))
+      const prods = Array.isArray(json) ? json : json.data || []
+      if (prods && prods.length > 0) setProducts(prods)
+    } catch (e) {
+      // fallback to in-memory cache
+      const currentUser = getCurrentUser && getCurrentUser()
+      const uid = currentUser?.id || undefined
+      setProducts(db.products.getAll(uid))
+    }
+
+    // initialize selected ids from current pins
+    setSelectedProductIds(pins.map((p) => p.productId))
+    setShowProductModal(true)
+  }
+
+  // Persist current pins to server when modal is closed
+  async function persistPins() {
+    if (!recipeId) return
+    try {
+      // Use RecipesService.update to persist pins (server expects 'pins' array)
+      const updated = await RecipesService.update(recipeId, { pins })
+      if (updated) {
+        try {
+          // Update local cache for immediate UI consistency
+          db.recipes.update(recipeId, { pins })
+        } catch (e) {
+          // ignore cache update errors
+        }
+        toast({ title: '保存完了', description: '選択した商品を保存しました' })
+      } else {
+        throw new Error('update failed')
+      }
+    } catch (e) {
+      console.error('failed to persist recipe pins', e)
+      toast({ variant: 'destructive', title: '保存失敗', description: '商品の保存に失敗しました' })
+    }
   }
 
   // ===========================
@@ -1415,7 +1459,7 @@ export default function RecipeEditPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowProductModal(true)}
+                onClick={() => openProductModal()}
               className="border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all duration-200"
             >
               <Package className="w-4 h-4 sm:mr-2" />
@@ -2643,8 +2687,8 @@ export default function RecipeEditPage() {
       {/* ===========================
           商品選択モーダル
           ========================== */}
-      <Dialog open={showProductModal} onOpenChange={setShowProductModal}>
-        <DialogContent className="max-w-4xl max-h-[80vh]">
+      <Dialog open={showProductModal} onOpenChange={(open) => { if (!open) persistPins(); setShowProductModal(open); }}>
+        <DialogContent className="max-w-6xl max-h-[90vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between">
               <span>商品を選択</span>
@@ -2653,25 +2697,57 @@ export default function RecipeEditPage() {
               </Button>
             </DialogTitle>
           </DialogHeader>
-
-          <ScrollArea className="h-[60vh] pr-4">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-              {products.map((product) => (
-                <div key={product.id} className="relative">
-                  {/* 選択チェックマーク */}
-                  {selectedProductIds.includes(product.id) && (
-                    <div className="absolute top-2 right-2 z-10 w-6 h-6 bg-primary rounded-full flex items-center justify-center">
-                      <Check className="w-4 h-4 text-primary-foreground" />
-                    </div>
+          <ScrollArea className="h-[70vh]">
+            {/** Selected / Available two-column layout similar to collections manager */}
+            <div className="space-y-6">
+              <div>
+                <h3 className="font-semibold mb-3">含まれている商品</h3>
+                <div className="grid grid-cols-3 md:grid-cols-2 gap-4">
+                  {selectedProductIds.length > 0 ? (
+                    selectedProductIds.map((pid) => {
+                      const product = products.find((p) => p.id === pid)
+                      if (!product) return null
+                      return (
+                        <div key={product.id} className="relative">
+                          <ProductCard product={product} isAdminMode={true} />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="absolute top-2 right-2"
+                            onClick={() => toggleProductSelection(product.id)}
+                          >
+                            解除
+                          </Button>
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <p className="col-span-full text-center text-muted-foreground py-8">商品がありません</p>
                   )}
-                  <ProductCard
-                    product={product}
-                    size="sm"
-                    isAdminMode={true}
-                    onClick={() => toggleProductSelection(product.id)}
-                  />
                 </div>
-              ))}
+              </div>
+
+              <div className="border-t pt-6">
+                <h3 className="font-semibold mb-3">追加できる商品</h3>
+                <div className="grid grid-cols-3 md:grid-cols-2 gap-4">
+                  {products.filter((p) => !selectedProductIds.includes(p.id)).map((product) => (
+                    <div key={product.id} className="relative">
+                      <ProductCard product={product} isAdminMode={true} />
+                      <Button
+                        size="sm"
+                        className="absolute top-2 right-2"
+                        onClick={() => toggleProductSelection(product.id)}
+                      >
+                        <Plus className="w-3 h-3 mr-1" />
+                        追加
+                      </Button>
+                    </div>
+                  ))}
+                  {products.filter((p) => !selectedProductIds.includes(p.id)).length === 0 && (
+                    <p className="col-span-full text-center text-muted-foreground py-8">すべての商品が追加されています</p>
+                  )}
+                </div>
+              </div>
             </div>
           </ScrollArea>
 
