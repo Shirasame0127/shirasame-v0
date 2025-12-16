@@ -55,6 +55,13 @@ export async function forwardToPublicWorker(req: Request) {
       proxyHeaders.set('Cookie', cookieHeader)
     } catch {}
 
+    // In development, prefer uncompressed upstream responses so server-side
+    // proxy can reliably parse/decode JSON/text. Do not force this in
+    // production to avoid changing compression behavior.
+    try {
+      if ((process.env.NODE_ENV || '').toLowerCase() !== 'production') proxyHeaders.set('Accept-Encoding', 'identity')
+    } catch {}
+
     // For sensitive endpoints (images/complete) enforce server-side user verification
     const isImagesComplete = incomingPath === '/api/images/complete' || incomingPath.startsWith('/api/images/complete/')
 

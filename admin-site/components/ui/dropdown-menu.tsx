@@ -21,7 +21,7 @@ function DropdownMenuPortal({
 }
 
 const DropdownMenuTrigger = React.forwardRef<
-  React.ElementRef<typeof DropdownMenuPrimitive.Trigger>,
+  HTMLElement,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>
 >(({ ...props }, ref) => {
   return (

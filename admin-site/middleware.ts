@@ -26,19 +26,12 @@ export async function middleware(req: NextRequest) {
       return NextResponse.next()
     }
 
-    // Normalize: for most routes strip leading `/api` so that public-worker
-    // (which hosts many routes at root like `/products`) receives the
-    // expected path. However, preserve `/api/admin/*` and `/api/auth/*`
-    // paths: these are implemented on the public-worker under the
-    // `/api/admin/*` and `/api/auth/*` namespaces and must be proxied with
-    // the `/api` prefix intact. This ensures auth/session endpoints map
-    // correctly and internal admin APIs continue to function.
-    let incomingPath: string
-    if (req.nextUrl.pathname.startsWith('/api/admin/') || req.nextUrl.pathname.startsWith('/api/auth/')) {
-      incomingPath = req.nextUrl.pathname // keep /api/admin/... and /api/auth/...
-    } else {
-      incomingPath = req.nextUrl.pathname.replace(/^\/api(?=\/|$)/, '')
-    }
+    // Forward the incoming path as-is to the public-worker. Historically
+    // we stripped `/api` for some routes, but the public-worker exposes
+    // many APIs under `/api/...` — stripping caused 404s such as
+    // `/api/recipes/counts` -> `/recipes/counts`. Preserve the path to
+    // ensure requests reach the intended handler.
+    const incomingPath = req.nextUrl.pathname
     const destUrl = destOrigin.replace(/\/$/, '') + incomingPath + req.nextUrl.search
 
     // Build proxy headers from scratch to avoid Next/Cloudflare dropping Cookie
@@ -53,6 +46,12 @@ export async function middleware(req: NextRequest) {
     try {
       const cookie = req.headers.get('cookie') || req.headers.get('Cookie') || ''
       proxyHeaders.set('Cookie', cookie)
+    } catch {}
+    // In development, force upstream to return uncompressed responses so
+    // middleware can reliably UTF-8 decode JSON/text. Do NOT do this in
+    // production to avoid changing upstream compression behavior.
+    try {
+      if (isDev) proxyHeaders.set('Accept-Encoding', 'identity')
     } catch {}
     try {
       const originHost = (new URL(destOrigin)).host
@@ -71,11 +70,74 @@ export async function middleware(req: NextRequest) {
       }
     }
 
-    const res = await fetch(destUrl, { method: req.method, headers: proxyHeaders, body, redirect: 'manual' })
-    const responseHeaders = new Headers(res.headers)
-    responseHeaders.delete('transfer-encoding')
-    const buf = await res.arrayBuffer()
-    return new NextResponse(buf, { status: res.status, headers: responseHeaders })
+    let res: Response
+    try {
+      res = await fetch(destUrl, { method: req.method, headers: proxyHeaders, body, redirect: 'manual' })
+    } catch (e: any) {
+      const isDev = (process.env.NODE_ENV || '').toLowerCase() !== 'production'
+      const payload: any = { ok: false, error: 'proxy_fetch_failed' }
+      if (isDev) payload.detail = String(e)
+      return NextResponse.json(payload, { status: 502 })
+    }
+
+    try {
+      const responseHeaders = new Headers(res.headers)
+      // Remove transfer-encoding; keep content-encoding unless we explicitly
+      // decompressed the body below. Removing content-encoding when the body
+      // is still compressed causes browsers to mis-decode bytes (mojibake).
+      responseHeaders.delete('transfer-encoding')
+      const contentEnc = res.headers.get('content-encoding') || ''
+      const buf = await res.arrayBuffer()
+
+      // If upstream response is compressed (gzip/br/deflate), we cannot
+      // safely decode/decompress here in the Edge runtime. Preserve the
+      // original headers and return the raw body so the browser can handle
+      // decompression. This avoids mojibake caused by removing
+      // Content-Encoding while leaving compressed bytes.
+      if (contentEnc) {
+        return new NextResponse(buf, { status: res.status, headers: responseHeaders })
+      }
+
+      // Determine content-type (lowercased) for smart decoding
+      const ctRaw = res.headers.get('content-type') || ''
+      const ct = ctRaw.toLowerCase()
+
+      // If upstream returned HTML (likely an error page), normalize to JSON
+      const snippet = new TextDecoder('utf-8').decode(new Uint8Array(buf.slice(0, 128)))
+      if (ct.indexOf('text/html') !== -1 || /^\s*<!(doctype|html)|^\s*<html/i.test(snippet)) {
+        return NextResponse.json({ ok: false, error: 'upstream_html', status: res.status }, { status: 502 })
+      }
+
+      // If response is JSON, decode as UTF-8 and return via NextResponse.json
+      if (ct.indexOf('application/json') !== -1) {
+        try {
+          const text = new TextDecoder('utf-8').decode(buf)
+          const obj = JSON.parse(text)
+          // remove content-length to allow Next to set correct length
+          responseHeaders.delete('content-length')
+          return NextResponse.json(obj, { status: res.status, headers: responseHeaders })
+        } catch (e) {
+          // fallthrough to return raw text below
+        }
+      }
+
+      // If textual content (text/*, javascript, xml, etc), decode as utf-8
+      if (ct.startsWith('text/') || ct.indexOf('application/javascript') !== -1 || ct.indexOf('application/xml') !== -1) {
+        const text = new TextDecoder('utf-8').decode(buf)
+        // ensure charset is explicit
+        if (ctRaw && !/charset=/i.test(ctRaw)) responseHeaders.set('content-type', (ctRaw || 'text/plain') + '; charset=utf-8')
+        responseHeaders.delete('content-length')
+        return new NextResponse(text, { status: res.status, headers: responseHeaders })
+      }
+
+      // Binary fallback: return raw ArrayBuffer with headers (images, etc)
+      return new NextResponse(buf, { status: res.status, headers: responseHeaders })
+    } catch (e: any) {
+      const isDev = (process.env.NODE_ENV || '').toLowerCase() !== 'production'
+      const payload: any = { ok: false, error: 'proxy_response_failed' }
+      if (isDev) payload.detail = String(e)
+      return NextResponse.json(payload, { status: 502 })
+    }
   }
 
   // 2) Admin route guard
