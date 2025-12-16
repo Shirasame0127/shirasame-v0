@@ -40,23 +40,24 @@
 - POST `/api/admin/recipes`
   - 目的: 管理者（またはログインユーザー）による新規レシピ作成（下書き作成に利用）。
   - 認証: 必須（`resolveRequestUserContext` による検証）。
-  - ボディ例: `{ "title": "...", "images": [{ key, width, height, role }], "tags": [...] , "draft": true }`
+  - ボディ例: `{ "title": "...", "recipe_image_keys": ["r2-key-..."], "tags": [...], "draft": true }`
   - 動作:
-    - `recipes` テーブルに行を挿入
-    - `recipe_images` が body.images に含まれる場合は `recipe_images` テーブルに key-only で挿入
+    - `recipes` テーブルに行を挿入（画像は URL ではなくキーで統一して管理します）
+    - リクエストに `recipe_image_keys` が含まれる場合は、そのキー配列が `recipes.recipe_image_keys`（jsonb）として保存されます。必要に応じてワーカー側で `recipe_images` テーブルへ key-only のメタデータを upsert する実装がありますが、公開 URL はクライアント側で `getPublicImageUrl(key)` を用いて生成してください。
   - 返却: `{ ok: true, data: <created_recipe> }`
 
-- GET `/api/admin/recipes/:id`
-  - 目的: 編集画面用のレシピ詳細取得（`recipe_images` と `recipe_pins` の内容を併せて返す）
+-- GET `/api/admin/recipes/:id`
+  - 目的: 編集画面用のレシピ詳細取得（`recipe_image_keys` と `recipe_pins` の内容を併せて返す）
   - 認証: 必須（管理者または所有者）
-  - 返却例: `{ data: { id, userId, title, slug, body, pins, pinsNormalized, images, createdAt, updatedAt, published, items, imageDataUrl } }`
+  - 返却例: `{ data: { id, userId, title, slug, body, pins, pinsNormalized, recipe_image_keys, createdAt, updatedAt, published, items } }`
+  - 備考: `recipe_image_keys` は R2 や Cloudflare Images のキーを格納する配列です。クライアントは `getPublicImageUrl(key)` を利用して公開 URL を生成し、プレビュー表示やレスポンスの表示を行ってください。
   - 備考: `pinsNormalized` は `recipe_pins` テーブルから取得した正規化された配列。
 
 - PUT `/api/admin/recipes/:id`
-  - 目的: 編集画面でのフル保存。タイトル、本文、公開フラグ、tags、items、main_image_key などを更新。
+  - 目的: 編集画面でのフル保存。タイトル、本文、公開フラグ、tags、items、`recipe_image_keys`（画像キー配列）などを更新。
   - 認証: 必須（所有者または管理者）。所有者チェックを行う。
   - ボディ（任意フィールドで部分更新）例:
-    - `{ "title":"...", "published":true, "tags":[...], "main_image_key":"...", "attachment_image_keys":[...], "items": [...], "pins": [...] }`
+    - `{ "title":"...", "published":true, "tags":[...], "recipe_image_keys":["r2-key-..."], "items": [...], "pins": [...] }`
   - 動作:
     - `recipes` テーブルを `update` で更新
     - `pins` が配列で渡された場合、当該ユーザー分の `recipe_pins` を一旦削除し（`recipe_id` + `user_id`）、挿入で置換する（注意: 複数ユーザーの pins 共有を考慮するなら設計見直しを推奨）
@@ -77,10 +78,10 @@
   - 目的: 当該ユーザーの `recipe_pins` 一覧取得（管理用）
   - 返却: `{ data: [ ...pins ] }`
 
-- POST `/api/admin/recipe-images/upsert`
+-- POST `/api/admin/recipe-images/upsert`
   - 目的: 画像メタデータの upsert（key-only を想定）
   - 要求: `{ key, width?, height?, aspect?, role?, caption?, cf_id? }`
-  - 動作: `recipe_images` に insert
+  - 動作: `recipe_images` に key-only のメタデータを upsert します。注: アプリケーション上の正規化された画像一覧は `recipes.recipe_image_keys` が canonical であり、各レシピの画像配列はそちらを参照してください。公開 URL はクライアント側で `getPublicImageUrl(key)` を利用して生成します。
 
 - POST `/api/admin/recipes/reorder`
   - 目的: レシピ並び替え
