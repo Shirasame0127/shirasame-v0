@@ -122,14 +122,23 @@ export default function AdminLayout({
     )
   }
 
-  const useStandardShell = !isRecipeEditPage && !isLoginPage
+  // Show the standard admin shell (side nav + header) even on the recipe edit page
+  // to keep UI consistent. Reduce outer padding for the edit page below.
+  const useStandardShell = !isLoginPage
 
   return (
     <div className={`min-h-screen bg-muted/30 ${isRecipeEditPage ? 'overflow-hidden' : ''}`}>
       {useStandardShell ? (
         <div className="flex min-h-screen flex-col md:flex-row md:items-stretch">
           <AdminNav />
-          <main className="flex-1 min-h-screen px-4 py-6 md:px-10 md:py-10 lg:px-12">
+          {/* Reduce padding on recipe edit to make the editor fit tightly with the shell */}
+          <main
+            className={
+              pathname?.includes('/admin/recipes/edit')
+                ? 'flex-1 min-h-screen px-4 py-3 md:px-6 md:py-4 lg:px-8'
+                : 'flex-1 min-h-screen px-4 py-6 md:px-10 md:py-10 lg:px-12'
+            }
+          >
             {children}
           </main>
         </div>
