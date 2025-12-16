@@ -1408,7 +1408,7 @@ export default function RecipeEditPage() {
             </DialogHeader>
             <div className="py-2">
               <p className="text-sm text-muted-foreground mb-3">このレシピにはまだ画像が登録されていません。ここで画像をアップロードしてください。</p>
-              <ImageUpload open={showUploadModal} onOpenChange={setShowUploadModal} aspectRatioType="recipe" onUploadComplete={(k) => handleUploadCompleteKey(k)} />
+              <ImageUpload open={showUploadModal} onOpenChange={setShowUploadModal} aspectRatioType="recipe" onUploadComplete={(k) => handleUploadCompleteKey(k)} onChange={() => { }} />
             </div>
             <div className="flex justify-end mt-3">
               <Button variant="outline" onClick={() => setShowUploadModal(false)}>閉じる</Button>
