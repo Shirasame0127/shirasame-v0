@@ -175,6 +175,17 @@ export default function RecipeNewPage() {
       try {
         const imageEntry = { id: recipeId, key: finalKey, width: 1920, height: 1080, uploadedAt: new Date().toISOString() }
         await db.recipes.update(recipeId, { images: [imageEntry], baseImageId: recipeId })
+        // Ensure recipe_image_keys is persisted on the recipe row (canonical key list)
+        try {
+          // prefer server API but fall back to direct cache update
+          await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipe_image_keys: [finalKey] }),
+          })
+        } catch (e) {
+          try { db.recipes.update(recipeId, { recipe_image_keys: [finalKey] }) } catch (e2) {}
+        }
       } catch (e) {
         console.warn('[v0] failed to attach image to recipe draft in cache/server', e)
       }
