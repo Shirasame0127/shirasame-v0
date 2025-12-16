@@ -5335,9 +5335,16 @@ app.post('/api/auth/session', async (c) => {
     if (!access) return new Response(JSON.stringify({ ok: false, error: 'missing_access_token' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
 
     const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
-    // Ensure cookies are scoped to the admin domain so the browser will send
-    // them when calling admin-side APIs (whoami). Do NOT log token values.
-    const cookieOpts = 'Path=/; HttpOnly; Secure; SameSite=None; Domain=.shirasame.com'
+    // Ensure cookies are scoped appropriately. For production we scope to
+    // the admin domain (e.g. .shirasame.com) and mark Secure. For local
+    // development (localhost/127.0.0.1 or when DEV env is true) omit Domain
+    // and Secure so browsers accept the cookie over http during dev.
+    const hostHeader = (c.req.header('host') || '').toLowerCase()
+    const isLocal = Boolean(hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1') || String(c.env?.DEV || '').toLowerCase() === 'true')
+    const domainPart = isLocal ? '' : '; Domain=.shirasame.com'
+    const securePart = isLocal ? '' : '; Secure'
+    const sameSite = isLocal ? 'Lax' : 'None'
+    const cookieOpts = `Path=/; HttpOnly; SameSite=${sameSite}${securePart}${domainPart}`
     headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(access)}; ${cookieOpts}`)
     if (refresh) headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(refresh)}; ${cookieOpts}`)
 
