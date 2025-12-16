@@ -1154,6 +1154,16 @@ export default function RecipeEditPage() {
             return sanitized
           })
         payload.images = sanitizeImagesForServer(existingImages)
+        // Build canonical recipe_image_keys from existing state and newly sanitized images
+        try {
+          const keysFromPayload = (payload.images || []).map((img: any) => img.key).filter(Boolean)
+          const existingKeys = Array.isArray(recipeImageKeys) ? recipeImageKeys : (recipe && Array.isArray((recipe as any).recipe_image_keys) ? (recipe as any).recipe_image_keys : [])
+          const mergedKeys = Array.from(new Set([...(existingKeys || []), ...(keysFromPayload || [])]))
+          payload.recipe_image_keys = mergedKeys
+          setRecipeImageKeys(mergedKeys)
+        } catch (e) {
+          // ignore
+        }
       } catch (e) {
         // ignore errors and continue
       }
@@ -1193,6 +1203,19 @@ export default function RecipeEditPage() {
             })
           } catch (innerErr) {
             console.warn('[v0] failed to persist recipe image to server', innerErr)
+          }
+        }
+        // Persist canonical recipe_image_keys to server (best-effort)
+        try {
+          const keysToPersist = Array.isArray(payload.recipe_image_keys) ? payload.recipe_image_keys : []
+          if (keysToPersist.length > 0) {
+            await RecipesService.update(recipeId, { recipe_image_keys: keysToPersist })
+          }
+        } catch (e) {
+          try {
+            await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipe_image_keys: payload.recipe_image_keys }) })
+          } catch (e2) {
+            // swallow
           }
         }
       } catch (e) {
