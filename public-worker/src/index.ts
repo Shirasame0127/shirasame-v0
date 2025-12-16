@@ -591,6 +591,46 @@ const listQuery = z.object({
   slug: z.string().optional(),
 })
 
+// Helper: normalize a raw DB recipe row into the client-facing shape
+function normalizeRecipeForClient(r: any, env: any) {
+  if (!r) return null
+  const imgsFromJoin = Array.isArray(r.images) ? r.images.map((img: any) => ({ id: img.id, recipeId: img.recipe_id, key: img.key, width: img.width, height: img.height, role: img.role, caption: img.caption })) : []
+  const imgsFromJsonb = Array.isArray(r.images) && r.images.length > 0 && typeof r.images[0] === 'object' ? r.images : []
+  const imagesRaw = imgsFromJoin.length > 0 ? imgsFromJoin : (Array.isArray(imgsFromJsonb) ? imgsFromJsonb.map((img: any) => ({ id: img.id || null, recipeId: r.id, key: img.key || img.basePath || (typeof img.url === 'string' ? img.url : null), width: img.width || null, height: img.height || null, role: img.role || null, caption: img.caption || null })) : [])
+
+  const normalizedImages = (Array.isArray(imagesRaw) ? imagesRaw : []).map((img: any) => ({
+    id: img.id || null,
+    recipeId: img.recipeId || img.recipe_id || r.id,
+    key: img.key || null,
+    url: img && img.key ? getPublicImageUrl(img.key, env.IMAGES_DOMAIN) : (img && img.url ? img.url : null),
+    width: typeof img.width !== 'undefined' ? img.width : null,
+    height: typeof img.height !== 'undefined' ? img.height : null,
+    role: img.role || null,
+    caption: img.caption || null,
+  }))
+
+  const recipe_image_keys = Array.isArray(r.recipe_image_keys) ? r.recipe_image_keys : (normalizedImages.length > 0 ? normalizedImages.map((i: any) => i.key).filter(Boolean) : [])
+  const recipeImageKeys = Array.isArray(recipe_image_keys) ? recipe_image_keys : []
+  const primaryImageKey = recipeImageKeys && recipeImageKeys.length > 0 ? recipeImageKeys[0] : (normalizedImages.length > 0 ? normalizedImages[0].key || null : null)
+
+  return {
+    id: r.id,
+    userId: r.user_id,
+    title: r.title,
+    slug: r.slug,
+    body: r.body || null,
+    published: !!r.published,
+    recipe_image_keys: recipe_image_keys,
+    recipeImageKeys: recipeImageKeys,
+    primaryImageKey: primaryImageKey,
+    images: normalizedImages,
+    createdAt: r.created_at || null,
+    updatedAt: r.updated_at || null,
+    items: r.items || null,
+    pins: Array.isArray(r.pins) ? r.pins : null,
+  }
+}
+
 // INTERNAL_API_BASE による proxy ロジックは廃止しました。
 // 以前は upstream() で内部 API を参照していましたが、現在は public-worker が
 // すべての API を直接実装するため、この関数は不要です。
@@ -2224,10 +2264,23 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
       const imgsFromJsonb = Array.isArray(r.images) && r.images.length > 0 && typeof r.images[0] === 'object' ? r.images : []
       const images = imgsFromJoin.length > 0 ? imgsFromJoin : (Array.isArray(imgsFromJsonb) ? imgsFromJsonb.map((img: any) => ({ id: img.id || null, recipeId: r.id, key: img.key || img.basePath || (typeof img.url === 'string' ? img.url : null), width: img.width || null, height: img.height || null, role: img.role || null, caption: img.caption || null })) : [])
 
-      // Determine primary image reference: prefer explicit base_image_id, otherwise first image key
-      const mainImageId = r.base_image_id || null
-      const mainImageKey = mainImageId || (images.length > 0 ? images[0].key || null : null)
-      const attachmentImageKeys = images.length > 1 ? images.slice(1).map((im: any) => im.key || null).filter(Boolean) : null
+      // Determine primary image reference from recipe_image_keys or first normalized image
+
+      // Normalize image objects to include public URL for client convenience
+      const normalizedImages = (Array.isArray(images) ? images : []).map((img: any) => ({
+        id: img.id || null,
+        recipeId: img.recipeId || img.recipe_id || r.id,
+        key: img.key || null,
+        url: img && img.key ? getPublicImageUrl(img.key, c2.env.IMAGES_DOMAIN) : (img && img.url ? img.url : null),
+        width: typeof img.width !== 'undefined' ? img.width : null,
+        height: typeof img.height !== 'undefined' ? img.height : null,
+        role: img.role || null,
+        caption: img.caption || null,
+      }))
+
+      const recipe_image_keys = Array.isArray(r.recipe_image_keys) ? r.recipe_image_keys : (normalizedImages.length > 0 ? normalizedImages.map((i: any) => i.key).filter(Boolean) : [])
+      const recipeImageKeys = Array.isArray(recipe_image_keys) ? recipe_image_keys : []
+      const primaryImageKey = recipeImageKeys && recipeImageKeys.length > 0 ? recipeImageKeys[0] : (normalizedImages.length > 0 ? normalizedImages[0].key || null : null)
 
       return {
         id: r.id,
@@ -2236,10 +2289,14 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
         slug: r.slug,
         body: r.body || null,
         published: !!r.published,
-        mainImageId: mainImageId,
-        mainImageKey: mainImageKey || null,
-        attachmentImageKeys: attachmentImageKeys,
-        images: images,
+        // Canonical: recipe_image_keys (snake_case) is kept as authoritative on the server
+        recipe_image_keys: recipe_image_keys,
+        // CamelCase alias for client convenience during migration
+        recipeImageKeys: recipeImageKeys,
+        // Primary image key (derived) — prefer explicit recipe_image_keys[0]
+        primaryImageKey: primaryImageKey,
+        // Normalized images with public URL (if key present)
+        images: normalizedImages,
         createdAt: r.created_at || null,
         updatedAt: r.updated_at || null,
       }
@@ -2577,7 +2634,8 @@ app.post('/api/admin/products', async (c) => {
         try { console.warn('[DBG] product_images top-level error', String(e)) } catch (e) {}
       }
 
-      return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+      const created = ins && ins[0] ? normalizeRecipeForClient(ins[0], c.env) : null
+      return new Response(JSON.stringify({ ok: true, data: created }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
     } catch (e) {
       try { console.error('[DBG] exception during product insert handler', String(e), e && e.stack) } catch {}
       throw e
@@ -2901,16 +2959,36 @@ app.get('/api/admin/recipes/:id', async (c) => {
     const imagesFromJoin = Array.isArray(r.images) ? r.images.map((img: any) => ({ id: img.id, recipeId: img.recipe_id, key: img.key ?? null, width: img.width, height: img.height, role: img.role, caption: img.caption })) : []
     const imagesFromKeys = keysFromRecipe.map((k: any) => ({ id: null, recipeId: r.id, key: k, width: null, height: null, role: null, caption: null }))
     const finalImages = imagesFromJoin.length > 0 ? imagesFromJoin : imagesFromKeys
+    // Normalize images and provide public URLs
+    const normalizedImages = (Array.isArray(finalImages) ? finalImages : []).map((img: any) => ({
+      id: img.id || null,
+      recipeId: img.recipeId || img.recipe_id || r.id,
+      key: img.key || null,
+      url: img && img.key ? getPublicImageUrl(img.key, c.env.IMAGES_DOMAIN) : (img && img.url ? img.url : null),
+      width: typeof img.width !== 'undefined' ? img.width : null,
+      height: typeof img.height !== 'undefined' ? img.height : null,
+      role: img.role || null,
+      caption: img.caption || null,
+    }))
+
+    const recipe_image_keys = Array.isArray(keysFromRecipe) ? keysFromRecipe : (normalizedImages.length > 0 ? normalizedImages.map((i: any) => i.key).filter(Boolean) : [])
+    const recipeImageKeys = Array.isArray(recipe_image_keys) ? recipe_image_keys : []
+    const primaryImageKey = recipeImageKeys && recipeImageKeys.length > 0 ? recipeImageKeys[0] : (normalizedImages.length > 0 ? normalizedImages[0].key || null : null)
+
     const transformed = {
       id: r.id,
       userId: r.user_id,
       title: r.title,
       slug: r.slug,
       body: r.body,
+      // keep raw pins JSON (legacy) and provide normalized pins array for the UI
       pins: Array.isArray(r.pins) ? r.pins : null,
       pinsNormalized: Array.isArray(pins) ? pins.map((p:any) => ({ id: p.id, recipeId: p.recipe_id, productId: p.product_id, userId: p.user_id, tagDisplayText: p.tag_display_text || p.tag_text || null, dotXPercent: Number(p.dot_x_percent || 0), dotYPercent: Number(p.dot_y_percent || 0), tagXPercent: Number(p.tag_x_percent || 0), tagYPercent: Number(p.tag_y_percent || 0), dotSizePercent: Number(p.dot_size_percent || 0), tagFontSizePercent: Number(p.tag_font_size_percent || 0), lineWidthPercent: Number(p.line_width_percent || 0), tagPaddingXPercent: Number(p.tag_padding_x_percent || 0), tagPaddingYPercent: Number(p.tag_padding_y_percent || 0), tagBorderRadiusPercent: Number(p.tag_border_radius_percent || 0), tagBorderWidthPercent: Number(p.tag_border_width_percent || 0), dotColor: p.dot_color, dotShape: p.dot_shape, tagText: p.tag_text, tagFontFamily: p.tag_font_family, tagFontWeight: p.tag_font_weight, tagTextColor: p.tag_text_color, tagTextShadow: p.tag_text_shadow, tagBackgroundColor: p.tag_background_color, tagBackgroundOpacity: Number(p.tag_background_opacity || 1), tagBorderColor: p.tag_border_color, tagShadow: p.tag_shadow, lineType: p.line_type })) : [],
-      images: finalImages,
-      recipeImageKeys: keysFromRecipe,
+      // Canonical key array (snake_case) and camelCase alias for migration
+      recipe_image_keys: recipe_image_keys,
+      recipeImageKeys: recipeImageKeys,
+      primaryImageKey: primaryImageKey,
+      images: normalizedImages,
       createdAt: r.created_at || null,
       updatedAt: r.updated_at || null,
       published: !!r.published,
@@ -3009,7 +3087,8 @@ app.put('/api/admin/recipes/:id', async (c) => {
       }
     } catch (e) { try { console.warn('[DBG] pins update error', String(e)) } catch {} }
 
-    return new Response(JSON.stringify({ ok: true, data: upres && upres[0] ? upres[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    const normalized = upres && upres[0] ? normalizeRecipeForClient(upres[0], c.env) : null
+    return new Response(JSON.stringify({ ok: true, data: normalized }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ更新中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }

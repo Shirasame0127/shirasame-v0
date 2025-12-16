@@ -76,7 +76,7 @@ function normalizeRecipe(r: any) {
 
   // legacy image/url compatibility: if main image key exists, expose imageUrl
   if (!normalized.imageUrl) {
-    const mainKey = normalized.main_image_key || normalized.mainImageKey || (Array.isArray(normalized.recipe_image_keys) && normalized.recipe_image_keys[0]) || null
+    const mainKey = normalized.main_image_key || normalized.mainImageKey || (Array.isArray(normalized.recipe_image_keys) && normalized.recipe_image_keys[0]) || (Array.isArray(normalized.recipeImageKeys) && normalized.recipeImageKeys[0]) || normalized.primaryImageKey || null
     if (mainKey) {
       try { normalized.imageUrl = getPublicImageUrl(mainKey) || null } catch { normalized.imageUrl = null }
     }
@@ -189,11 +189,40 @@ export default function RecipesManagementPage() {
   }
 
   function togglePublish(recipe: any) {
-    db.recipes.update(recipe.id, { 
-      published: !recipe.published
-    })
-    console.log("[v0] Toggled publish status:", recipe.id, !recipe.published)
-    loadRecipes()
+    const id = recipe.id
+    const newPublished = !recipe.published
+
+    // Optimistic update: update local cache and UI immediately
+    try {
+      db.recipes.update(id, { published: newPublished })
+    } catch (e) {}
+    setRecipes((prev) => prev.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: newPublished }) : r)))
+
+    // Persist to server; if it fails, revert and refresh
+    (async () => {
+      try {
+        const res = await apiFetch(`/api/admin/recipes/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ published: newPublished }) })
+        const json = await res.json().catch(() => null)
+        if (!res.ok) {
+          // revert
+          db.recipes.update(id, { published: !newPublished })
+          setRecipes((prev) => prev.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: !newPublished }) : r)))
+          alert('公開状態の更新に失敗しました')
+        } else {
+          // update cache with server-normalized data when available
+          const updated = json && json.data ? json.data : null
+          if (updated) {
+            try { db.recipes.update(id, updated) } catch (e) {}
+            setRecipes((prev) => prev.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, ...updated }) : r)))
+          }
+        }
+      } catch (e) {
+        // revert on error
+        db.recipes.update(id, { published: !newPublished })
+        setRecipes((prev) => prev.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: !newPublished }) : r)))
+        alert('公開状態の更新中にエラーが発生しました')
+      }
+    })()
   }
 
   function handleSaveTitle(recipeId: string) {
