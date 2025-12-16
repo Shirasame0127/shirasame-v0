@@ -252,6 +252,34 @@ export default function RecipeEditPage() {
     loadUserFonts()
   }, [recipeId])
 
+  // Handle upload completion from ImageUpload dialog: append key to recipes.recipe_image_keys
+  async function handleUploadCompleteKey(key?: string) {
+    if (!key) return
+    try {
+      const existing = Array.isArray(recipeImageKeys) ? recipeImageKeys : []
+      if (existing.includes(key)) {
+        return
+      }
+      const merged = Array.from(new Set([...existing, key]))
+      try {
+        await RecipesService.update(recipeId, { recipe_image_keys: merged })
+      } catch (e) {
+        try {
+          await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipe_image_keys: merged }) })
+        } catch (e2) {
+          // swallow
+        }
+      }
+      setRecipeImageKeys(merged)
+      try {
+        const cdn = getPublicImageUrl(key)
+        if (cdn) setImageDataUrl(cdn)
+      } catch (e) {}
+    } finally {
+      // keep modal open for multiple uploads, but allow parent to close
+    }
+  }
+
   function loadUserFonts() {
     const user = getCurrentUser()
     if (user) {
@@ -400,35 +428,7 @@ export default function RecipeEditPage() {
       }
     }
 
-      // Handle upload completion from ImageUpload dialog: append key to recipes.recipe_image_keys
-      async function handleUploadCompleteKey(key?: string) {
-        if (!key) return
-        try {
-          const existing = Array.isArray(recipeImageKeys) ? recipeImageKeys : []
-          if (existing.includes(key)) {
-            // already present
-            return
-          }
-          const merged = Array.from(new Set([...existing, key]))
-          // update server via recipes service (PUT /api/admin/recipes/:id)
-          try {
-            await RecipesService.update(recipeId, { recipe_image_keys: merged })
-          } catch (e) {
-            // fallback: try raw apiFetch
-            try {
-              await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipe_image_keys: merged }) })
-            } catch (e2) {}
-          }
-          setRecipeImageKeys(merged)
-          // update local preview area: use getPublicImageUrl helper to create CDN URL
-          try {
-            const cdn = getPublicImageUrl(key)
-            if (cdn) setImageDataUrl(cdn)
-          } catch (e) {}
-        } finally {
-          // keep modal open for multiple uploads, but allow parent to close
-        }
-      }
+      
 
     // すべての商品を取得（現在のユーザーにスコープ）
     const productsData = db.products.getAll(uid)
