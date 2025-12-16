@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "dotenv -e .env.local -- wrangler dev",
-    "build": "wrangler build",
-    "deploy": "wrangler deploy"
+    "dev": "dotenv -e .env.local -- npx wrangler@4 dev",
+    "build": "npx wrangler@4 build",
+    "deploy": "npx wrangler@4 deploy"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.2.1",
