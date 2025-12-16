@@ -158,6 +158,7 @@ type DragTarget = { type: "dot" | "tag"; pinId: string } | null
 // ===========================
 export default function RecipeEditPage() {
   const { toast } = useToast()
+  const DEBUG_PINS = false
 
   // ===========================
   // ルーティング関連のフック
@@ -341,7 +342,58 @@ export default function RecipeEditPage() {
         // Ensure recipe pins cache for this recipe is fresh (avoid warmCache race)
         try { await db.recipePins.refresh(recipeId) } catch (e) { /* best-effort */ }
         const recipePinsFresh = db.recipePins.getByRecipeId(recipeId)
-        if (recipePinsFresh && recipePinsFresh.length > 0) {
+        // Prefer normalized pins returned directly from the admin endpoint when available
+        const pinsFromNormalized = Array.isArray((fresh as any).pinsNormalized) ? (fresh as any).pinsNormalized : null
+        if (Array.isArray(pinsFromNormalized) && pinsFromNormalized.length > 0) {
+          setPins(pinsFromNormalized.map((p: any) => ({
+            id: p.id || `pin-${Date.now()}-${p.productId}`,
+            productId: p.productId,
+            userId: p.userId || currentUser?.id || currentUserId || undefined,
+            dotXPercent: p.dotXPercent || p.dot_x_percent || 20,
+            dotYPercent: p.dotYPercent || p.dot_y_percent || 50,
+            tagXPercent: p.tagXPercent || p.tag_x_percent || 80,
+            tagYPercent: p.tagYPercent || p.tag_y_percent || 50,
+            dotSizePercent: p.dotSizePercent || p.dot_size_percent || 1.2,
+            tagFontSizePercent: p.tagFontSizePercent || p.tag_font_size_percent || 1.4,
+            lineWidthPercent: p.lineWidthPercent || p.line_width_percent || 0.2,
+            tagPaddingXPercent: p.tagPaddingXPercent || p.tag_padding_x_percent || 1.2,
+            tagPaddingYPercent: p.tagPaddingYPercent || p.tag_padding_y_percent || 0.6,
+            tagBorderRadiusPercent: p.tagBorderRadiusPercent || p.tag_border_radius_percent || 0.4,
+            tagBorderWidthPercent: p.tagBorderWidthPercent || p.tag_border_width_percent || 0,
+            dotColor: p.dotColor || p.dot_color || '#ffffff',
+            dotShape: p.dotShape || p.dot_shape || 'circle',
+            tagText: p.tagText || p.tag_text || '',
+            tagFontFamily: p.tagFontFamily || p.tag_font_family || 'system-ui',
+            tagFontWeight: p.tagFontWeight || p.tag_font_weight || 'normal',
+            tagTextColor: p.tagTextColor || p.tag_text_color || '#ffffff',
+            tagTextShadow: p.tagTextShadow || p.tag_text_shadow || '0 2px 4px rgba(0,0,0,0.3)',
+            tagBackgroundColor: p.tagBackgroundColor || p.tag_background_color || '#000000',
+            tagBackgroundOpacity: p.tagBackgroundOpacity ?? (typeof p.tag_background_opacity !== 'undefined' ? p.tag_background_opacity : 0.8),
+            tagBorderColor: p.tagBorderColor || p.tag_border_color || '#ffffff',
+            tagShadow: p.tagShadow || p.tag_shadow || '0 2px 8px rgba(0,0,0,0.2)',
+            lineType: p.lineType || p.line_type || 'solid',
+            tagTextStrokeColor: p.tagTextStrokeColor || 'transparent',
+            tagTextStrokeWidth: p.tagTextStrokeWidth || 0,
+            tagBackgroundWidthPercent: p.tagBackgroundWidthPercent || 0,
+            tagBackgroundHeightPercent: p.tagBackgroundHeightPercent || 0,
+            tagBackgroundOffsetXPercent: p.tagBackgroundOffsetXPercent || 0,
+            tagBackgroundOffsetYPercent: p.tagBackgroundOffsetYPercent || 0,
+            tagShadowColor: p.tagShadowColor || '#000000',
+            tagShadowOpacity: p.tagShadowOpacity ?? 0.5,
+            tagShadowBlur: p.tagShadowBlur ?? 2,
+            tagShadowDistance: p.tagShadowDistance ?? 2,
+            tagShadowAngle: p.tagShadowAngle ?? 45,
+            tagTextAlign: p.tagTextAlign || 'left',
+            tagVerticalWriting: p.tagVerticalWriting || false,
+            tagLetterSpacing: p.tagLetterSpacing || 0,
+            tagLineHeight: p.tagLineHeight || 1.5,
+            tagBold: p.tagBold || false,
+            tagItalic: p.tagItalic || false,
+            tagUnderline: p.tagUnderline || false,
+            tagTextTransform: p.tagTextTransform || 'none',
+            tagDisplayText: p.tagDisplayText || '',
+          })) as Pin[])
+        } else if (recipePinsFresh && recipePinsFresh.length > 0) {
           setPins(recipePinsFresh.map((p: any) => ({
             ...p,
             tagTextStrokeColor: p.tagTextStrokeColor || "transparent",
@@ -1769,21 +1821,23 @@ export default function RecipeEditPage() {
                     const shadowRgba = `rgba(${r}, ${g}, ${b}, ${shadowOpacity})`
                     const textShadow = `${shadowX}px ${shadowY}px ${pin.tagShadowBlur}px ${shadowRgba}`
 
-                    console.log("[v0] [編集ページ] ピン描画:", {
-                      pinId: pin.id,
-                      画像幅: imageWidthPx,
-                      位置: { x: `${pin.dotXPercent}%`, y: `${pin.dotYPercent}%` },
-                      パーセント値: {
-                        点: `${pin.dotSizePercent}%`,
-                        フォント: `${pin.tagFontSizePercent}%`,
-                        線: `${pin.lineWidthPercent}%`,
-                      },
-                      ピクセル値: {
-                        点: dotSizePx,
-                        フォント: fontSizePx,
-                        線: lineWidthPx,
-                      },
-                    })
+                    if (DEBUG_PINS) {
+                      console.log("[v0] [編集ページ] ピン描画:", {
+                        pinId: pin.id,
+                        画像幅: imageWidthPx,
+                        位置: { x: `${pin.dotXPercent}%`, y: `${pin.dotYPercent}%` },
+                        パーセント値: {
+                          点: `${pin.dotSizePercent}%`,
+                          フォント: `${pin.tagFontSizePercent}%`,
+                          線: `${pin.lineWidthPercent}%`,
+                        },
+                        ピクセル値: {
+                          点: dotSizePx,
+                          フォント: fontSizePx,
+                          線: lineWidthPx,
+                        },
+                      })
+                    }
 
                     const tagText = pin.tagDisplayText || pin.tagText || ""
                     const charCount = tagText.length || 1
