@@ -9,6 +9,7 @@ import AdminLoading from '@/components/admin-loading'
 import { usePathname } from 'next/navigation'
 import { db } from "@/lib/db/storage"
 import apiFetch from '@/lib/api-client'
+import { RecipesService } from '@/lib/services/recipes.service'
 import { auth } from "@/lib/auth"
 import type { Product, Recipe } from "@/lib/db/schema"
 import dynamic from 'next/dynamic'
@@ -95,19 +96,11 @@ export default function AdminDashboard() {
         setPublishedCollectionCount(loadedCollections.filter((c) => c.visibility === 'public').length)
       }
 
-      // Fetch authoritative recipes counts for dashboard (admin API)
+      // Fetch authoritative recipes counts for dashboard (use public /api/recipes/counts)
       try {
-        const cntRes = await apiFetch('/api/admin/recipes?count=true&limit=0')
-        if (cntRes && cntRes.ok) {
-          const cntJson = await cntRes.json().catch(() => null)
-          const total = cntJson?.meta?.total ?? (Array.isArray(cntJson?.data) ? cntJson.data.length : null)
-          const pub = cntJson?.meta?.publishedTotal ?? null
-          setRecipeCount(typeof total === 'number' ? total : loadedRecipes.length)
-          setPublishedRecipeCount(typeof pub === 'number' ? pub : loadedRecipes.filter((r) => r.published).length)
-        } else {
-          setRecipeCount(loadedRecipes.length)
-          setPublishedRecipeCount(loadedRecipes.filter((r) => r.published).length)
-        }
+        const cnt = await RecipesService.getCounts()
+        setRecipeCount(typeof cnt.total === 'number' ? cnt.total : loadedRecipes.length)
+        setPublishedRecipeCount(typeof cnt.published === 'number' ? cnt.published : loadedRecipes.filter((r) => r.published).length)
       } catch (e) {
         console.warn('[v0] failed to fetch recipe counts', e)
         setRecipeCount(loadedRecipes.length)
