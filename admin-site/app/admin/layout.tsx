@@ -18,31 +18,10 @@ export default function AdminLayout({
   const router = useRouter()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState<boolean>(true)
   const isRecipeEditPage = pathname?.includes('/admin/recipes/') && pathname?.includes('/edit')
   const isLoginPage = pathname === '/admin/login' || (pathname && pathname.startsWith('/admin/reset'))
 
   useEffect(() => {
-    // Read sidebar collapsed/expanded state persisted by `AdminNav` in localStorage
-    try {
-      if (typeof window !== 'undefined') {
-        const stored = window.localStorage.getItem('v0-admin-sidebar')
-        setIsSidebarExpanded(stored !== 'collapsed')
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    const handleStorage = (e: StorageEvent) => {
-      try {
-        if (e.key === 'v0-admin-sidebar') {
-          setIsSidebarExpanded((e.newValue || '') !== 'collapsed')
-        }
-      } catch (err) {}
-    }
-    try { window.addEventListener('storage', handleStorage) } catch {}
-    return () => { try { window.removeEventListener('storage', handleStorage) } catch {} }
-
     // ログインページ以外でログイン状態をチェック
     if (!isLoginPage) {
       // Allow disabling auth for local development via env flag. The middleware
@@ -146,18 +125,18 @@ export default function AdminLayout({
   // Show the standard admin shell (side nav + header) even on the recipe edit page
   // to keep UI consistent. Reduce outer padding for the edit page below.
   const useStandardShell = !isLoginPage
-  const mdLeftPad = isSidebarExpanded ? 'md:pl-[272px]' : 'md:pl-[68px]'
+
   return (
     <div className={`min-h-screen bg-muted/30 ${isRecipeEditPage ? 'overflow-hidden' : ''}`}>
-        {useStandardShell ? (
+      {useStandardShell ? (
         <div className="flex min-h-screen flex-col md:flex-row md:items-stretch">
           <AdminNav />
           {/* Reduce padding on recipe edit to make the editor fit tightly with the shell */}
           <main
             className={
               pathname?.includes('/admin/recipes/edit')
-                ? `flex-1 min-h-screen pt-12 md:pt-0 px-4 py-3 md:px-6 md:py-4 lg:px-8 ${mdLeftPad}`
-                : `flex-1 min-h-screen pt-12 md:pt-0 px-4 py-6 md:px-10 md:py-10 lg:px-12 ${mdLeftPad}`
+                ? 'flex-1 min-h-screen pt-12 md:pt-0 px-4 py-3 md:px-6 md:py-4 lg:px-8 md:pl-[272px]'
+                : 'flex-1 min-h-screen pt-12 md:pt-0 px-4 py-6 md:px-10 md:py-10 lg:px-12 md:pl-[272px]'
             }
           >
             {children}
