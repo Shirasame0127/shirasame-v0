@@ -252,43 +252,50 @@ export default function RecipesManagementPage() {
               <CardContent className="p-4">
                 {/* レシピ画像プレビュー */}
                 <div className="aspect-video relative mb-3 bg-muted rounded-lg overflow-hidden">
-                  {(
-                    // prefer recipes.images jsonb if available, fallback to legacy fields
-                    (() => {
-                      try {
-                        const imgs = recipe.images || []
-                        if (Array.isArray(imgs) && imgs.length > 0) return imgs[0]?.url || imgs[0]?.imageUrl || imgs[0]?.src || null
-                      } catch (e) {
-                        // ignore
+                  {(() => {
+                    // Prefer canonical recipe_image_keys if present (key-only policy)
+                    try {
+                      const keys = Array.isArray(recipe.recipe_image_keys) ? recipe.recipe_image_keys : (Array.isArray(recipe.recipeImageKeys) ? recipe.recipeImageKeys : [])
+                      const firstKey = keys && keys.length > 0 ? keys[0] : null
+                      // fallback to images[] entries (may contain url or key)
+                      const imgs = Array.isArray(recipe.images) ? recipe.images : []
+                      const firstImg = imgs.length > 0 ? imgs[0] : null
+                      const primaryCandidate = firstKey || (firstImg && (firstImg.key || firstImg.url || firstImg.imageUrl || firstImg.src)) || recipe.imageUrl || recipe.imageDataUrl || null
+                      if (!primaryCandidate) return (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">画像未設定</div>
+                      )
+
+                      // data URLs are used as-is
+                      if (typeof primaryCandidate === 'string' && primaryCandidate.startsWith('data:')) {
+                        return (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={primaryCandidate} alt={recipe.title || 'レシピ画像'} className="w-full h-full object-cover" />
+                        )
                       }
-                      return recipe.imageUrl || recipe.imageDataUrl || null
-                    })()
-                  ) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={(() => {
-                        const primary = (() => {
-                          try {
-                            const imgs = recipe.images || []
-                            if (Array.isArray(imgs) && imgs.length > 0) return imgs[0]?.url || imgs[0]?.imageUrl || imgs[0]?.src || null
-                          } catch (e) {}
-                          return recipe.imageUrl || recipe.imageDataUrl || null
-                        })()
-                        if (!primary) return "/placeholder.svg"
-                        // data URLs should be used as-is; otherwise map via getPublicImageUrl (R2)
-                        try {
-                          if (typeof primary === 'string' && primary.startsWith('data:')) return primary
-                        } catch (e) {}
-                        return getPublicImageUrl(primary) || primary || "/placeholder.svg"
-                      })()}
-                      alt={recipe.title || "レシピ画像"}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                      画像未設定
-                    </div>
-                  )}
+
+                      // Use responsiveImageForUsage to generate src/srcSet matching public site
+                      try {
+                        const { responsiveImageForUsage } = require('@/lib/image-url')
+                        const resp = responsiveImageForUsage(primaryCandidate, 'list')
+                        const src = resp?.src || getPublicImageUrl(primaryCandidate) || primaryCandidate || '/placeholder.svg'
+                        return (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={src} srcSet={resp?.srcSet || undefined} sizes={resp?.sizes} alt={recipe.title || 'レシピ画像'} className="w-full h-full object-cover" />
+                        )
+                      } catch (e) {
+                        // fallback to getPublicImageUrl
+                        const src = getPublicImageUrl(primaryCandidate) || primaryCandidate || '/placeholder.svg'
+                        return (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={src} alt={recipe.title || 'レシピ画像'} className="w-full h-full object-cover" />
+                        )
+                      }
+                    } catch (err) {
+                      return (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">画像未設定</div>
+                      )
+                    }
+                  })()}
                   
                   {/* 公開ステータスバッジ */}
                   <div className="absolute top-2 right-2">
