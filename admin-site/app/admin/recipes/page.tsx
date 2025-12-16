@@ -196,7 +196,10 @@ export default function RecipesManagementPage() {
     try {
       db.recipes.update(id, { published: newPublished })
     } catch (e) {}
-    setRecipes((prev) => prev.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: newPublished }) : r)))
+    setRecipes((prev) => {
+      const list = Array.isArray(prev) ? prev : []
+      return list.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: newPublished }) : r))
+    })
 
     // Persist to server; if it fails, revert and refresh
     (async () => {
@@ -206,20 +209,29 @@ export default function RecipesManagementPage() {
         if (!res.ok) {
           // revert
           db.recipes.update(id, { published: !newPublished })
-          setRecipes((prev) => prev.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: !newPublished }) : r)))
+          setRecipes((prev) => {
+            const list = Array.isArray(prev) ? prev : []
+            return list.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: !newPublished }) : r))
+          })
           alert('公開状態の更新に失敗しました')
         } else {
           // update cache with server-normalized data when available
           const updated = json && json.data ? json.data : null
           if (updated) {
             try { db.recipes.update(id, updated) } catch (e) {}
-            setRecipes((prev) => prev.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, ...updated }) : r)))
+            setRecipes((prev) => {
+              const list = Array.isArray(prev) ? prev : []
+              return list.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, ...updated }) : r))
+            })
           }
         }
       } catch (e) {
         // revert on error
         db.recipes.update(id, { published: !newPublished })
-        setRecipes((prev) => prev.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: !newPublished }) : r)))
+        setRecipes((prev) => {
+          const list = Array.isArray(prev) ? prev : []
+          return list.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: !newPublished }) : r))
+        })
         alert('公開状態の更新中にエラーが発生しました')
       }
     })()
