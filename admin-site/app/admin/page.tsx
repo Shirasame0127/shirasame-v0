@@ -21,6 +21,8 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true)
   const [productCount, setProductCount] = useState<number | null>(null)
   const [publishedCount, setPublishedCount] = useState<number | null>(null)
+  const [recipeCount, setRecipeCount] = useState<number | null>(null)
+  const [publishedRecipeCount, setPublishedRecipeCount] = useState<number | null>(null)
   const [collectionCount, setCollectionCount] = useState<number | null>(null)
   const [publishedCollectionCount, setPublishedCollectionCount] = useState<number | null>(null)
   const [collections, setCollections] = useState<any[]>([])
@@ -93,6 +95,25 @@ export default function AdminDashboard() {
         setPublishedCollectionCount(loadedCollections.filter((c) => c.visibility === 'public').length)
       }
 
+      // Fetch authoritative recipes counts for dashboard (admin API)
+      try {
+        const cntRes = await apiFetch('/api/admin/recipes?count=true&limit=0')
+        if (cntRes && cntRes.ok) {
+          const cntJson = await cntRes.json().catch(() => null)
+          const total = cntJson?.meta?.total ?? (Array.isArray(cntJson?.data) ? cntJson.data.length : null)
+          const pub = cntJson?.meta?.publishedTotal ?? null
+          setRecipeCount(typeof total === 'number' ? total : loadedRecipes.length)
+          setPublishedRecipeCount(typeof pub === 'number' ? pub : loadedRecipes.filter((r) => r.published).length)
+        } else {
+          setRecipeCount(loadedRecipes.length)
+          setPublishedRecipeCount(loadedRecipes.filter((r) => r.published).length)
+        }
+      } catch (e) {
+        console.warn('[v0] failed to fetch recipe counts', e)
+        setRecipeCount(loadedRecipes.length)
+        setPublishedRecipeCount(loadedRecipes.filter((r) => r.published).length)
+      }
+
       console.log("[v0] Dashboard: Products loaded:", loadedProducts.length)
       console.log("[v0] Dashboard: Recipes loaded:", loadedRecipes.length)
 
@@ -126,10 +147,17 @@ export default function AdminDashboard() {
 
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
+    // Listen for global recipe changes (e.g. publish toggles) and refresh
+    const onRecipesChanged = () => {
+      console.log('[v0] Dashboard: recipes changed event - refreshing data')
+      loadData()
+    }
+    window.addEventListener('recipes:changed', onRecipesChanged)
 
     return () => {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('recipes:changed', onRecipesChanged)
     }
   }, [pathname, loadData])
 
@@ -147,10 +175,10 @@ export default function AdminDashboard() {
     },
     {
       title: "レシピ数",
-      value: recipes.length,
+      value: recipeCount ?? recipes.length,
       icon: Camera,
       // show published count similar to products
-      description: `${recipes.filter((r) => r.published).length}件公開中`,
+      description: `${publishedRecipeCount ?? recipes.filter((r) => r.published).length}件公開中`,
       link: "/admin/recipes",
     },
     {

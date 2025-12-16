@@ -1298,6 +1298,7 @@ export default function RecipeEditPage() {
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.error || 'update failed')
       toast({ title: '更新完了', description: next ? '公開にしました' : '非公開にしました' })
+      try { window.dispatchEvent(new Event('recipes:changed')) } catch (e) {}
     } catch (e) {
       // rollback UI + cache on failure
       setPublished(!next)
