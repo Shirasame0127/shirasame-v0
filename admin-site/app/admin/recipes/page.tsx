@@ -199,7 +199,7 @@ export default function RecipesManagementPage() {
     setRecipes((prev) => {
       const list = Array.isArray(prev) ? prev : []
       return list.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: newPublished }) : r))
-    })
+    });
 
     // Persist to server; if it fails, revert and refresh
     (async () => {
@@ -212,7 +212,7 @@ export default function RecipesManagementPage() {
           setRecipes((prev) => {
             const list = Array.isArray(prev) ? prev : []
             return list.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: !newPublished }) : r))
-          })
+          });
           alert('公開状態の更新に失敗しました')
         } else {
           // update cache with server-normalized data when available
@@ -222,7 +222,7 @@ export default function RecipesManagementPage() {
             setRecipes((prev) => {
               const list = Array.isArray(prev) ? prev : []
               return list.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, ...updated }) : r))
-            })
+            });
           }
         }
       } catch (e) {
@@ -231,7 +231,7 @@ export default function RecipesManagementPage() {
         setRecipes((prev) => {
           const list = Array.isArray(prev) ? prev : []
           return list.map((r: any) => (r.id === id ? normalizeRecipe({ ...r, published: !newPublished }) : r))
-        })
+        });
         alert('公開状態の更新中にエラーが発生しました')
       }
     })()
