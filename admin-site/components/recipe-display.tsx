@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { getPublicImageUrl } from "@/lib/image-url"
+import { getPublicImageUrl, responsiveImageForUsage } from "@/lib/image-url"
 import type { Product } from "@/lib/db/schema"
 
 // ===========================
@@ -123,11 +123,14 @@ export function RecipeDisplay({
     setImageLoaded(true)
   }
 
+  const resp = responsiveImageForUsage(imageUrl || imageDataUrl, 'recipe')
+
   return (
     <div ref={containerRef} className="relative w-full max-w-5xl mx-auto">
       <div ref={pinAreaRef} className="relative w-full">
         <img
-          src={(imageUrl ? getPublicImageUrl(imageUrl) : imageDataUrl) || "/placeholder.svg"}
+          src={(resp && resp.src) || getPublicImageUrl(imageUrl || imageDataUrl) || "/placeholder.svg"}
+          srcSet={resp && resp.srcSet ? resp.srcSet : undefined}
           alt={recipeTitle}
           className="w-full h-auto object-contain rounded-md"
           onLoad={handleImageLoad}

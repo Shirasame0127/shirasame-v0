@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useEffect } from "react"
-import { getPublicImageUrl } from '@/lib/image-url'
+import { getPublicImageUrl, responsiveImageForUsage } from '@/lib/image-url'
 
 type Pin = any
 
@@ -24,9 +24,16 @@ export function PinOverlay({
     return () => {}
   }, [])
 
+  const resp = responsiveImageForUsage(imageUrl || imageDataUrl, 'recipe')
+
   return (
     <div ref={areaRef} className="relative w-full">
-      <img src={(imageUrl ? getPublicImageUrl(imageUrl) : imageDataUrl) || "/placeholder.svg"} alt="recipe" className="w-full h-auto object-contain rounded-md" />
+      <img
+        src={(resp && resp.src) || getPublicImageUrl(imageUrl || imageDataUrl) || "/placeholder.svg"}
+        srcSet={resp && resp.srcSet ? resp.srcSet : undefined}
+        alt="recipe"
+        className="w-full h-auto object-contain rounded-md"
+      />
 
       {pins.map((pin: any) => {
         const dotStyle: React.CSSProperties = {
