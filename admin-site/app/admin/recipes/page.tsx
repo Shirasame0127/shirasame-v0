@@ -177,7 +177,7 @@ export default function RecipesManagementPage() {
         // refresh local cache and navigate to edit page
         try { await db.recipes.refresh(json.data.user_id || json.data.userId || undefined) } catch (e) {}
         setShowNewModal(false)
-        router.push(`/admin/recipes/${json.data.id}/edit`)
+        router.push(`/admin/recipes/edit?id=${json.data.id}`)
         return
       }
       // fallback: log error
@@ -337,7 +337,7 @@ export default function RecipesManagementPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => router.push(`/admin/recipes/${recipe.id}/edit`) }
+                    onClick={() => router.push(`/admin/recipes/edit?id=${recipe.id}`) }
                     className="flex-1"
                   >
                     <Edit className="w-3 h-3 mr-1" />

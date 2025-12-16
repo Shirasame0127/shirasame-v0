@@ -187,7 +187,7 @@ export default function RecipeNewPage() {
       description: "レシピを作成しました"
     })
     // After attaching image, navigate to edit page for the draft
-    router.push(`/admin/recipes/${recipeId}/edit`)
+    router.push(`/admin/recipes/edit?id=${recipeId}`)
   }
 
   return (

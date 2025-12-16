@@ -1462,7 +1462,7 @@ export default function RecipeEditPage() {
             </div>
             <div className="flex justify-end mt-3">
               <Button variant="outline" onClick={() => setShowUploadModal(false)}>閉じる</Button>
-              <Button className="ml-2" onClick={() => { setShowUploadModal(false); router.push(`/admin/recipes/${recipeId}/edit`) }}>編集画面へ</Button>
+              <Button className="ml-2" onClick={() => { setShowUploadModal(false); router.push(`/admin/recipes/edit?id=${recipeId}`) }}>編集画面へ</Button>
             </div>
           </DialogContent>
         </Dialog>
