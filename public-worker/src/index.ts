@@ -2884,7 +2884,8 @@ app.get('/api/admin/recipes/:id', async (c) => {
     const ctx = await resolveRequestUserContext(c)
     if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
 
-    const { data: resData, error: resErr } = await supabase.from('recipes').select('*, images:recipe_images(id,recipe_id,key,width,height,role,caption), tags').eq('id', id).limit(1).maybeSingle()
+    // Note: do not select non-existent columns (e.g. `tags`) to avoid DB errors
+    const { data: resData, error: resErr } = await supabase.from('recipes').select('*, images:recipe_images(id,recipe_id,key,width,height,role,caption)').eq('id', id).limit(1).maybeSingle()
     if (resErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピの取得に失敗しました', resErr.message || resErr, 'db_error', 500)
     const r = resData || null
     if (!r) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピが見つかりません', null, 'not_found', 404)
