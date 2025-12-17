@@ -5,11 +5,11 @@ import { db } from "@/lib/db/storage"
 import apiFetch from '@/lib/api-client'
 import { useRouter } from 'next/navigation'
 import { Switch } from '@/components/ui/switch'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Edit, Trash2 } from "lucide-react"
+import { Edit, Trash2, MoreHorizontal } from "lucide-react"
 import type { Product } from "@/lib/db/schema"
 
 interface ProductListItemProps {
@@ -63,8 +63,8 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
 
   return (
     <Card>
-      <CardContent className="p-4 h-30">
-        <div className="flex gap-4">
+      <CardContent className="h-24">
+        <div className="flex gap-4 h-full">
           <div className="relative w-24 h-24 shrink-0 rounded-lg overflow-hidden bg-muted">
             {
               (() => {
@@ -81,12 +81,9 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
             }
           </div>
 
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <div>
-                <h3 className="font-semibold line-clamp-1">{product.title}</h3>
-                {/* 短い説明は管理画面カードでは表示しない */}
-              </div>
+          <div className="flex-1 min-w-0 flex flex-col justify-between relative">
+            {/* Top row: published badge + switch aligned to right */}
+            <div className="flex items-start justify-end">
               <div className="flex items-center gap-2">
                 <Badge variant={publishedState ? "default" : "secondary"}>
                   {publishedState ? "公開中" : "下書き"}
@@ -95,46 +92,52 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 mb-3">
-              {(() => {
-                const tags = Array.isArray(product?.tags) ? product.tags.slice(0, 2) : []
-                return tags.map((tag) => (
-                  <Badge key={tag} variant="outline" className="text-xs">
-                    {tag}
-                  </Badge>
-                ))
-              })()}
-              {/* 価格は管理画面の一覧カードでは非表示 */}
+            {/* Middle row: product name */}
+            <div className="flex-1 flex items-center">
+              <h3 className="font-semibold line-clamp-2">{product.title}</h3>
             </div>
 
-            <div className="flex gap-2">
-                {product?.id ? (
-                <Button size="sm" variant="outline" onClick={() => {
-                  // Use query-based editor to avoid relying on dynamic route params
-                  // which can be unreliable in some deployed environments.
-                  router.push(`/admin/products/edit?id=${product.id}`)
-                }}>
-                  <Edit className="w-4 h-4 mr-1" />
-                  編集
-                </Button>
-              ) : (
-                <Button size="sm" variant="outline" disabled>
-                  <Edit className="w-4 h-4 mr-1" />
-                  編集不可
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-destructive hover:text-destructive bg-transparent"
-                onClick={handleDelete}
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
+            {/* Bottom row: only ellipsis menu button which toggles actions */}
+            <div className="flex items-end justify-end">
+              <MenuActions productId={product?.id} onEdit={() => {
+                if (product?.id) router.push(`/admin/products/edit?id=${product.id}`)
+              }} onDelete={handleDelete} />
             </div>
           </div>
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function MenuActions({ productId, onEdit, onDelete }: { productId?: string | null; onEdit: () => void; onDelete: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!ref.current) return
+      if (!ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button variant="ghost" size="icon" aria-label="項目の操作" onClick={() => setOpen((v) => !v)}>
+        <MoreHorizontal className="h-5 w-5" />
+      </Button>
+      {open && (
+        <div className="absolute right-0 bottom-10 z-20 w-40 rounded-md border bg-card shadow-md">
+          <button className="w-full text-left px-3 py-2 hover:bg-muted flex items-center gap-2" onClick={() => { setOpen(false); onEdit() }}>
+            <Edit className="w-4 h-4" /> 編集
+          </button>
+          <button className="w-full text-left px-3 py-2 hover:bg-muted text-destructive flex items-center gap-2" onClick={() => { setOpen(false); onDelete() }}>
+            <Trash2 className="w-4 h-4" /> 削除
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

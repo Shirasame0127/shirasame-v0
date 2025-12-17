@@ -127,23 +127,23 @@ export default function AdminLayout({
   const useStandardShell = !isLoginPage
 
   return (
-    <div className={`min-h-screen bg-muted/30 ${isRecipeEditPage ? 'overflow-hidden' : ''}`}>
+    <div className={`h-[calc(100vh-4rem)] bg-muted/30 ${isRecipeEditPage ? 'overflow-hidden' : ''}`}>
       {useStandardShell ? (
-        <div className="flex min-h-screen flex-col md:flex-row md:items-stretch">
+          <div className="flex h-full flex-col md:flex-row md:items-stretch">
           <AdminNav />
-          {/* Reduce padding on recipe edit to make the editor fit tightly with the shell */}
+          {/* Sidebar is a left flex column; main becomes the only scrollable area */}
           <main
             className={
               pathname?.includes('/admin/recipes/edit')
-                ? 'flex-1 min-h-screen pt-12 md:pt-0 px-4 py-3 md:px-6 md:py-4 lg:px-8 md:pl-[272px]'
-                : 'flex-1 min-h-screen pt-12 md:pt-0 px-4 py-6 md:px-10 md:py-10 lg:px-12 md:pl-[272px]'
+                ? 'flex-1 overflow-y-auto px-4 md:px-6 lg:px-8'
+                : 'flex-1 overflow-y-auto px-4 md:px-10 lg:px-12'
             }
           >
             {children}
           </main>
         </div>
       ) : (
-        <main className={isRecipeEditPage ? 'h-screen' : 'min-h-screen'}>{children}</main>
+        <main className={isRecipeEditPage ? 'h-screen overflow-y-auto' : 'min-h-screen'}>{children}</main>
       )}
       <Toaster />
     </div>

@@ -14,6 +14,14 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { db } from "@/lib/db/storage"
 import apiFetch from '@/lib/api-client'
@@ -73,6 +81,11 @@ export default function ProductEditPageQuery() {
   const [showPrice, setShowPrice] = useState(true)
   const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState("")
+  const [newTagName, setNewTagName] = useState("")
+  const [newTagGroup, setNewTagGroup] = useState("")
+  const [newTagLinkUrl, setNewTagLinkUrl] = useState("")
+  const [newTagLinkLabel, setNewTagLinkLabel] = useState("")
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [published, setPublished] = useState(true)
   const [mainImageKey, setMainImageKey] = useState("")
   const [mainImagePreview, setMainImagePreview] = useState("")
@@ -238,6 +251,92 @@ export default function ProductEditPageQuery() {
     setTagInput("")
   }
 
+  const addNewTag = async () => {
+    const trimmedName = newTagName.trim()
+    if (!trimmedName) {
+      toast({ variant: 'destructive', title: 'エラー', description: 'タグ名を入力してください' })
+      return
+    }
+
+    // Prevent duplicates
+    const existing = Object.values(tagGroups || {}).flat()
+    if (existing.includes(trimmedName)) {
+      toast({ variant: 'destructive', title: 'エラー', description: '同じ名前のタグが既に存在します' })
+      return
+    }
+
+    if (newTagGroup === 'リンク先' && !newTagLinkLabel.trim()) {
+      toast({ variant: 'destructive', title: 'エラー', description: 'リンク先グループに追加する場合は、リンクボタンのテキストを必ず入力してください' })
+      return
+    }
+
+    const payload = {
+      name: trimmedName,
+      group: newTagGroup && newTagGroup !== '__uncategorized__' ? newTagGroup : undefined,
+      linkUrl: newTagLinkUrl && newTagLinkUrl.trim() ? newTagLinkUrl.trim() : undefined,
+      linkLabel: newTagLinkLabel && newTagLinkLabel.trim() ? newTagLinkLabel.trim() : undefined,
+    }
+
+    try {
+      const res = await apiFetch('/api/admin/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error('save failed')
+
+      // refresh tags and groups
+      const tagsRes = await apiFetch('/api/tags')
+      const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
+      const serverTags = Array.isArray(tagsJson) ? tagsJson : tagsJson.data || []
+
+      const groupsRes = await apiFetch('/api/tag-groups')
+      const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
+      const serverGroups = Array.isArray(groupsJson) ? groupsJson : groupsJson.data || []
+
+      const finalTags = Array.isArray(serverTags) && serverTags.length > 0 ? serverTags : db.tags.getAllWithPlaceholders()
+      setAvailableTags(finalTags)
+
+      const groupNames: string[] = serverGroups && serverGroups.length > 0 ? serverGroups.map((g: any) => g.name).filter(Boolean) : []
+      if (groupNames.length === 0) {
+        const inferred = Array.from(new Set((finalTags || []).map((t: any) => String(t.group)).filter(Boolean))) as string[]
+        inferred.forEach((g: string) => groupNames.push(g))
+      }
+      const map: Record<string, string[]> = {}
+      groupNames.forEach((name) => {
+        map[name] = (finalTags || []).filter((t: any) => (t.group || '未分類') === name).map((t: any) => t.name)
+      })
+      if (!map['リンク先']) {
+        map['リンク先'] = (finalTags || []).filter((t: any) => (t.group || '未分類') === 'リンク先').map((t: any) => t.name)
+      }
+      setTagGroups(map)
+
+      setNewTagName('')
+      setNewTagGroup('')
+      setNewTagLinkUrl('')
+      setNewTagLinkLabel('')
+      setIsAddDialogOpen(false)
+
+      toast({ title: '追加完了', description: `タグ「${trimmedName}」を追加しました` })
+    } catch (e) {
+      console.error('addNewTag failed', e)
+      // fallback: add locally so user can continue
+      setAvailableTags((prev) => [...prev, { name: trimmedName, group: newTagGroup }])
+      setTagGroups((prev) => {
+        const g = newTagGroup || '未分類'
+        const next = { ...prev }
+        next[g] = [...(next[g] || []), trimmedName]
+        return next
+      })
+      setNewTagName('')
+      setNewTagGroup('')
+      setNewTagLinkUrl('')
+      setNewTagLinkLabel('')
+      setIsAddDialogOpen(false)
+      toast({ variant: 'destructive', title: 'サーバ同期失敗', description: 'タグはローカルに保存されました' })
+    }
+  }
+
   const removeTag = (tagToRemove: string) => {
     setTags(tags.filter((t) => t !== tagToRemove))
   }
@@ -256,6 +355,13 @@ export default function ProductEditPageQuery() {
   }
 
   const applyAffiliateTemplate = (index: number, templateTag: string) => {
+    // allow clearing selection (empty string) which unsets provider
+    if (templateTag === "") {
+      const updated = [...affiliateLinks]
+      updated[index] = { ...updated[index], provider: "" }
+      setAffiliateLinks(updated)
+      return
+    }
     if (!templateTag) return
     const known = KNOWN_AFFILIATE_TEMPLATES[templateTag]
     const template: AffiliateTemplate = {
@@ -473,7 +579,7 @@ export default function ProductEditPageQuery() {
   const mainImageValue = getPublicImageUrl(db.images.getUpload(mainImageKey) || mainImageKey) || mainImagePreview || ""
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6">
+    <div className="w-full px-4 py-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
@@ -580,23 +686,59 @@ export default function ProductEditPageQuery() {
             </div>
 
             <div className="space-y-2">
-              <Label>カスタムタグを追加</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="タグを入力"
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      addTag(tagInput)
-                    }
-                  }}
-                />
-                <Button type="button" onClick={() => addTag(tagInput)}>
-                  追加
-                </Button>
-              </div>
+              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+                <div className="flex gap-2 items-center">
+                  <DialogTrigger asChild>
+                    <Button type="button">カスタムタグを追加</Button>
+                  </DialogTrigger>
+                </div>
+
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>新しいタグを追加</DialogTitle>
+                    <DialogDescription>タグ名、グループ、リンク情報を入力してください</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label>タグ名 *</Label>
+                      <Input placeholder="例: プログラミング" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>グループ名（任意）</Label>
+                      <Select value={newTagGroup || "__uncategorized__"} onValueChange={setNewTagGroup}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="未分類" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__uncategorized__">未分類</SelectItem>
+                          {Object.keys(tagGroups || {}).map((name) => (
+                            <SelectItem key={name} value={name}>{name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input placeholder="または新しいグループ名を入力" value={newTagGroup} onChange={(e) => setNewTagGroup(e.target.value)} className="mt-2" />
+                      <p className="text-xs text-muted-foreground">同じグループのタグをまとめて表示できます</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>リンク先URL（任意）</Label>
+                      <Input placeholder="https://amazon.co.jp" value={newTagLinkUrl} onChange={(e) => setNewTagLinkUrl(e.target.value)} />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>リンクボタンのテキスト{newTagLinkUrl.trim() && " *"}</Label>
+                      <Input placeholder="例: Amazonで見る" value={newTagLinkLabel} onChange={(e) => setNewTagLinkLabel(e.target.value)} />
+                      <p className="text-xs text-muted-foreground">商品編集時にアフィリエイトリンクのラベルとして自動入力されます</p>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-4">
+                      <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>キャンセル</Button>
+                      <Button onClick={addNewTag}><Plus className="w-4 h-4 mr-1" />追加</Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
 
             <div className="space-y-3">
@@ -709,15 +851,17 @@ export default function ProductEditPageQuery() {
                         <SelectValue placeholder="選択してください" />
                       </SelectTrigger>
                       <SelectContent>
-                        {affiliateTemplateOptions.length === 0 ? (
-                          <SelectItem value="__no-template__" disabled>テンプレートがありません</SelectItem>
-                        ) : (
-                          affiliateTemplateOptions.map((template) => (
-                            <SelectItem key={template.id} value={template.id}>
-                              {template.name}
-                            </SelectItem>
-                          ))
-                        )}
+                          {/* explicit empty option to represent "選択なし" */}
+                          <SelectItem value="">選択なし</SelectItem>
+                          {affiliateTemplateOptions.length === 0 ? (
+                            <SelectItem value="__no-template__" disabled>テンプレートがありません</SelectItem>
+                          ) : (
+                            affiliateTemplateOptions.map((template) => (
+                              <SelectItem key={template.id} value={template.id}>
+                                {template.name}
+                              </SelectItem>
+                            ))
+                          )}
                       </SelectContent>
                     </Select>
                   </div>

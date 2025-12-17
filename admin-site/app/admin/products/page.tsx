@@ -160,7 +160,7 @@ export default function AdminProductsPage() {
   }, [products, searchQuery, selectedTags, sortBy])
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="w-full px-4 py-8 flex flex-col h-screen overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 md:mb-8 gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold mb-1 md:mb-2">商品管理</h1>
@@ -195,28 +195,72 @@ export default function AdminProductsPage() {
           </div>
 
           <Sheet open={isFilterSheetOpen} onOpenChange={setIsFilterSheetOpen}>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="icon">
-                <Filter className="w-4 h-4" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="bottom" className="h-auto max-h-[80vh] rounded-t-2xl px-4 pb-0 flex flex-col">
-              <SheetHeader className="pb-4 border-b">
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon">
+                  <Filter className="w-4 h-4" />
+                </Button>
+              </SheetTrigger>
+              {isFilterSheetOpen && (
+                <SheetContent side="bottom" className="h-auto max-h-[80vh] rounded-t-2xl px-4 pb-0 flex flex-col">
+              <SheetHeader className="pb-2 border-b flex items-center justify-between">
                 <SheetTitle className="text-base">タグで絞り込み</SheetTitle>
+                <button
+                  aria-label="閉じる"
+                  onClick={() => setIsFilterSheetOpen(false)}
+                  className="text-muted-foreground hover:text-foreground rounded-md p-1"
+                >
+                </button>
               </SheetHeader>
+
+              {/* 上部: 選択中タグ表示エリア + 絞り込み解除ボタン */}
+              <div className="pt-3 pb-2 border-b px-0">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-h-[40px] border rounded-md px-2 py-2 flex flex-wrap items-center gap-2">
+                    {selectedTags.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">選択中のタグはありません</div>
+                    ) : (
+                      selectedTags.map((tag) => (
+                        <Badge key={tag} variant="secondary" className="gap-1">
+                          {tag}
+                          <button
+                            onClick={() => toggleTag(tag)}
+                            aria-label={`タグ ${tag} を解除`}
+                            className="hover:bg-destructive/20 rounded-full p-0.5"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </Badge>
+                      ))
+                    )}
+                  </div>
+
+                  {selectedTags.length > 0 && (
+                    <div className="shrink-0">
+                      <Button variant="ghost" size="sm" onClick={clearTags}>
+                        絞り込みを解除
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               <div className="flex-1 overflow-y-auto py-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 {Object.keys(tagGroups).length === 0 ? (
                   <div className="text-sm text-muted-foreground">タグがありません</div>
                 ) : (
                   <Accordion type="multiple" className="w-full" value={openGroups} onValueChange={(v) => setOpenGroups(Array.isArray(v) ? v : [v])}>
-                    {Object.entries(tagGroups).map(([groupName, tags]) => (
+                    {Object.entries(tagGroups)
+                      .filter(([, tags]) => Array.isArray(tags) && tags.length > 0)
+                      .map(([groupName, tags]) => (
                       <AccordionItem key={groupName} value={groupName}>
-                        <AccordionTrigger className="text-sm py-2">
-                          {groupName}
-                          {selectedTags.some((t) => tags.includes(t)) && (
-                            <Badge variant="secondary" className="ml-2">{selectedTags.filter((t) => tags.includes(t)).length}</Badge>
-                          )}
+                        <AccordionTrigger className="text-sm py-2 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span>{groupName}</span>
+                            <Badge variant="outline" className="text-[11px]">{(tags || []).length}</Badge>
+                            {selectedTags.some((t) => tags.includes(t)) && (
+                              <Badge variant="secondary" className="ml-2">{selectedTags.filter((t) => tags.includes(t)).length}</Badge>
+                            )}
+                          </div>
                         </AccordionTrigger>
                         <AccordionContent>
                           <div className="flex flex-wrap gap-1.5 pt-2">
@@ -236,14 +280,9 @@ export default function AdminProductsPage() {
                     ))}
                   </Accordion>
                 )}
-
-                {selectedTags.length > 0 && (
-                  <Button variant="ghost" size="sm" className="w-full mt-4" onClick={clearTags}>
-                    絞り込みを解除
-                  </Button>
-                )}
               </div>
             </SheetContent>
+            )}
           </Sheet>
 
           <DropdownMenu>
@@ -279,7 +318,7 @@ export default function AdminProductsPage() {
         )}
       </div>
 
-      <div className="space-y-3 md:space-y-4">
+      <div className="flex-1 overflow-y-auto min-h-0 space-y-3 md:space-y-4">
         {filteredAndSortedProducts.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">該当する商品が見つかりません</div>
         ) : (

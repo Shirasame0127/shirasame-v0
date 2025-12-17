@@ -190,7 +190,7 @@ export default function AdminDashboard() {
   ]
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-4 md:py-6">
+    <div className="w-full px-4 py-4 md:py-6">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl md:text-3xl font-bold">ダッシュボード</h1>
         <Button asChild variant="outline" size="sm">

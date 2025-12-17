@@ -1,4 +1,5 @@
 import React from 'react'
+import HeaderProfile from '@/components/header-profile'
 import './globals.css'
 
 export const metadata = {
@@ -19,10 +20,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           client from being forced to an external API base.
         */}
         <main className="min-h-screen">
-          <header className="fixed top-0 left-0 right-0 z-50 bg-card text-card-foreground border-b p-4">
-            <div className="max-w-6xl mx-auto font-semibold">しらさめ - 管理画面</div>
+          <header className="sticky top-0 z-20 bg-card text-card-foreground border-b p-4 h-16 flex items-center">
+            <div className="flex w-full items-center justify-between">
+              <div className="font-semibold">しらさめ - 管理画面</div>
+              {/* HeaderProfile is a client component that shows avatar and handles mobile swipe */}
+              <div>
+                <HeaderProfile />
+              </div>
+            </div>
           </header>
-          <div className="max-w-6xl mx-auto p-4 pt-16">
+          <div className="w-full">
             {children}
           </div>
         </main>
