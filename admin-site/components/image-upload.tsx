@@ -596,7 +596,8 @@ export function ImageUpload({
       case "recipe":
         return "max-w-sm"
       default:
-        return "max-w-[200px]"
+        // Let parent control width for responsive grid; use full width by default
+        return "w-full"
     }
   }
 

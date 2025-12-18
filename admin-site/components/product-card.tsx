@@ -31,9 +31,10 @@ interface ProductCardProps {
   size?: "sm" | "md"
   isAdminMode?: boolean
   onClick?: () => void
+  className?: string
 }
 
-export function ProductCard({ product, size = "md", isAdminMode = false, onClick }: ProductCardProps) {
+export function ProductCard({ product, size = "md", isAdminMode = false, onClick, className }: ProductCardProps) {
   const images: ProductImage[] = product.images || []
   const mainRawFromProduct = product.main_image_key || null
   const mainImageFromImages = images.find((img: ProductImage) => img?.role === "main") || images[0] || null
@@ -97,7 +98,7 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
     if (isAdminMode) {
       return (
         <Card
-          className="overflow-hidden hover:shadow-md transition-shadow duration-300 cursor-pointer"
+          className={`${"overflow-hidden hover:shadow-md transition-shadow duration-300 cursor-pointer"} ${className || ""}`}
           onClick={handleClick}
         >
           {content}
@@ -107,7 +108,7 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
 
     return (
       <Link href={`/products/${product.slug}`}>
-        <Card className="overflow-hidden hover:shadow-md transition-shadow duration-300">{content}</Card>
+        <Card className={`${"overflow-hidden hover:shadow-md transition-shadow duration-300"} ${className || ""}`}>{content}</Card>
       </Link>
     )
   }
@@ -161,7 +162,7 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
   if (isAdminMode) {
     return (
       <Card
-        className="overflow-hidden hover:shadow-lg transition-shadow duration-300 group cursor-pointer"
+        className={`${"overflow-hidden hover:shadow-lg transition-shadow duration-300 group cursor-pointer"} ${className || ""}`}
         onClick={handleClick}
       >
         {content}
@@ -171,7 +172,7 @@ export function ProductCard({ product, size = "md", isAdminMode = false, onClick
 
   return (
     <Link href={`/products/${product.slug}`}>
-      <Card className="overflow-hidden hover:shadow-lg transition-shadow duration-300 group">{content}</Card>
+      <Card className={`${"overflow-hidden hover:shadow-lg transition-shadow duration-300 group"} ${className || ""}`}>{content}</Card>
     </Link>
   )
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -8,14 +8,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-import { DndContext, PointerSensor, TouchSensor, MouseSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core"
+import { DndContext, PointerSensor, TouchSensor, MouseSensor, useSensor, useSensors, DragEndEvent, closestCenter } from "@dnd-kit/core"
 import { arrayMove, SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { db } from "@/lib/db/storage"
 import { getCurrentUser } from "@/lib/auth"
 import apiFetch from "@/lib/api-client"
 import { ProductCard } from "@/components/product-card"
-import { Plus, Edit, Trash2, Save, X, GripVertical } from 'lucide-react'
+import { Plus, Edit, Trash2, Save, X, GripVertical, MoreHorizontal } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { Collection } from "@/types/collection"
@@ -254,8 +254,8 @@ export default function AdminCollectionsPage() {
     })
   }
 
-  // SortableCard component for dnd-kit — provides handle support.
-  function SortableCard({ id, children }: { id: string; children: (props: { attributes: any; listeners: any; isDragging: boolean }) => React.ReactNode }) {
+  // SortableCard component for dnd-kit — provides sortable root behavior (attributes/listeners on wrapper)
+  function SortableCard({ id, children }: { id: string; children: (props: { isDragging: boolean; attributes: any; listeners: any }) => React.ReactNode }) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
     const style: any = {
       transform: CSS.Transform.toString(transform),
@@ -263,8 +263,8 @@ export default function AdminCollectionsPage() {
       zIndex: isDragging ? 50 : undefined,
     }
     return (
-      <div ref={setNodeRef} style={{ ...style, touchAction: 'none', userSelect: 'none' }}>
-        {children({ attributes, listeners, isDragging })}
+      <div ref={setNodeRef} style={style} className="w-full">
+        {children({ isDragging, attributes, listeners })}
       </div>
     )
   }
@@ -277,22 +277,71 @@ export default function AdminCollectionsPage() {
       transition,
       zIndex: isDragging ? 50 : undefined,
     }
+    // Wrap listeners so that interactions originating from elements marked with
+    // `data-no-drag` will not trigger dnd-kit handlers (preserve button behavior).
+    const safeListeners: any = {}
+    Object.entries(listeners || {}).forEach(([key, fn]: any) => {
+      safeListeners[key] = (e: any) => {
+        try {
+          const t = e.target as HTMLElement | null
+          if (t && t.closest && t.closest('[data-no-drag]')) return
+        } catch (_) {}
+        return fn && fn(e)
+      }
+    })
+
     return (
-      <div ref={setNodeRef} style={{ ...style, touchAction: 'none', userSelect: 'none' }} className="relative">
-        <div className="absolute left-2 top-2 z-10">
-          <button {...attributes} {...listeners} type="button" aria-label="ドラッグ" className="h-8 w-8 rounded bg-white/80 flex items-center justify-center shadow">
-            <GripVertical className="w-4 h-4" />
-          </button>
+      <div ref={setNodeRef} style={{ ...style, touchAction: 'none', userSelect: 'none' }} {...attributes} className="relative">
+        {/* listeners attached to the visible card area — entire card is draggable except elements marked with data-no-drag */}
+        <div {...safeListeners} className="relative">
+          <div className="aspect-[4/5]">
+            <ProductCard product={product} isAdminMode={true} size="sm" className="h-full" />
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="absolute bottom-2 right-2 z-10"
+            data-no-drag
+            onPointerDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            onClick={() => handleRemoveProduct(managingCollectionId as string, product.id)}
+          >
+            解除
+          </Button>
         </div>
-        <ProductCard product={product} isAdminMode={true} />
-        <Button
-          size="sm"
-          variant="outline"
-          className="absolute top-2 right-2"
-          onClick={() => handleRemoveProduct(managingCollectionId as string, product.id)}
-        >
-          解除
+      </div>
+    )
+  }
+
+  // Overflow menu for collection actions (edit / delete)
+  function CollectionMenu({ collection }: { collection: Collection }) {
+    const [isOpen, setIsOpen] = useState(false)
+    const ref = useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+      const onDoc = (e: MouseEvent) => {
+        if (!ref.current) return
+        if (!ref.current.contains(e.target as Node)) setIsOpen(false)
+      }
+      document.addEventListener('mousedown', onDoc)
+      return () => document.removeEventListener('mousedown', onDoc)
+    }, [])
+
+    return (
+      <div className="relative" ref={ref}>
+        <Button variant="ghost" size="icon" aria-label="項目の操作" onClick={() => setIsOpen((v) => !v)}>
+          <MoreHorizontal className="h-5 w-5" />
         </Button>
+        {isOpen && (
+          <div className="absolute right-0 top-8 z-20 w-40 rounded-md border bg-card shadow-md">
+            <button className="w-full text-left px-3 py-2 hover:bg-muted flex items-center gap-2" onClick={() => { setIsOpen(false); openEditDialog(collection) }}>
+              <Edit className="w-4 h-4" /> 編集
+            </button>
+            <button className="w-full text-left px-3 py-2 hover:bg-muted text-destructive flex items-center gap-2" onClick={() => { setIsOpen(false); handleDelete(collection.id) }}>
+              <Trash2 className="w-4 h-4" /> 削除
+            </button>
+          </div>
+        )}
       </div>
     )
   }
@@ -396,7 +445,7 @@ export default function AdminCollectionsPage() {
   }
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
     useSensor(MouseSensor)
   )
@@ -472,71 +521,70 @@ export default function AdminCollectionsPage() {
       </div>
 
       <DndContext
-        sensors={useSensors(useSensor(PointerSensor, { activationConstraint: { delay: 150, tolerance: 5 } }))}
-        onDragEnd={(e: DragEndEvent) => {
-          const { active, over } = e
-          if (!over) return
-          if (active.id === over.id) return
-          const oldIndex = collections.findIndex((c) => c.id === active.id)
-          const newIndex = collections.findIndex((c) => c.id === over.id)
-          if (oldIndex < 0 || newIndex < 0) return
-          const next = arrayMove(collections, oldIndex, newIndex)
-          setCollections(next)
-          try {
-            localStorage.setItem('collections-order', JSON.stringify(next.map((c) => c.id)))
-          } catch (e) {}
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={() => { try { document.body.style.overflow = 'hidden' } catch {} }}
+            onDragEnd={(e: DragEndEvent) => {
+              try { document.body.style.overflow = '' } catch {}
+              const { active, over } = e
+              if (!over) return
+              if (active.id === over.id) return
+              const oldIndex = collections.findIndex((c) => c.id === active.id)
+              const newIndex = collections.findIndex((c) => c.id === over.id)
+              if (oldIndex < 0 || newIndex < 0) return
+              const next = arrayMove(collections, oldIndex, newIndex)
+              setCollections(next)
+              try {
+                localStorage.setItem('collections-order', JSON.stringify(next.map((c) => c.id)))
+              } catch (e) {}
 
-          // try to persist order to server (best-effort)
-          ;(async () => {
-            try {
-              await apiFetch('/api/admin/collections/reorder', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ order: next.map((c, i) => ({ id: c.id, order: i })) }),
-              })
-            } catch (err) {
-              console.warn('collections reorder persist failed', err)
-            }
-          })()
-        }}
-      >
+              ;(async () => {
+                try {
+                  await apiFetch('/api/admin/collections/reorder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ order: next.map((c, i) => ({ id: c.id, order: i })) }),
+                  })
+                } catch (err) {
+                  console.warn('collections reorder persist failed', err)
+                }
+              })()
+            }}
+          >
         <SortableContext items={collections.map((c) => c.id)} strategy={rectSortingStrategy}>
           <div className="grid md:grid-cols-2 gap-6">
             {collections.map((collection) => {
           const itemCount = (collection as any).itemCount ?? db.collectionItems.getByCollectionId(collection.id).length
               return (
                 <SortableCard key={collection.id} id={collection.id}>
-                  {({ attributes, listeners }) => (
-                    <Card>
+                  {({ isDragging, attributes, listeners }) => (
+                    <Card className="relative">
                       <CardHeader>
                         <div className="flex items-start justify-between">
-                          <div>
+                          {/* Drag handle: only this area is draggable */}
+                          <div {...attributes} {...listeners} style={{ touchAction: 'none', userSelect: 'none' }} className="cursor-grab flex-1">
                             <CardTitle className="mb-2">{collection.title}</CardTitle>
                             <div className="flex items-center gap-2">
-                              <Badge variant={collection.visibility === "public" ? "default" : "secondary"}>
-                                {collection.visibility === "public" ? "公開" : "下書き"}
-                              </Badge>
                               <span className="text-sm text-muted-foreground">{((collection as any).inspect?.existingCount ?? itemCount)}個のアイテム</span>
                               {((collection as any).inspect?.missingCount ?? 0) > 0 && (
                                 <Badge variant="destructive" className="ml-2">欠損 { (collection as any).inspect.missingCount } 件</Badge>
                               )}
                             </div>
                           </div>
+                          {/* Action area: interactive controls must be outside the drag handle */}
                           <div className="flex items-center gap-2">
-                            <Switch
-                              checked={collection.visibility === "public"}
-                              onCheckedChange={(checked) => handleToggleVisibility(collection.id, checked ? "public" : "draft")}
-                            />
-                            <button
-                              {...attributes}
-                              {...listeners}
-                              type="button"
-                              aria-label={`ドラッグ ${collection.id}`}
-                              style={{ touchAction: 'none', WebkitTapHighlightColor: 'transparent' }}
-                              className="h-6 w-6 rounded border bg-muted flex items-center justify-center text-xs ml-2"
-                            >
-                              ≡
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={collection.visibility === "public" ? "default" : "secondary"}>
+                                {collection.visibility === "public" ? "公開中" : "下書き"}
+                              </Badge>
+                              <Switch
+                                checked={collection.visibility === "public"}
+                                onCheckedChange={(checked) => handleToggleVisibility(collection.id, checked ? "public" : "draft")}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onTouchStart={(e) => e.stopPropagation()}
+                              />
+                            </div>
+                            <CollectionMenu collection={collection} />
                           </div>
                         </div>
                       </CardHeader>
@@ -545,7 +593,9 @@ export default function AdminCollectionsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="flex-1 bg-transparent"
+                            className="flex-1 bg-transparent relative z-10 pointer-events-auto"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onTouchStart={(e) => e.stopPropagation()}
                             onClick={() => openManageProductsDialog(collection.id)}
                           >
                             <Plus className="w-4 h-4 mr-1" />
@@ -555,7 +605,9 @@ export default function AdminCollectionsPage() {
                             <Button
                               size="sm"
                               variant="destructive"
-                              className="bg-transparent"
+                              className="bg-transparent relative z-10 pointer-events-auto"
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onTouchStart={(e) => e.stopPropagation()}
                               onClick={async () => {
                                 try {
                                   const res = await apiFetch(`/api/admin/collections/${encodeURIComponent(collection.id)}/sync`, { method: 'POST' })
@@ -574,18 +626,6 @@ export default function AdminCollectionsPage() {
                               同期
                             </Button>
                           )}
-                          <Button size="sm" variant="outline" onClick={() => openEditDialog(collection)}>
-                            <Edit className="w-4 h-4 mr-1" />
-                            編集
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-destructive hover:text-destructive bg-transparent"
-                            onClick={() => handleDelete(collection.id)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
                         </div>
                       </CardContent>
                     </Card>
@@ -660,29 +700,31 @@ export default function AdminCollectionsPage() {
               <div className="space-y-6">
                 <div>
                   <h3 className="font-semibold mb-3">含まれている商品</h3>
-                  <DndContext sensors={sensors} onDragEnd={handleManageProductsDragEnd}>
-                    <SortableContext items={managingCollectionProductIds} strategy={rectSortingStrategy}>
-                      <div className="grid grid-cols-3 md:grid-cols-2 gap-4">
-                        {getManagedProductsOrdered(managingCollectionId).map((product: any) => (
-                          <SortableProduct key={product.id} id={product.id} product={product} />
-                        ))}
-                        {getManagedProductsOrdered(managingCollectionId).length === 0 && (
-                          <p className="col-span-full text-center text-muted-foreground py-8">商品がありません</p>
-                        )}
-                      </div>
-                    </SortableContext>
-                  </DndContext>
-                </div>
+                    <DndContext sensors={sensors} onDragEnd={handleManageProductsDragEnd}>
+                      <SortableContext items={managingCollectionProductIds} strategy={rectSortingStrategy}>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              {getManagedProductsOrdered(managingCollectionId).map((product: any) => (
+                                <SortableProduct key={product.id} id={product.id} product={product} />
+                              ))}
+                          {getManagedProductsOrdered(managingCollectionId).length === 0 && (
+                            <p className="col-span-full text-center text-muted-foreground py-8">商品がありません</p>
+                          )}
+                        </div>
+                      </SortableContext>
+                      </DndContext>
+                    </div>
 
                 <div className="border-t pt-6">
                   <h3 className="font-semibold mb-3">追加できる商品</h3>
-                  <div className="grid grid-cols-3 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {getAvailableProducts(managingCollectionId).map((product) => (
                       <div key={product.id} className="relative">
-                        <ProductCard product={product} isAdminMode={true} />
+                        <div className="aspect-[4/5]">
+                          <ProductCard product={product} isAdminMode={true} size="sm" className="h-full" />
+                        </div>
                         <Button
                           size="sm"
-                          className="absolute top-2 right-2"
+                          className="absolute bottom-2 right-2 z-10 pointer-events-auto"
                           onClick={() => handleAddProduct(managingCollectionId, product.id)}
                         >
                           <Plus className="w-3 h-3 mr-1" />
@@ -690,11 +732,6 @@ export default function AdminCollectionsPage() {
                         </Button>
                       </div>
                     ))}
-                    {getAvailableProducts(managingCollectionId).length === 0 && (
-                      <p className="col-span-full text-center text-muted-foreground py-8">
-                        すべての商品が追加されています
-                      </p>
-                    )}
                   </div>
                 </div>
               </div>

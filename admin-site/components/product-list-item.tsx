@@ -85,11 +85,17 @@ export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
             {/* Top row: published badge + switch aligned to right */}
             <div className="flex items-start justify-end">
               <div className="flex items-center gap-2">
-                <Badge variant={publishedState ? "default" : "secondary"}>
-                  {publishedState ? "公開中" : "下書き"}
-                </Badge>
-                <Switch checked={publishedState} onCheckedChange={(v) => handleTogglePublished(!!v)} />
-              </div>
+                  <Badge variant={publishedState ? "default" : "secondary"}>
+                    {publishedState ? "公開中" : "下書き"}
+                  </Badge>
+                  <Switch
+                    data-no-drag
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    checked={publishedState}
+                    onCheckedChange={(v) => handleTogglePublished(!!v)}
+                  />
+                </div>
             </div>
 
             {/* Middle row: product name */}
@@ -124,16 +130,24 @@ function MenuActions({ productId, onEdit, onDelete }: { productId?: string | nul
   }, [])
 
   return (
-    <div className="relative" ref={ref}>
-      <Button variant="ghost" size="icon" aria-label="項目の操作" onClick={() => setOpen((v) => !v)}>
+      <div className="relative" ref={ref}>
+      <Button
+        data-no-drag
+        variant="ghost"
+        size="icon"
+        aria-label="項目の操作"
+        onPointerDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+        onClick={() => setOpen((v) => !v)}
+      >
         <MoreHorizontal className="h-5 w-5" />
       </Button>
       {open && (
         <div className="absolute right-0 bottom-10 z-20 w-40 rounded-md border bg-card shadow-md">
-          <button className="w-full text-left px-3 py-2 hover:bg-muted flex items-center gap-2" onClick={() => { setOpen(false); onEdit() }}>
+          <button className="w-full text-left px-3 py-2 hover:bg-muted flex items-center gap-2" data-no-drag onPointerDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={() => { setOpen(false); onEdit() }}>
             <Edit className="w-4 h-4" /> 編集
           </button>
-          <button className="w-full text-left px-3 py-2 hover:bg-muted text-destructive flex items-center gap-2" onClick={() => { setOpen(false); onDelete() }}>
+          <button className="w-full text-left px-3 py-2 hover:bg-muted text-destructive flex items-center gap-2" data-no-drag onPointerDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={() => { setOpen(false); onDelete() }}>
             <Trash2 className="w-4 h-4" /> 削除
           </button>
         </div>

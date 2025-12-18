@@ -5,7 +5,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Save, Plus, Trash2, Tag, Edit, LinkIcon } from 'lucide-react'
+import { ArrowLeft, Save, Plus, Trash2, Tag, Edit, LinkIcon, MoreVertical } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import Link from "next/link"
 import { db } from "@/lib/db/storage"
 import { DndContext, closestCenter, PointerSensor, TouchSensor, MouseSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core"
@@ -174,21 +181,15 @@ export default function AdminTagsPage() {
     }
 
     return (
-      <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 flex items-center">
+      <div
+        ref={setNodeRef as any}
+        style={style}
+        {...attributes}
+        {...listeners}
+        className="bg-background rounded-md border p-3 flex items-center min-w-0 w-full"
+      >
         {/* children are expected to include a left (name) and right (actions) element */}
         {children}
-        <div className="flex-none ml-2">
-          <button
-            {...attributes}
-            {...listeners}
-            type="button"
-            aria-label={`ドラッグ ${id}`}
-            style={{ touchAction: 'none', WebkitTapHighlightColor: 'transparent' }}
-            className="h-6 w-6 rounded border bg-muted flex items-center justify-center text-xs"
-          >
-            ≡
-          </button>
-        </div>
       </div>
     )
   }
@@ -206,7 +207,7 @@ export default function AdminTagsPage() {
     return (
       <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 min-w-40 min-h-11 flex items-center justify-center text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
-          <div className="text-sm">ドロップしてタグを追加</div>
+          <div className="text-sm whitespace-nowrap">ドロップしてタグを追加</div>
         </div>
         <div {...attributes} {...listeners} className="sr-only" />
       </div>
@@ -593,12 +594,18 @@ export default function AdminTagsPage() {
     }
 
     return (
-      <div ref={setNodeRef as any} style={style} className="bg-background rounded-md border p-3 flex items-center w-full">
+      <div
+        ref={setNodeRef as any}
+        style={style}
+        {...attributes}
+        {...listeners}
+        className="bg-background rounded-md border p-3 flex items-center w-full"
+      >
         <div className="flex-1 min-w-0 flex items-center gap-3 overflow-hidden">
           <Badge variant="outline" className="gap-1 shrink-0">
             {tag.linkUrl && <LinkIcon className="w-3 h-3" />}
           </Badge>
-          <div className="min-w-[120px] max-w-[260px]">
+          <div className="min-w-0 max-w-full">
             <div className="text-sm font-medium truncate">{tag.name}</div>
           </div>
         </div>
@@ -606,32 +613,18 @@ export default function AdminTagsPage() {
           {usedTags.has(tag.name) && (
             <div className="text-xs text-muted-foreground mr-2">{usedTags.get(tag.name)}件</div>
           )}
-          <button
-            {...attributes}
-            {...listeners}
-            type="button"
-            aria-label={`ドラッグ ${tag.name}`}
-            style={{ touchAction: 'none', WebkitTapHighlightColor: 'transparent' }}
-            className="h-6 w-6 rounded border bg-muted flex items-center justify-center text-xs"
-          >
-            ≡
-          </button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => onEdit(tag)}
-          >
-            <Edit className="w-3 h-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-destructive"
-            onClick={() => onDelete(tag.id)}
-          >
-            <Trash2 className="w-3 h-3" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-6 w-6">
+                <MoreVertical className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => onEdit(tag)}>編集</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => onDelete(tag.id)} data-variant="destructive">削除</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     )
@@ -864,7 +857,9 @@ export default function AdminTagsPage() {
               useSensor(MouseSensor),
             )}
             collisionDetection={closestCenter}
+            onDragStart={() => { try { document.body.style.overflow = 'hidden' } catch {} }}
             onDragEnd={(e) => {
+              try { document.body.style.overflow = '' } catch {}
               const { active, over } = e
               if (!active || !over) return
               const a = String(active.id)
@@ -875,8 +870,8 @@ export default function AdminTagsPage() {
               }
             }}
           >
-            <SortableContext items={serverGroups} strategy={rectSortingStrategy}>
-              <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              <SortableContext items={serverGroups} strategy={rectSortingStrategy}>
+              <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
                 <div className="bg-background rounded-md border-2 border-dashed p-3 flex items-center justify-center">
                   <span className="text-sm text-muted-foreground">未分類</span>
                 </div>
@@ -888,24 +883,16 @@ export default function AdminTagsPage() {
                     <div className="flex-none flex items-center gap-2 ml-2">
                       {/* Special handling: protect the special link group from rename/delete */}
                       {groupName !== SPECIAL_LINK_GROUP_NAME && (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 shrink-0"
-                            onClick={() => {
-                              setEditingGroupName(groupName)
-                              setNewGroupName(groupName)
-                              setIsGroupDialogOpen(true)
-                            }}
-                          >
-                            <Edit className="w-3 h-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-destructive"
-                            onClick={async () => {
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0">
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={() => { setEditingGroupName(groupName); setNewGroupName(groupName); setIsGroupDialogOpen(true) }}>編集</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={async () => {
                               if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
                               try {
                                 const res = await apiFetch('/api/admin/tag-groups', {
@@ -914,7 +901,6 @@ export default function AdminTagsPage() {
                                   body: JSON.stringify({ name: groupName }),
                                 })
                                 if (!res.ok) throw new Error('delete failed')
-                                // unset group locally
                                 const updatedTags = tags.map((t) => (t.group === groupName ? { ...t, group: undefined } : t))
                                 setTags(updatedTags)
                                 db.tags.saveAll(updatedTags)
@@ -924,11 +910,9 @@ export default function AdminTagsPage() {
                                 console.error('delete group failed', e)
                                 toast({ variant: 'destructive', title: '削除失敗' })
                               }
-                            }}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                        </>
+                            }} data-variant="destructive">削除</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )}
                     </div>
                   </SortableGroup>
@@ -955,9 +939,9 @@ export default function AdminTagsPage() {
               useSensor(MouseSensor),
             )}
             collisionDetection={closestCenter}
-            onDragStart={(e) => { try { console.debug('dnd:start', { active: (e as any).active?.id }) } catch(_){} }}
+            onDragStart={(e) => { try { document.body.style.overflow = 'hidden'; console.debug('dnd:start', { active: (e as any).active?.id }) } catch(_){} }}
             onDragOver={(e) => { try { console.debug('dnd:over', { active: (e as any).active?.id, over: (e as any).over?.id }) } catch(_){} }}
-            onDragEnd={(e) => { try { console.debug('dnd:end', { active: (e as any).active?.id, over: (e as any).over?.id }) } catch(_){}; handleDragEnd(e) }}
+            onDragEnd={(e) => { try { document.body.style.overflow = ''; console.debug('dnd:end', { active: (e as any).active?.id, over: (e as any).over?.id }) } catch(_){}; handleDragEnd(e) }}
           >
             {displayGroupNames.map((groupName) => {
               const groupTags = groupedTags.get(groupName) || []
@@ -968,25 +952,43 @@ export default function AdminTagsPage() {
                       <div className="flex items-center gap-2 truncate">
                         <span className="text-sm font-medium truncate">{groupName}</span>
                         {groupName !== "未分類" && groupName !== SPECIAL_LINK_GROUP_NAME && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => {
-                              setEditingGroupName(groupName)
-                              setNewGroupName(groupName)
-                              setIsGroupDialogOpen(true)
-                            }}
-                          >
-                            <Edit className="w-3 h-3" />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-6 w-6">
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onSelect={() => { setEditingGroupName(groupName); setNewGroupName(groupName); setIsGroupDialogOpen(true) }}>編集</DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onSelect={async () => {
+                                if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
+                                try {
+                                  const res = await apiFetch('/api/admin/tag-groups', {
+                                    method: 'DELETE',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ name: groupName }),
+                                  })
+                                  if (!res.ok) throw new Error('delete failed')
+                                  const updatedTags = tags.map((t) => (t.group === groupName ? { ...t, group: undefined } : t))
+                                  setTags(updatedTags)
+                                  db.tags.saveAll(updatedTags)
+                                  setServerGroups((s) => s.filter((g) => g !== groupName))
+                                  toast({ title: '削除完了', description: `グループ「${groupName}」を削除しました` })
+                                } catch (e) {
+                                  console.error('delete group failed', e)
+                                  toast({ variant: 'destructive', title: '削除失敗' })
+                                }
+                              }} data-variant="destructive">削除</DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                       </div>
                       <Badge variant="outline" className="text-sm">{groupTags.length}個</Badge>
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                    <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
                       <SortableContext items={groupTags.length > 0 ? groupTags.map(t => `${groupName}::${t.id}`) : [`${groupName}::__placeholder__`]} strategy={rectSortingStrategy}>
                         {groupTags.length > 0 ? (
                           groupTags.map((tag) => (

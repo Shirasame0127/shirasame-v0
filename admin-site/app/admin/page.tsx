@@ -205,20 +205,22 @@ export default function AdminDashboard() {
         {stats.map((stat) => {
           const Icon = stat.icon
           const content = (
-            <Card key={stat.title} className="hover:bg-accent/50 transition-colors">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs font-medium text-muted-foreground">{stat.title}</div>
-                  <Icon className="w-4 h-4 text-muted-foreground" />
+            <Card key={stat.title} className="hover:bg-accent/50 transition-colors h-full">
+              <CardContent className="p-4 flex flex-col justify-between h-full">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-medium text-muted-foreground">{stat.title}</div>
+                    <Icon className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <div className="text-2xl font-bold mb-1">{stat.value}</div>
                 </div>
-                <div className="text-2xl font-bold mb-1">{stat.value}</div>
                 <p className="text-xs text-muted-foreground">{stat.description}</p>
               </CardContent>
             </Card>
           )
 
           return stat.link ? (
-            <Link key={stat.title} href={stat.link} prefetch={false}>
+            <Link key={stat.title} href={stat.link} prefetch={false} className="h-full">
               {content}
             </Link>
           ) : (

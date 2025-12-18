@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import AdminLoading from '@/components/admin-loading'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -75,7 +75,19 @@ export default function ProductEditPageQuery() {
   const [shortDescription, setShortDescription] = useState("")
   const [body, setBody] = useState("")
   const [notes, setNotes] = useState("")
-  const [attachmentSlots, setAttachmentSlots] = useState<AttachmentSlot[]>([])
+  const [attachmentSlots, setAttachmentSlots] = useState<AttachmentSlot[]>(() =>
+    Array.from({ length: 4 }).map(() => ({ file: null, key: "" }))
+  )
+
+  const addInputRef = useRef<HTMLInputElement | null>(null)
+  const replaceInputRef = useRef<HTMLInputElement | null>(null)
+  const [replaceIndex, setReplaceIndex] = useState<number | null>(null)
+
+  const ensureSlotsLength = (slots: AttachmentSlot[] | any[]) => {
+    const next = (slots || []).slice(0, 4).map((s: any) => ({ file: s.file || null, key: s.key || "" }))
+    while (next.length < 4) next.push({ file: null, key: "" })
+    return next
+  }
   const [relatedLinks, setRelatedLinks] = useState<string[]>([""])
   const [price, setPrice] = useState("")
   const [showPrice, setShowPrice] = useState(true)
@@ -127,7 +139,13 @@ export default function ProductEditPageQuery() {
         }
         
         if (Array.isArray(data.affiliateLinks) && data.affiliateLinks.length > 0) {
-          setAffiliateLinks(data.affiliateLinks)
+          // Normalize provider to template id when possible (store id instead of display name)
+          const normalized = (data.affiliateLinks || []).map((l: any) => {
+            const prov = l.provider || ''
+            const matchedKey = Object.keys(KNOWN_AFFILIATE_TEMPLATES).find((k) => KNOWN_AFFILIATE_TEMPLATES[k].name === prov || k === prov)
+            return { provider: matchedKey || prov || '', url: l.url || '', label: l.label || '' }
+          })
+          setAffiliateLinks(normalized)
         }
 
         if (Array.isArray(data.images) && data.images.length > 0) {
@@ -151,7 +169,7 @@ export default function ProductEditPageQuery() {
             attachments = data.images.filter((img: any) => img !== main)
           }
           // Persist attachments as key-only. Normalize keys/URLs to canonical key form.
-          setAttachmentSlots(
+          setAttachmentSlots(ensureSlotsLength(
             attachments
               .slice(0, 4)
               .map((img: any) => {
@@ -159,16 +177,16 @@ export default function ProductEditPageQuery() {
                 const normalized = extractKeyFromUrl(raw) || String(raw || '')
                 return { file: null, key: normalized }
               })
-          )
+          ))
           try { console.log('[product-edit] attachments resolved from images[]', attachments.map((a:any) => a.key || a.basePath || null)) } catch (e) {}
         }
         // If product exposes attachment_image_keys use them as authoritative
         if (data && Array.isArray(data.attachment_image_keys) && data.attachment_image_keys.length > 0) {
-          setAttachmentSlots(
+          setAttachmentSlots(ensureSlotsLength(
             (data.attachment_image_keys || [])
               .slice(0, 4)
               .map((k: any) => ({ file: null, key: extractKeyFromUrl(k) || String(k || '') }))
-          )
+          ))
           try { console.log('[product-edit] attachment_image_keys from server', data.attachment_image_keys) } catch (e) {}
         }
         // No fallback to public API: admin UI must rely on admin API only.
@@ -372,11 +390,13 @@ export default function ProductEditPageQuery() {
       linkTag: templateTag,
     }
     const updated = [...affiliateLinks]
+    // Store the template id (tag) as provider so Select value can bind directly to it
+    // Overwrite URL and label with the template values on selection
     updated[index] = {
       ...updated[index],
-      provider: template.name,
-      label: updated[index].label || template.defaultLabel,
-      url: updated[index].url || template.defaultUrl,
+      provider: template.id,
+      label: template.defaultLabel,
+      url: template.defaultUrl,
     }
     setAffiliateLinks(updated)
     ensureLinkTag(template.linkTag)
@@ -403,11 +423,10 @@ export default function ProductEditPageQuery() {
 
   const handleAttachmentChange = (index: number, file: File | null) => {
     setAttachmentSlots((prev) => {
-      const next = [...prev]
-      if (next[index]) {
-        next[index] = { ...next[index], file }
-      }
-      return next
+      const next = [...(prev || [])]
+      while (next.length < index + 1) next.push({ file: null, key: "" })
+      next[index] = { ...(next[index] || { file: null, key: "" }), file }
+      return ensureSlotsLength(next)
     })
   }
 
@@ -444,9 +463,7 @@ export default function ProductEditPageQuery() {
   }
 
   const addAttachmentSlot = () => {
-    if (attachmentSlots.length < 4) {
-      setAttachmentSlots([...attachmentSlots, { file: null, key: "" }])
-    }
+    setAttachmentSlots((prev) => ensureSlotsLength([...(prev || []), { file: null, key: "" }]))
   }
 
   const addRelatedLink = () => {
@@ -514,7 +531,7 @@ export default function ProductEditPageQuery() {
         })
       )
       finalAttachmentSlots = newAttachmentSlots
-      setAttachmentSlots(newAttachmentSlots)
+      setAttachmentSlots(ensureSlotsLength(newAttachmentSlots))
     } catch (e) {
       console.error('upload before save failed', e)
       toast({ variant: 'destructive', title: 'アップロードエラー', description: '画像アップロード中にエラーが発生しました。' })
@@ -544,7 +561,12 @@ export default function ProductEditPageQuery() {
       notes: notes.trim() || undefined,
       relatedLinks: relatedLinks.filter((link) => link.trim()),
       images,
-      affiliateLinks: affiliateLinks.filter((link) => link.url),
+      affiliateLinks: affiliateLinks
+        .filter((link) => link.url)
+        .map((l) => ({
+          ...l,
+          provider: affiliateTemplateOptions.find((t) => t.id === l.provider)?.name || l.provider,
+        })),
       tags,
       price: price ? Number(price) : undefined,
       showPrice,
@@ -599,6 +621,25 @@ export default function ProductEditPageQuery() {
       </div>
 
       <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>商品画像 *</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ImageUpload
+                value={mainImageValue}
+                onChange={(f) => setMainFile(f)}
+                aspectRatioType="product"
+                onUploadComplete={(key) => {
+                  if (key) {
+                    setMainImageKey(key)
+                    try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
+                    setMainFile(null)
+                  }
+                }}
+              />
+          </CardContent>
+        </Card>
         {/* フォーム（元実装と同じ） */}
         <Card>
           <CardHeader>
@@ -771,60 +812,83 @@ export default function ProductEditPageQuery() {
 
         <Card>
           <CardHeader>
-            <CardTitle>商品画像 *</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ImageUpload
-                value={mainImageValue}
-                onChange={(f) => setMainFile(f)}
-                aspectRatioType="product"
-                onUploadComplete={(key) => {
-                  if (key) {
-                    setMainImageKey(key)
-                    try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
-                    setMainFile(null)
-                  }
-                }}
-              />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>添付画像（最大4枚）</CardTitle>
-              {attachmentSlots.length < 4 && (
-                <Button type="button" size="sm" variant="outline" onClick={addAttachmentSlot}>
-                  <Plus className="w-4 h-4 mr-1" />
-                  追加
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {attachmentSlots.map((slot, index) => (
-              <div key={index} className="relative">
-                <ImageUpload
-                  value={getPublicImageUrl(db.images.getUpload(slot.key) || slot.key) || ""}
-                  onChange={(f) => handleAttachmentChange(index, f)}
-                  aspectRatioType="product"
-                  onUploadComplete={(key) => {
-                    if (!key) return
-                    if (typeof key === 'string' && key.startsWith('http')) {
-                      toast({ variant: 'destructive', title: '無効な画像キー', description: 'アップロード結果がURLでした。管理画面はキーのみを保存します。' })
-                      return
-                    }
-                    setAttachmentSlots((prev) => {
-                      const next = [...prev]
-                      if (next[index]) next[index] = { ...next[index], key }
-                      return next
-                    })
-                  }}
-                />
+              <div className="flex items-center justify-between">
+                <CardTitle>添付画像（最大4枚）</CardTitle>
               </div>
-            ))}
-            {attachmentSlots.length === 0 && <p className="text-sm text-muted-foreground">添付画像はありません</p>}
-          </CardContent>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-4">
+              <input ref={addInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                const f = e.target.files?.[0]
+                if (!f) return
+                try {
+                  const u = await uploadFile(f)
+                  const k = (u as any)?.key
+                  if (!k) throw new Error('upload failed')
+                  // put into first empty slot
+                  setAttachmentSlots((prev) => {
+                    const next = ensureSlotsLength([...(prev || [])])
+                    const idx = next.findIndex((s) => !s.key)
+                    const useIdx = idx === -1 ? next.length : idx
+                    while (next.length < useIdx + 1) next.push({ file: null, key: "" })
+                    next[useIdx] = { file: null, key: k }
+                    return ensureSlotsLength(next)
+                  })
+                } catch (err) {
+                  console.error('add attachment upload failed', err)
+                  toast({ variant: 'destructive', title: 'アップロード失敗' })
+                } finally { if (addInputRef.current) addInputRef.current.value = '' }
+              }} />
+
+              <input ref={replaceInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                const f = e.target.files?.[0]
+                if (!f || replaceIndex === null) return
+                const idx = replaceIndex
+                try {
+                  const u = await uploadFile(f)
+                  const k = (u as any)?.key
+                  if (!k) throw new Error('upload failed')
+                  setAttachmentSlots((prev) => {
+                    const next = ensureSlotsLength([...(prev || [])])
+                    while (next.length < idx + 1) next.push({ file: null, key: "" })
+                    next[idx] = { file: null, key: k }
+                    return ensureSlotsLength(next)
+                  })
+                } catch (err) {
+                  console.error('replace attachment upload failed', err)
+                  toast({ variant: 'destructive', title: 'アップロード失敗' })
+                } finally { setReplaceIndex(null); if (replaceInputRef.current) replaceInputRef.current.value = '' }
+              }} />
+
+              {/* Existing attachments thumbnails */}
+              {attachmentSlots.filter(s => s.key).map((slot, idx) => (
+                <div key={idx} className="relative w-full sm:w-1/2 lg:w-1/4 border rounded overflow-hidden">
+                  <img src={getPublicImageUrl(db.images.getUpload(slot.key) || slot.key) || ''} alt={`attachment-${idx}`} className="w-full h-48 object-cover" />
+                  <div className="absolute top-2 right-2 flex flex-col gap-2">
+                    <button type="button" className="bg-white/90 rounded p-1" onClick={() => { setReplaceIndex(idx); replaceInputRef.current?.click() }} title="入れ替え">
+                      置換
+                    </button>
+                    <button type="button" className="bg-white/90 rounded p-1" onClick={() => {
+                      setAttachmentSlots((prev) => {
+                        const next = (prev || []).slice()
+                        if (idx >= 0 && idx < next.length) next.splice(idx, 1)
+                        return ensureSlotsLength(next)
+                      })
+                    }} title="削除">
+                      削除
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {/* Single add button when less than 4 attachments */}
+              {attachmentSlots.filter(s => s.key).length < 4 && (
+                <div className="w-full sm:w-1/2 lg:w-1/4 flex items-center justify-center border rounded p-4">
+                  <Button onClick={() => addInputRef.current?.click()} variant="outline">
+                    <Plus className="w-4 h-4 mr-2" /> 追加
+                  </Button>
+                </div>
+              )}
+            </CardContent>
         </Card>
 
         <Card>
@@ -844,7 +908,7 @@ export default function ProductEditPageQuery() {
                   <div className="space-y-2">
                     <Label>リンク先テンプレート</Label>
                     <Select
-                      value={affiliateTemplateOptions.find((t) => t.name === link.provider)?.id || ""}
+                      value={link.provider || ""}
                       onValueChange={(value) => applyAffiliateTemplate(index, value)}
                     >
                       <SelectTrigger>

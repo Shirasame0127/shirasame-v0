@@ -12,6 +12,9 @@ import { Plus, Edit, Trash2, Eye, EyeOff } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { getCurrentUser } from '@/lib/auth'
 import apiFetch from '@/lib/api-client'
+import { DndContext, PointerSensor, TouchSensor, MouseSensor, useSensor, useSensors, DragEndEvent, closestCenter } from "@dnd-kit/core"
+import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 
 // Normalize recipe records coming from various sources (server, cache, legacy fields)
 function parseJsonField(field: any) {
@@ -32,6 +35,7 @@ function normalizeRecipe(r: any) {
   // parse JSON string fields
   normalized.images = parseJsonField(normalized.images)
   normalized.items = parseJsonField(normalized.items)
+
 
   // Map common snake_case DB columns to camelCase used by UI
   if (typeof normalized.base_image_id !== 'undefined' && typeof normalized.baseImageId === 'undefined') normalized.baseImageId = normalized.base_image_id
@@ -265,6 +269,12 @@ export default function RecipesManagementPage() {
     }
   }
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(MouseSensor)
+  )
+
   if (loading) {
     return <AdminLoading />
   }
@@ -320,136 +330,105 @@ export default function RecipesManagementPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {recipes.map((recipe) => (
-            <Card key={recipe.id} className="group hover:shadow-lg transition-shadow">
-              <CardContent className="p-4">
-                {/* レシピ画像プレビュー */}
-                <div className="aspect-video relative mb-3 bg-muted rounded-lg overflow-hidden">
-                  {(() => {
-                    // Prefer canonical recipe_image_keys if present (key-only policy)
-                    try {
-                      const keys = Array.isArray(recipe.recipe_image_keys) ? recipe.recipe_image_keys : (Array.isArray(recipe.recipeImageKeys) ? recipe.recipeImageKeys : [])
-                      const firstKey = keys && keys.length > 0 ? keys[0] : null
-                      // fallback to images[] entries (may contain url or key)
-                      const imgs = Array.isArray(recipe.images) ? recipe.images : []
-                      const firstImg = imgs.length > 0 ? imgs[0] : null
-                      const primaryCandidate = firstKey || (firstImg && (firstImg.key || firstImg.url || firstImg.imageUrl || firstImg.src)) || recipe.imageUrl || recipe.imageDataUrl || null
-                      if (!primaryCandidate) return (
-                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">画像未設定</div>
-                      )
-
-                      // data URLs are used as-is
-                      if (typeof primaryCandidate === 'string' && primaryCandidate.startsWith('data:')) {
-                        return (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={primaryCandidate} alt={recipe.title || 'レシピ画像'} className="w-full h-full object-cover" />
-                        )
-                      }
-
-                      // Use responsiveImageForUsage to generate src/srcSet matching public site
-                      try {
-                        const { responsiveImageForUsage } = require('@/lib/image-url')
-                        const resp = responsiveImageForUsage(primaryCandidate, 'list')
-                        const src = resp?.src || getPublicImageUrl(primaryCandidate) || primaryCandidate || '/placeholder.svg'
-                        return (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={src} srcSet={resp?.srcSet || undefined} sizes={resp?.sizes} alt={recipe.title || 'レシピ画像'} className="w-full h-full object-cover" />
-                        )
-                      } catch (e) {
-                        // fallback to getPublicImageUrl
-                        const src = getPublicImageUrl(primaryCandidate) || primaryCandidate || '/placeholder.svg'
-                        return (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={src} alt={recipe.title || 'レシピ画像'} className="w-full h-full object-cover" />
-                        )
-                      }
-                    } catch (err) {
-                      return (
-                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">画像未設定</div>
-                      )
-                    }
-                  })()}
-                  
-                  {/* 公開ステータスバッジ */}
-                  <div className="absolute top-2 right-2">
-                    {recipe.published ? (
-                      <div className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
-                        公開中
-                      </div>
-                    ) : (
-                      <div className="bg-gray-500 text-white text-xs px-2 py-1 rounded-full">
-                        非公開
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 管理画面では詳細情報を非表示にする（タイトル・画像・公開バッジのみ表示） */}
-
-                {/* レシピタイトル - インライン編集可能 */}
-                {editingId === recipe.id ? (
-                  <Input
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveTitle(recipe.id)
-                      if (e.key === 'Escape') setEditingId(null)
-                    }}
-                    onBlur={() => handleSaveTitle(recipe.id)}
-                    className="mb-3 h-8 text-sm"
-                    autoFocus
-                  />
-                ) : (
-                  <h3 
-                    className="font-semibold mb-3 truncate text-sm cursor-pointer hover:text-primary"
-                    onClick={() => {
-                      setEditingId(recipe.id)
-                      setEditTitle(recipe.title || "")
-                    }}
-                    title="クリックして編集"
-                  >
-                    {recipe.title || "無題のレシピ"}
-                  </h3>
-                )}
-
-                {/* アクションボタン */}
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => router.push(`/admin/recipes/edit?id=${recipe.id}`) }
-                    className="flex-1"
-                  >
-                    <Edit className="w-3 h-3 mr-1" />
-                    編集
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => togglePublish(recipe)}
-                    title={recipe.published ? "非公開にする" : "公開する"}
-                  >
-                    {recipe.published ? (
-                      <Eye className="w-3 h-3" />
-                    ) : (
-                      <EyeOff className="w-3 h-3" />
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleDelete(recipe.id)}
-                    title="削除"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={(e: DragEndEvent) => {
+            const { active, over } = e
+            if (!over) return
+            if (String(active.id) === String(over.id)) return
+            const oldIndex = recipes.findIndex((r) => String(r.id) === String(active.id))
+            const newIndex = recipes.findIndex((r) => String(r.id) === String(over.id))
+            if (oldIndex < 0 || newIndex < 0) return
+            const next = arrayMove(recipes, oldIndex, newIndex)
+            setRecipes(next)
+            ;(async () => {
+              try {
+                await apiFetch('/api/admin/recipes/reorder', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order: next.map((r, i) => ({ id: r.id, order: i })) })
+                })
+              } catch (err) {}
+            })()
+          }}
+        >
+          <SortableContext items={recipes.map((r) => r.id)} strategy={rectSortingStrategy}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {recipes.map((recipe) => (
+                <SortableRecipe key={recipe.id} id={recipe.id}>
+                  {({ attributes, listeners }) => (
+                    <Card className="group hover:shadow-lg transition-shadow">
+                      <CardContent className="p-4">
+                        <div {...attributes} {...listeners} style={{ touchAction: 'none', userSelect: 'none' }}>
+                          <div className="aspect-video relative mb-3 bg-muted rounded-lg overflow-hidden">
+                            {(() => {
+                              try {
+                                const keys = Array.isArray(recipe.recipe_image_keys) ? recipe.recipe_image_keys : (Array.isArray(recipe.recipeImageKeys) ? recipe.recipeImageKeys : [])
+                                const firstKey = keys && keys.length > 0 ? keys[0] : null
+                                const imgs = Array.isArray(recipe.images) ? recipe.images : []
+                                const firstImg = imgs.length > 0 ? imgs[0] : null
+                                const primaryCandidate = firstKey || (firstImg && (firstImg.key || firstImg.url || firstImg.imageUrl || firstImg.src)) || recipe.imageUrl || recipe.imageDataUrl || null
+                                if (!primaryCandidate) return (<div className="flex items-center justify-center h-full text-muted-foreground text-sm">画像未設定</div>)
+                                if (typeof primaryCandidate === 'string' && primaryCandidate.startsWith('data:')) {
+                                  return (<img src={primaryCandidate} alt={recipe.title || 'レシピ画像'} className="w-full h-full object-cover" />)
+                                }
+                                try {
+                                  const { responsiveImageForUsage } = require('@/lib/image-url')
+                                  const resp = responsiveImageForUsage(primaryCandidate, 'list')
+                                  const src = resp?.src || getPublicImageUrl(primaryCandidate) || primaryCandidate || '/placeholder.svg'
+                                  return (<img src={src} srcSet={resp?.srcSet || undefined} sizes={resp?.sizes} alt={recipe.title || 'レシピ画像'} className="w-full h-full object-cover" />)
+                                } catch (e) {
+                                  const src = getPublicImageUrl(primaryCandidate) || primaryCandidate || '/placeholder.svg'
+                                  return (<img src={src} alt={recipe.title || 'レシピ画像'} className="w-full h-full object-cover" />)
+                                }
+                              } catch (err) {
+                                return (<div className="flex items-center justify-center h-full text-muted-foreground text-sm">画像未設定</div>)
+                              }
+                            })()}
+                            <div className="absolute top-2 right-2">
+                              {recipe.published ? (<div className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">公開中</div>) : (<div className="bg-gray-500 text-white text-xs px-2 py-1 rounded-full">非公開</div>)}
+                            </div>
+                          </div>
+                          {editingId === recipe.id ? (
+                            <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleSaveTitle(recipe.id); if (e.key === 'Escape') setEditingId(null) }} onBlur={() => handleSaveTitle(recipe.id)} className="mb-3 h-8 text-sm" autoFocus />
+                          ) : (
+                            <h3 className="font-semibold mb-3 truncate text-sm cursor-pointer hover:text-primary" onClick={() => { setEditingId(recipe.id); setEditTitle(recipe.title || "") }} title="クリックして編集">{recipe.title || "無題のレシピ"}</h3>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => router.push(`/admin/recipes/edit?id=${recipe.id}`)} className="flex-1" onPointerDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} data-no-drag>
+                            <Edit className="w-3 h-3 mr-1" /> 編集
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => togglePublish(recipe)} title={recipe.published ? "非公開にする" : "公開する"} onPointerDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} data-no-drag>
+                            {recipe.published ? (<Eye className="w-3 h-3" />) : (<EyeOff className="w-3 h-3" />)}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleDelete(recipe.id)} title="削除" onPointerDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} data-no-drag>
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </SortableRecipe>
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
+    </div>
+  )
+}
+
+// Sortable wrapper for recipe cards — exposes attributes/listeners to child
+function SortableRecipe({ id, children }: { id: string; children: (props: { attributes: any; listeners: any }) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style: any = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+  }
+  return (
+    <div ref={setNodeRef as any} style={style} className="w-full">
+      {children({ attributes, listeners })}
     </div>
   )
 }

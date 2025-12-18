@@ -4,10 +4,13 @@ import { useState, useMemo, useEffect } from "react"
 import { getCurrentUser } from '@/lib/auth'
 import apiFetch from '@/lib/api-client'
 import { Button } from "@/components/ui/button"
+import { DndContext, closestCenter, PointerSensor, TouchSensor, MouseSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core"
+import { SortableContext, rectSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { Input } from "@/components/ui/input"
 import { ProductListItem } from "@/components/product-list-item"
 import type { Product } from "@/lib/db/schema"
-import { Plus, Search, Filter, SlidersHorizontal, X } from "lucide-react"
+import { Plus, Search, Filter, SlidersHorizontal, X, GripVertical } from "lucide-react"
 import Link from "next/link"
 import {
   DropdownMenu,
@@ -158,6 +161,58 @@ export default function AdminProductsPage() {
 
     return filtered
   }, [products, searchQuery, selectedTags, sortBy])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(MouseSensor)
+  )
+
+  function SortableProductItem({ id, children }: { id: string; children: React.ReactNode }) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+    const style: any = { transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 50 : undefined }
+    // Wrap listeners so that interactions originating from elements marked with
+    // `data-no-drag` will not trigger dnd-kit handlers (preserve button behavior).
+    const safeListeners: any = {}
+    Object.entries(listeners || {}).forEach(([key, fn]: any) => {
+      safeListeners[key] = (e: any) => {
+        try {
+          const t = e.target as HTMLElement | null
+          if (t && t.closest && t.closest('[data-no-drag]')) return
+        } catch (_) {}
+        return fn && fn(e)
+      }
+    })
+
+    return (
+      <div ref={setNodeRef as any} style={{ ...style, touchAction: 'none', userSelect: 'none' }} {...attributes} className="relative">
+        {/* listeners attached to the visible card area — entire card is draggable except elements marked with data-no-drag */}
+        <div {...safeListeners} className="relative">
+          {children}
+        </div>
+      </div>
+    )
+  }
+
+  const handleProductsDragEnd = async (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over) return
+    if (String(active.id) === String(over.id)) return
+    const oldIndex = products.findIndex((p) => String(p.id) === String(active.id))
+    const newIndex = products.findIndex((p) => String(p.id) === String(over.id))
+    if (oldIndex < 0 || newIndex < 0) return
+    const next = arrayMove(products, oldIndex, newIndex)
+    setProducts(next)
+    try {
+      await apiFetch('/api/admin/products/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: next.map((p, i) => ({ id: p.id, order: i })) }),
+      })
+    } catch (err) {
+      console.warn('products reorder persist failed', err)
+    }
+  }
 
   return (
     <div className="w-full px-4 py-8 flex flex-col h-screen overflow-hidden">
@@ -322,7 +377,22 @@ export default function AdminProductsPage() {
         {filteredAndSortedProducts.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">該当する商品が見つかりません</div>
         ) : (
-          filteredAndSortedProducts.map((product) => <ProductListItem key={product.id} product={product} />)
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={() => { try { document.body.style.overflow = 'hidden' } catch {} }}
+            onDragEnd={(e) => { try { document.body.style.overflow = '' } catch {} ; handleProductsDragEnd(e as any) }}
+          >
+            <SortableContext items={filteredAndSortedProducts.map((p) => p.id)} strategy={rectSortingStrategy}>
+              <div className="space-y-3">
+                {filteredAndSortedProducts.map((product) => (
+                  <SortableProductItem key={product.id} id={product.id}>
+                    <ProductListItem product={product} onUpdate={() => { /* placeholder */ }} />
+                  </SortableProductItem>
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
       </div>
     </div>

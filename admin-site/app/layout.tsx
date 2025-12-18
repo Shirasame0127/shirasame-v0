@@ -3,7 +3,7 @@ import HeaderProfile from '@/components/header-profile'
 import './globals.css'
 
 export const metadata = {
-  title: '管理 - しらさめ',
+  title: 'Dealer-管理画面',
   description: '管理画面 - しらさめサイト管理',
 }
 
@@ -22,7 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main className="min-h-screen">
           <header className="sticky top-0 z-20 bg-card text-card-foreground border-b p-4 h-16 flex items-center">
             <div className="flex w-full items-center justify-between">
-              <div className="font-semibold">しらさめ - 管理画面</div>
+              <div className="font-semibold">Dealer</div>
               {/* HeaderProfile is a client component that shows avatar and handles mobile swipe */}
               <div>
                 <HeaderProfile />

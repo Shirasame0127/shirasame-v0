@@ -326,7 +326,7 @@ export function AdminNav() {
                   title={item.label}
                   className={cn(
                     "group relative flex items-center gap-3 text-sm font-medium transition-colors h-12",
-                    showLabels ? "w-full rounded-lg px-3" : "w-12 justify-center rounded-lg",
+                      showLabels ? "w-full rounded-lg px-4" : "w-12 justify-center rounded-lg",
                     isActive
                       ? isDashboard
                         ? "bg-primary/15 text-primary border border-primary/30"
@@ -495,13 +495,13 @@ export function AdminNav() {
       <aside
         style={{ willChange: 'width', transform: 'translateZ(0)' }}
         className={cn(
-          "hidden md:flex self-start shrink-0 border-r bg-card shadow-sm transition-[width] duration-300 h-full z-10 overflow-hidden admin-nav-hide-scrollbar",
-          isExpandedWidth ? "w-68" : "w-17"
+          "hidden md:flex self-start shrink-0 border-r bg-card shadow-2xl transition-[width] duration-300 h-full z-30 overflow-hidden admin-nav-hide-scrollbar",
+          isExpandedWidth ? "w-72" : "w-20"
         )}
         aria-hidden={isMobileOpen}
       >
             <div className="flex h-full flex-col">
-          <div className="flex-1 overflow-y-auto">{desktopSidebar}</div>
+          <div className="flex-1 overflow-y-auto px-0">{desktopSidebar}</div>
           <div className="p-3">
             <button
               aria-label={isExpandedWidth ? 'サイドバーを折りたたむ' : 'サイドバーを展開する'}
