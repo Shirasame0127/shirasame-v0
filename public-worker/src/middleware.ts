@@ -1,11 +1,25 @@
 // Minimal middleware utilities used by public-worker
 export function computeCorsHeaders(origin: string | null, env: any) {
   try {
-    const allowed = (env && env.PUBLIC_ALLOWED_ORIGINS) ? String(env.PUBLIC_ALLOWED_ORIGINS) : '*'
+    const allowedRaw = (env && env.PUBLIC_ALLOWED_ORIGINS) ? String(env.PUBLIC_ALLOWED_ORIGINS) : '*'
+    const allowedList = allowedRaw.split(',').map((s: string) => s.trim()).filter(Boolean)
     const headers: Record<string,string> = {}
-    headers['Access-Control-Allow-Origin'] = allowed === '*' ? '*' : allowed
+    let allowOrigin = '*'
+    if (allowedRaw === '*') {
+      allowOrigin = '*'
+    } else if (origin && allowedList.includes(origin)) {
+      allowOrigin = origin
+    } else if (allowedList.length === 1) {
+      allowOrigin = allowedList[0]
+    } else {
+      // Fallback: return first allowed origin to keep header present.
+      allowOrigin = allowedList[0] || '*'
+    }
+
+    headers['Access-Control-Allow-Origin'] = allowOrigin
+    headers['Vary'] = 'Origin'
     headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
-    headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-User-Id'
     headers['Access-Control-Allow-Credentials'] = 'false'
     return headers
   } catch {
