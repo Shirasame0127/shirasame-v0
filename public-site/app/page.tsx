@@ -215,13 +215,41 @@ export default function HomePage() {
         const loadedUser = profileJson?.data || profileJson || null
         const apiSchedules: AmazonSaleSchedule[] = saleRes.status === 'fulfilled' ? (await saleRes.value.json().catch(() => ({ data: [] }))).data || [] : []
 
-        const normalizedProducts = apiProducts.map((p: any) => {
-          if (Array.isArray(p.images)) return p
-          if (p.image && p.image.url) {
-            return { ...p, images: [{ id: p.image.id || null, product_id: p.id, url: p.image.url, width: p.image.width || null, height: p.image.height || null, aspect: p.image.width && p.image.height ? p.image.width / p.image.height : p.image.aspect || null, role: p.image.role || 'main', basePath: p.image.basePath || null }] }
+        // Normalize API fields (snake_case -> camelCase) for products/collections/recipes
+        const normalizeProduct = (raw: any) => {
+          const p = { ...raw } as any
+          if (raw.created_at && !raw.createdAt) p.createdAt = raw.created_at
+          if (raw.updated_at && !raw.updatedAt) p.updatedAt = raw.updated_at
+          if (raw.short_description && !raw.shortDescription) p.shortDescription = raw.short_description
+          if (raw.image && !raw.images) p.images = [{ id: raw.image.id || null, product_id: raw.id, url: raw.image.url, width: raw.image.width || null, height: raw.image.height || null, aspect: raw.image.width && raw.image.height ? raw.image.width / raw.image.height : raw.image.aspect || null, role: raw.image.role || 'main', basePath: raw.image.basePath || null }]
+          if (!Array.isArray(p.images)) p.images = []
+          if (raw.tags && !Array.isArray(raw.tags) && typeof raw.tags === 'string') {
+            try { p.tags = JSON.parse(raw.tags) } catch { p.tags = raw.tags.split(',').map((s: string) => s.trim()).filter(Boolean) }
           }
-          return { ...p, images: [] }
-        })
+          return p
+        }
+
+        const normalizedProducts = apiProducts.map((p: any) => normalizeProduct(p))
+
+        const normalizeCollection = (raw: any) => {
+          const c = { ...raw } as any
+          if (raw.created_at && !raw.createdAt) c.createdAt = raw.created_at
+          if (raw.updated_at && !raw.updatedAt) c.updatedAt = raw.updated_at
+          if (Array.isArray(c.products)) c.products = c.products.map((pr: any) => normalizeProduct(pr))
+          return c
+        }
+
+        const normalizedCollections = apiCollections.map((c: any) => normalizeCollection(c))
+
+        const normalizeRecipe = (raw: any) => {
+          const r = { ...raw } as any
+          if (raw.created_at && !raw.createdAt) r.createdAt = raw.created_at
+          if (raw.updated_at && !raw.updatedAt) r.updatedAt = raw.updated_at
+          if (raw.short_description && !raw.shortDescription) r.shortDescription = raw.short_description
+          return r
+        }
+
+        const normalizedRecipes = apiRecipes.map((r: any) => normalizeRecipe(r))
 
         setProducts(normalizedProducts.filter((p: any) => p.published))
         setPageOffset(normalizedProducts.length)
@@ -230,8 +258,8 @@ export default function HomePage() {
         } else {
           setHasMore(normalizedProducts.length === pageLimit)
         }
-        setRecipes(apiRecipes.filter((r: any) => r.published !== false))
-        setCollections(apiCollections)
+        setRecipes(normalizedRecipes.filter((r: any) => r.published !== false))
+        setCollections(normalizedCollections)
         setSaleSchedules(apiSchedules)
         setUser(loadedUser || null)
         setIsLoaded(true)
