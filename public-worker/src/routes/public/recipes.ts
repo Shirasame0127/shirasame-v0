@@ -1,7 +1,6 @@
 import { fetchPublicRecipes } from '../../services/public/recipes'
-import { fetchPublicRecipes } from '../../services/public/recipes'
 
-export async function recipesHandler(c: any) {
+
 export async function recipesHandler(c: any) {
   try {
     const url = new URL(c.req.url)
