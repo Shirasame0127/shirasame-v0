@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@8.7.0",
-  "engines": { "node": ">=20.9.0" },
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -12,30 +14,30 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "next": "16.0.0",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "@vercel/analytics": "latest",
-    "lucide-react": "^0.454.0",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^2.5.5",
-    "@radix-ui/react-slot": "latest",
     "@radix-ui/react-accordion": "latest",
     "@radix-ui/react-dialog": "latest",
     "@radix-ui/react-label": "latest",
     "@radix-ui/react-popover": "latest",
     "@radix-ui/react-select": "latest",
+    "@radix-ui/react-slot": "latest",
     "@radix-ui/react-toast": "1.2.4",
-    "next-themes": "latest"
+    "@vercel/analytics": "latest",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.454.0",
+    "next": "16.0.0",
+    "next-themes": "latest",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "tailwind-merge": "^2.5.5"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@tailwindcss/postcss": "^4.1.9",
     "@types/node": "^22",
-    "@types/react": "^19",
+    "@types/react": "^19.2.7",
     "@types/react-dom": "^19",
     "postcss": "^8.5",
-    "@tailwindcss/postcss": "^4.1.9",
-    "tailwindcss": "^4.1.9"
+    "tailwindcss": "^4.1.9",
+    "typescript": "^5"
   }
 }

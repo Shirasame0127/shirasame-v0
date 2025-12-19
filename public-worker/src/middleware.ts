@@ -124,6 +124,21 @@ export async function cacheJson(arg1: any, arg2?: any, arg3?: any) {
         }
       } catch {}
 
+      // Support handler returning a plain object wrapper like:
+      // { status?: number, headers?: Record<string,string>, body: any }
+      try {
+        if (body && typeof body === 'object' && (('status' in body) || ('headers' in body) || ('body' in body))) {
+          const st = typeof (body as any).status === 'number' ? (body as any).status : 200
+          const extraHeaders = (body as any).headers && typeof (body as any).headers === 'object' ? (body as any).headers : {}
+          const payload = ('body' in (body as any)) ? (body as any).body : (function() { const copy: any = Object.assign({}, body); delete copy.status; delete copy.headers; return copy })()
+          let normPayload = payload
+          try { normPayload = normalizeForClient(payload) } catch {}
+          const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${maxAge}, stale-while-revalidate=300` }
+          const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base, extraHeaders)
+          return new Response(JSON.stringify(normPayload), { status: st, headers })
+        }
+      } catch {}
+
       try {
         body = normalizeForClient(body)
       } catch {}

@@ -953,6 +953,7 @@ app.get('/recipes', zValidator('query', listQuery.partial()), async (c) => {
           tagBorderColor: p.tag_border_color ?? null,
           tagShadow: p.tag_shadow ?? null,
           lineType: p.line_type ?? null,
+          lineColor: p.line_color ?? null,
           createdAt: p.created_at || null,
           updatedAt: p.updated_at || null,
         }
@@ -1469,1478 +1470,6 @@ app.get('/api/collections', async (c) => mirrorGet(c, async (c2) => {
     }
   })
 }))
-import { Hono } from 'hono'
-// custom CORS handling (dynamic origin + credentials)
-import { z } from 'zod'
-import { zValidator } from '@hono/zod-validator'
-import { makeWeakEtag } from './utils/etag'
-import { getSupabase } from './supabase'
-import { openapi } from './openapi'
-import { isAdmin, makeErrorResponse } from './helpers'
-import { computeCorsHeaders, cacheJson } from './middleware'
-import { parseJwtPayload, verifyTokenWithSupabase, getTokenFromRequest, fetchUserFromToken, getUserFromRequest, getRequestUserId } from './auth'
-import { getPublicImageUrl, buildResizedImageUrl, responsiveImageForUsage } from '../../shared/lib/image-usecases'
-import { registerPublicRoutes } from './public'
-
-export type Env = {
-  PUBLIC_ALLOWED_ORIGINS?: string
-  // INTERNAL_API_BASE removed: public-worker is now the single API gateway
-  // Supabase
-  SUPABASE_URL?: string
-  SUPABASE_ANON_KEY?: string
-  SUPABASE_SERVICE_ROLE_KEY?: string
-  // R2 / Images
-  R2_BUCKET?: string
-  R2_PUBLIC_URL?: string
-  IMAGES_DOMAIN?: string
-  // R2 binding
-  IMAGES?: any
-  // Cloudflare Images
-  CLOUDFLARE_ACCOUNT_ID?: string
-  CLOUDFLARE_IMAGES_API_TOKEN?: string
-  // Public profile / single-owner fallbacks
-  PUBLIC_OWNER_USER_ID?: string
-  PUBLIC_PROFILE_EMAIL?: string
-  // Worker host override
-  WORKER_PUBLIC_HOST?: string
-  // Debug
-  DEBUG_WORKER?: string
-}
-
-const app = new Hono<{ Bindings: Env }>()
-
-// Register public (read-only) API routes implemented in separate files
-registerPublicRoutes(app)
-
-// Early docs/openapi bypass: some proxies rewrite or prefix paths so the later
-// middleware checks may not match. Serve docs and OpenAPI JSON early when the
-// incoming path contains the docs/openapi segments to ensure the page is
-// reachable without requiring authentication or a user_id.
-app.use('*', async (c, next) => {
-  try {
-    const reqPath = (new URL(c.req.url)).pathname || ''
-      if (reqPath.includes('/api/openapi.json')) {
-      try {
-        return await cacheJson(c, 'openapi', async () => openapi)
-      } catch (e) {
-        // fallback to normal flow
-      }
-    }
-    if (reqPath.includes('/api/docs')) {
-      try {
-        const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>API ドキュメント — Shirasame</title><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@4/swagger-ui.css"/></head><body><div style="max-width:960px;margin:18px auto;padding:12px"><h1>Shirasame API ドキュメント</h1><p>このドキュメントでは各機能（商品、レシピ、タグ等）の API を確認できます。<strong>認証</strong>について: 通常はブラウザの HttpOnly Cookie（<code>sb-access-token</code>）を利用しますが、テスト時は下の <strong>Authorize</strong> ボタンから Bearer トークンを入力できます。Bearer を使う場合は <code>Authorization: Bearer &lt;token&gt;</code> を指定してください。</p><div id="swagger"></div></div><script src="https://unpkg.com/swagger-ui-dist@4/swagger-ui-bundle.js"></script><script>window.onload=function(){const ui=window.SwaggerUIBundle({url:'/api/openapi.json',dom_id:'#swagger',presets:[window.SwaggerUIBundle.presets.apis],layout:'BaseLayout',requestInterceptor:function(req){try{req.credentials='include'}catch(e){}return req}});window.ui=ui;};</script></body></html>`
-        const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'text/html; charset=utf-8' })
-        return new Response(html, { headers })
-      } catch (e) {
-        // fallback to normal flow
-      }
-    }
-  } catch (e) {
-    // ignore and continue
-  }
-  return await next()
-})
-
-// (ハンドラ自動ラップは危険な互換性リスクがあるため差し替え済み)
-
-// Short-circuit GET /api/* requests to accept user_id from header/query.
-// For GET requests we will trust the provided `user_id` (query or X-User-Id)
-// and set it on the context so downstream handlers can filter by user.
-app.use('/api/*', async (c, next) => {
-  try {
-    const method = ((c.req.method || '') as string).toUpperCase()
-    // Only enforce user_id requirement for CRUD methods; allow auth endpoints to handle tokens
-    const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
-    if (!crudMethods.includes(method)) return await next()
-    try {
-      const reqPath = (new URL(c.req.url)).pathname || ''
-      // Allow unauthenticated access to auth endpoints and docs/openapi JSON
-      // Accept variants like trailing slash or sub-paths to be robust behind proxies
-      if (reqPath.startsWith('/api/auth') || reqPath.startsWith('/api/docs') || reqPath.startsWith('/api/debug') || reqPath.includes('/api/openapi.json')) {
-        return await next()
-      }
-    } catch {}
-
-    const reqUrl = new URL(c.req.url)
-    const qUser = reqUrl.searchParams.get('user_id')
-    const hUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
-    let userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
-
-    // If no userId from header/query, try to resolve from token cookie/Authorization
-    if (!userId) {
-      try {
-        const ctx = await resolveRequestUserContext(c)
-        if (ctx && ctx.trusted && ctx.userId) {
-          userId = ctx.userId
-        }
-      } catch {}
-    }
-
-    if (!userId) {
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return await cacheJson(c, 'missing_user_id', async () => ({ status: 400, body: { error: 'missing_user_id' }, headers: merged }))
-    }
-    try { c.set && c.set('userId', userId) } catch {}
-    return await next()
-  } catch (e) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return await cacheJson(c, 'userctx_server_error', async () => ({ status: 500, body: { error: 'server_error', detail: String(e) }, headers: merged }))
-  }
-})
-
-// Admin: toggle / set published state for a product (called from admin UI toggle)
-app.put('/api/admin/products/*/published', async (c) => {
-  try {
-    const supabase = getSupabase(c.env)
-    try {
-      const maybeToken = await getTokenFromRequest(c)
-      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
-        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
-      }
-    } catch (e) {}
-    try {
-      const maybeToken = await getTokenFromRequest(c)
-      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
-        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
-      }
-    } catch (e) {}
-    try {
-      const maybeToken = await getTokenFromRequest(c)
-      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
-        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
-      }
-    } catch (e) {}
-    try {
-      const maybeToken = await getTokenFromRequest(c)
-      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
-        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
-      }
-    } catch (e) {}
-    try {
-      const maybeToken = await getTokenFromRequest(c)
-      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
-        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
-      }
-    } catch (e) {}
-    // If a SERVICE_ROLE key is NOT configured, the client runs with anon key
-    // and Supabase will enforce RLS based on the Authorization token. In
-    // that case, attach the user's token (from cookie/bearer) to the
-    // client so INSERT/UPDATE operations are executed under that user's
-    // identity and RLS succeeds.
-    try {
-      const maybeToken = await getTokenFromRequest(c)
-      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
-        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
-      }
-    } catch (e) {}
-    const path = (new URL(c.req.url)).pathname || ''
-    const id = path.replace('/api/admin/products/', '').replace('/published', '').replace(/\/+$/,'')
-    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '無効なIDです', null, 'invalid_id', 400)
-
-    let body: any = {}
-    try { body = await c.req.json() } catch { body = {} }
-    const published = typeof body.published !== 'undefined' ? !!body.published : null
-    if (published === null) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'published フィールドが必要です', null, 'invalid_body', 400)
-
-    const ctx = await resolveRequestUserContext(c)
-    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
-    const actingUser = ctx.userId
-    const isAdminUser = isAdmin(actingUser, c.env)
-
-    // Fetch product to verify ownership (and existence)
-    try {
-      const { data: rows, error: fetchErr } = await supabase.from('products').select('*').eq('id', id).limit(1).maybeSingle()
-      if (fetchErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品情報の取得に失敗しました', fetchErr.message || fetchErr, 'db_error', 500)
-      const prod = rows || null
-      if (!prod) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品が見つかりません', null, 'not_found', 404)
-      if (prod.user_id && prod.user_id !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
-
-      const now = new Date().toISOString()
-      const { data: updated, error: updErr } = await supabase.from('products').update({ published: !!published, updated_at: now }).eq('id', id).select('*')
-      if (updErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '公開ステータスの更新に失敗しました', updErr.message || updErr, 'db_error', 500)
-
-      const key = `admin_products_publish:${id}`
-      return await cacheJson(c, key, async () => ({ ok: true, data: updated && updated[0] ? updated[0] : null }))
-    } catch (e) {
-      return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '公開切替中にサーバーエラーが発生しました', String(e), 'server_error', 500)
-    }
-  } catch (e: any) {
-    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '公開切替処理中に例外が発生しました', e?.message || String(e), 'server_error', 500)
-  }
-})
-
-// Admin authentication middleware: enforce JWT <-> X-User-Id matching
-app.use('/api/admin/*', async (c, next) => {
-  try {
-    const env = c.env as any
-    const debug = env.DEBUG_WORKER === 'true'
-    const method = ((c.req.method || '') as string).toUpperCase()
-    const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
-
-    // For CRUD methods, prefer user_id via header or query, but FALLBACK to
-    // verified token (cookie/Authorization) when header/query is absent so
-    // browser sessions that rely on HttpOnly cookies still work.
-    if (crudMethods.includes(method)) {
-      try {
-        const reqUrl = new URL(c.req.url)
-        const qUser = reqUrl.searchParams.get('user_id')
-        const hUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
-        let userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
-
-        // If no header/query user id, try resolving from token (cookie or Authorization)
-        if (!userId) {
-          try {
-            const ctx = await resolveRequestUserContext(c)
-            if (ctx && ctx.trusted && ctx.userId) {
-              userId = ctx.userId
-            }
-          } catch {}
-        }
-
-        if (!userId) {
-          const base = { 'Content-Type': 'application/json; charset=utf-8' }
-          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return await cacheJson(c, 'admin_missing_user_id', async () => ({ status: 400, headers: merged, body: { error: 'missing_user_id' } }))
-        }
-        try { c.set && c.set('userId', userId) } catch {}
-        return await next()
-        } catch (e) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return await cacheJson(c, 'admin_unauthorized', async () => ({ status: 401, headers: merged, body: { error: 'Unauthorized' } }))
-      }
-    }
-
-    // Non-CRUD methods: keep existing token-based behavior
-    // Extract header user id
-    const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
-    // Extract token from Authorization or cookie
-    const token = await getTokenFromRequest(c)
-    if (debug) {
-      try { console.log('admin-auth middleware (non-CRUD): headerUser=', headerUser, 'tokenPresent=', !!token) } catch {}
-    }
-    // If headerUser is present, require token and ensure match.
-    const verified = token ? await verifyTokenWithSupabase(token, c) : null
-    if (headerUser) {
-      if (!token) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return await cacheJson(c, 'admin_unauthorized_no_token', async () => ({ status: 401, headers: merged, body: { error: 'Unauthorized' } }))
-      }
-      if (!verified) {
-        if (debug) try { console.log('admin-auth middleware: token verification failed') } catch {}
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return await cacheJson(c, 'admin_unauthorized_verify_failed', async () => ({ status: 401, headers: merged, body: { error: 'Unauthorized' } }))
-      }
-      if (verified !== headerUser) {
-        if (debug) try { console.log('admin-auth middleware: token user mismatch header=', headerUser, 'tokenUser=', verified) } catch {}
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return await cacheJson(c, 'admin_unauthorized_mismatch', async () => ({ status: 401, headers: merged, body: { error: 'Unauthorized' } }))
-      }
-      // matched
-      try { c.set && c.set('userId', verified) } catch {}
-      return await next()
-    }
-
-    // No headerUser: allow cookie/token-only flows if token verifies
-    if (verified) {
-      try { c.set && c.set('userId', verified) } catch {}
-      return await next()
-    }
-
-    // No headerUser and no valid token -> unauthorized
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return await cacheJson(c, 'admin_unauthorized_final', async () => ({ status: 401, headers: merged, body: { error: 'Unauthorized' } }))
-  } catch (e) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return await cacheJson(c, 'admin_unauthorized_exception', async () => ({ status: 401, headers: merged, body: { error: 'Unauthorized' } }))
-  }
-})
-// Admin-origin guard: for admin-origin requests to sensitive paths,
-// require a verified Supabase token and a resolved userId (trusted + userId).
-// This intentionally requires Supabase token-based auth for admin-origin requests.
-app.use('*', async (c, next) => {
-  try {
-    // Let auth endpoints handle themselves (e.g. /api/auth/whoami)
-    try {
-      const reqPath = (new URL(c.req.url)).pathname || ''
-      if (reqPath.startsWith('/api/auth') || reqPath.startsWith('/api/debug')) {
-        return await next()
-      }
-    } catch {}
-
-    // Only enforce stricter checks for requests coming from admin origin
-    const origin = (c.req.header('Origin') || '')
-    const isAdminOrigin = origin === 'https://admin.shirasame.com' || origin.endsWith('.admin.shirasame.com')
-    if (!isAdminOrigin) return await next()
-
-    const sensitivePrefixes = [
-      '/products',
-      '/collections',
-      '/recipes',
-      '/site-settings',
-      '/admin/settings',
-      '/api/admin/settings',
-      '/profile',
-      '/images',
-      '/images/upload',
-      '/images/complete',
-      '/upload'
-    ]
-
-    const reqPath = (new URL(c.req.url)).pathname
-    const matches = sensitivePrefixes.some(p => reqPath === p || reqPath.startsWith(p + '/'))
-    if (!matches) return await next()
-
-    const ctx = await resolveRequestUserContext(c)
-    // Require both trusted identity and a concrete userId
-    if (!ctx.trusted || !ctx.userId) {
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return await cacheJson(c, 'admin_origin_unauthenticated', async () => new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged }))
-    }
-
-    try { c.set && c.set('userId', ctx.userId) } catch {}
-    return await next()
-  } catch (e) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return await cacheJson(c, 'admin_origin_unauthenticated_exception', async () => new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged }))
-  }
-})
-
-// Debug and global error middleware: キャッチされなかった例外を詳細に返す（DEBUG_WORKER=true の場合は stack を含める）
-// computeCorsHeaders and cacheJson are provided by `src/middleware.ts`
-
-app.use('*', async (c, next) => {
-  // Handle preflight immediately
-  if (c.req.method === 'OPTIONS') {
-    const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-    // mark response as served by this worker for easy tracing
-    headers['X-Served-By'] = 'public-worker'
-    return new Response(null, { status: 204, headers })
-  }
-
-  // Short-circuit speculative prefetch requests for admin pages.
-  // Browsers / CDN speculative prefetches may arrive with `Sec-Purpose: prefetch`.
-  // For admin routes (authenticated, dynamic) it's best to avoid doing full
-  // rendering or heavy auth verification for prefetches — return 204 No Content
-  // and include Vary on Sec-Purpose so caches do not mix prefetch vs navigate.
-  try {
-    const secPurpose = (c.req.header('sec-purpose') || c.req.header('Sec-Purpose') || '').toString().trim()
-    if (secPurpose === 'prefetch') {
-      const reqPath = (typeof c.req.path === 'string' && c.req.path) ? c.req.path : (new URL(c.req.url || '', 'http://localhost')).pathname
-      // treat admin UI pages and admin API prefetched requests specially
-      if (reqPath.startsWith('/admin') || reqPath.startsWith('/api/admin') || reqPath === '/admin' ) {
-        const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-        headers['Vary'] = (headers['Vary'] ? String(headers['Vary']) + ', Sec-Purpose' : 'Sec-Purpose')
-        headers['X-Served-By'] = 'public-worker'
-        headers['Cache-Control'] = 'no-store'
-        return new Response(null, { status: 204, headers })
-      }
-    }
-  } catch (e) {
-    // non-fatal: fall through to normal handling
-  }
-
-  try {
-    const res = await next()
-    // attach CORS headers to downstream response (overwrite to ensure presence)
-    try {
-      const ch = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-      for (const k of Object.keys(ch)) {
-        try { res.headers.set(k, (ch as any)[k]) } catch {}
-      }
-        try { res.headers.set('X-Served-By', 'public-worker') } catch {}
-    } catch {}
-    return res
-  } catch (e: any) {
-    try { console.error('❌ 未処理例外（グローバルミドルウェア）:', { url: c.req.url, method: c.req.method, error: e, stack: e?.stack }) } catch {}
-    // Use makeErrorResponse helper to produce consistent JSON errors and CORS headers.
-    try {
-      return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'サーバーエラー発生（詳細はコンソール参照）', e?.message || String(e), 'server_error', 500)
-    } catch (e2) {
-      const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-      headers['X-Served-By'] = 'public-worker'
-      headers['Content-Type'] = 'application/json; charset=utf-8'
-      return await cacheJson(c, 'global_error_fallback', async () => new Response(JSON.stringify({ ok: false, message: 'サーバーエラー', detail: String(e2) }), { status: 500, headers }))
-    }
-  }
-})
-
-// NOTE: このワーカーは単体完結構成 (public-worker がすべての API を実装)
-// です。以前の設計で使っていた INTERNAL_API_BASE による内部プロキシは撤去します。
-// 以降、内部 API への転送チェックは行いません。
-
-// Debug endpoint: 簡易的に環境やバインディングの存在を返す（本番では無効化してください）
-app.get('/_debug', async (c) => {
-  try {
-    const bindings = {
-      DEBUG_WORKER: (c.env as any).DEBUG_WORKER ?? null,
-      SUPABASE_URL: !!(c.env as any).SUPABASE_URL,
-      SUPABASE_ANON_KEY: !!(c.env as any).SUPABASE_ANON_KEY,
-      R2_BUCKET: (c.env as any).R2_BUCKET ?? null,
-      R2_PUBLIC_URL: (c.env as any).R2_PUBLIC_URL ?? null,
-      hasIMAGESBinding: typeof (c.env as any).IMAGES !== 'undefined',
-    }
-    const key = `debug_bindings`
-    return await cacheJson(c, key, async () => ({ ok: true, bindings }))
-  } catch (e: any) {
-    const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-    headers['Content-Type'] = 'application/json; charset=utf-8'
-    return await cacheJson(c, 'debug_bindings_error', async () => new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers }))
-  }
-})
-
-// Diagnostic: show which headers the worker actually receives and how
-// the request would be interpreted by auth helpers. DO NOT enable this
-// endpoint in public production for long — use only for short-term debugging
-// and remove afterwards.
-app.get('/api/debug/headers', async (c) => {
-  try {
-    const hdr = (name: string) => (c.req.header(name) || c.req.header(name.toLowerCase()) || '')
-    const authorization = hdr('authorization') as string
-    const cookie = hdr('cookie') as string
-    const xUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '') as string
-    const xDebugUser = (c.req.header('x-debug-user') || c.req.header('X-Debug-User') || '') as string
-
-    // mask token for safety
-    const mask = (s: string | null | undefined) => {
-      if (!s) return null
-      try {
-        if (s.length <= 12) return '****'
-        return s.slice(0, 6) + '...' + s.slice(-4)
-      } catch { return '****' }
-    }
-
-    const tokenFromHelper = await getTokenFromRequest(c)
-    const resolved = await resolveRequestUserContext(c)
-
-    const envFlags = {
-      SUPABASE_URL: !!(c.env as any).SUPABASE_URL,
-      SUPABASE_ANON_KEY: !!(c.env as any).SUPABASE_ANON_KEY,
-      SUPABASE_SERVICE_ROLE_KEY: !!(c.env as any).SUPABASE_SERVICE_ROLE_KEY,
-      DEBUG_WORKER: (c.env as any).DEBUG_WORKER === 'true'
-    }
-
-    const payload = {
-      ok: true,
-      method: c.req.method,
-      url: (new URL(c.req.url)).pathname,
-      received: {
-        authorization_present: !!authorization,
-        authorization_masked: mask(authorization),
-        cookie_present: !!cookie,
-        cookie_masked_preview: (() => {
-          const m = cookie ? cookie.match(/(?:^|; )sb-access-token=([^;]+)/) : null
-          return m && m[1] ? mask(decodeURIComponent(m[1])) : null
-        })(),
-        x_user_id: xUser || null,
-        x_debug_user: xDebugUser || null
-      },
-      helper_token: tokenFromHelper ? mask(tokenFromHelper) : null,
-      resolved_context: resolved,
-      env: envFlags
-    }
-
-    const key = `debug_headers`
-    return await cacheJson(c, key, async () => payload)
-  } catch (e: any) {
-    const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-    headers['Content-Type'] = 'application/json; charset=utf-8'
-    return await cacheJson(c, 'debug_headers_error', async () => new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers }))
-  }
-})
-
-// cacheJson is provided by `src/middleware.ts`
-
-// zod スキーマ（共通）
-const listQuery = z.object({
-  shallow: z.union([z.literal('true'), z.literal('false')]).optional(),
-  published: z.union([z.literal('true'), z.literal('false')]).optional(),
-  limit: z.string().regex(/^\d+$/).optional(),
-  offset: z.string().regex(/^\d+$/).optional(),
-  count: z.union([z.literal('true'), z.literal('false')]).optional(),
-  tag: z.string().optional(),
-  id: z.string().optional(),
-  slug: z.string().optional(),
-})
-
-// Helper: normalize a raw DB recipe row into the client-facing shape
-function normalizeRecipeForClient(r: any, env: any) {
-  if (!r) return null
-  const imgsFromJoin = Array.isArray(r.images) ? r.images.map((img: any) => ({ id: img.id, recipeId: img.recipe_id, key: img.key, width: img.width, height: img.height, role: img.role, caption: img.caption })) : []
-  const imgsFromJsonb = Array.isArray(r.images) && r.images.length > 0 && typeof r.images[0] === 'object' ? r.images : []
-  const imagesRaw = imgsFromJoin.length > 0 ? imgsFromJoin : (Array.isArray(imgsFromJsonb) ? imgsFromJsonb.map((img: any) => ({ id: img.id || null, recipeId: r.id, key: img.key || img.basePath || (typeof img.url === 'string' ? img.url : null), width: img.width || null, height: img.height || null, role: img.role || null, caption: img.caption || null })) : [])
-
-  const normalizedImages = (Array.isArray(imagesRaw) ? imagesRaw : []).map((img: any) => ({
-    id: img.id || null,
-    recipeId: img.recipeId || img.recipe_id || r.id,
-    key: img.key || null,
-    url: img && img.key ? getPublicImageUrl(img.key, env.IMAGES_DOMAIN) : (img && img.url ? img.url : null),
-    width: typeof img.width !== 'undefined' ? img.width : null,
-    height: typeof img.height !== 'undefined' ? img.height : null,
-    role: img.role || null,
-    caption: img.caption || null,
-  }))
-
-  const recipe_image_keys = Array.isArray(r.recipe_image_keys) ? r.recipe_image_keys : (normalizedImages.length > 0 ? normalizedImages.map((i: any) => i.key).filter(Boolean) : [])
-  const recipeImageKeys = Array.isArray(recipe_image_keys) ? recipe_image_keys : []
-  const primaryImageKey = recipeImageKeys && recipeImageKeys.length > 0 ? recipeImageKeys[0] : (normalizedImages.length > 0 ? normalizedImages[0].key || null : null)
-
-  return {
-    id: r.id,
-    userId: r.user_id,
-    title: r.title,
-    slug: r.slug,
-    body: r.body || null,
-    published: !!r.published,
-    recipe_image_keys: recipe_image_keys,
-    recipeImageKeys: recipeImageKeys,
-    primaryImageKey: primaryImageKey,
-    images: normalizedImages,
-    createdAt: r.created_at || null,
-    updatedAt: r.updated_at || null,
-    items: r.items || null,
-    pins: Array.isArray(r.pins) ? r.pins : null,
-  }
-}
-
-// INTERNAL_API_BASE による proxy ロジックは廃止しました。
-// 以前は upstream() で内部 API を参照していましたが、現在は public-worker が
-// すべての API を直接実装するため、この関数は不要です。
-function upstream(_c: any, _path: string) { return null }
-
-// Minimal header forwarder used when fallback-to-upstream behavior is exercised.
-function makeUpstreamHeaders(c: any): Record<string, string> {
-  const out: Record<string, string> = {}
-  try {
-    const auth = c.req.header('authorization') || c.req.header('Authorization')
-    if (auth) out['authorization'] = auth
-  } catch {}
-  try {
-    const cookie = c.req.header('cookie')
-    if (cookie) out['cookie'] = cookie
-  } catch {}
-  try {
-    const ct = c.req.header('content-type')
-    if (ct) out['content-type'] = ct
-  } catch {}
-  return out
-}
-
-// Quick proxy to support incoming client calls that use the `/api/*` prefix
-// (admin UI currently issues requests to `/api/...`). Many internal routes
-// are defined without the `/api` prefix (e.g. `/products`, `/site-settings`),
-// so forward `/api/*` -> `/*` to avoid client 404s. This performs a server-side
-// fetch to the normalized path and returns the response. CORS headers are
-// attached by the global middleware above.
-// /api/* proxy moved to end of file so explicit routes are matched first.
-// See end of file for the implemented proxy.
-
-// NOTE: final catch-all moved to the end of the file so that explicitly
-// registered routes (declared below) are matched before a 404 is returned.
-
-// Auth helpers moved to `src/auth.ts`
-
-// Centralized request user context resolver.
-// Returns { userId, authType, trusted } where authType is one of:
-//  - 'user-token'   : verified Supabase token (highest trust)
-//  - 'none'         : no trusted identity
-async function resolveRequestUserContext(c: any, payload?: any): Promise<{ userId: string | null; authType: 'user-token' | 'none'; trusted: boolean }> {
-  try {
-    // TEMP LOG: inspect incoming headers to debug why some requests are unauthenticated
-    try {
-      const a = c.req.header('authorization') || c.req.header('Authorization') || ''
-      if ((c.env as any).DEBUG_WORKER === 'true') console.log('resolveRequestUserContext: authorization present=', !!a)
-    } catch (e) {}
-    try { console.log('resolveRequestUserContext: cookie=', c.req.header('cookie')) } catch (e) {}
-    try { console.log('resolveRequestUserContext: x-user-id=', c.req.header('x-user-id') || c.req.header('X-User-Id')) } catch (e) {}
-    // DEBUG BYPASS: when DEBUG_WORKER=true, allow providing X-Debug-User (and optional X-Debug-Secret)
-    try {
-      const debugEnabled = (c.env as any).DEBUG_WORKER === 'true'
-      const dbgUser = (c.req.header('x-debug-user') || c.req.header('X-Debug-User') || '').toString().trim()
-      const dbgSecret = (c.req.header('x-debug-secret') || c.req.header('X-Debug-Secret') || '').toString().trim()
-      if (debugEnabled && dbgUser) {
-        const expected = (c.env as any).DEBUG_SECRET || ''
-        if (!expected || expected === dbgSecret) {
-          try { console.log('resolveRequestUserContext: debug bypass user=', dbgUser) } catch (e) {}
-          return { userId: dbgUser, authType: 'user-token', trusted: true }
-        }
-      }
-    } catch (e) {}
-    // For CRUD requests (GET/POST/PUT/DELETE), allow trusting a provided user_id via query or header.
-    try {
-      const method = ((c.req.method || '') as string).toUpperCase()
-      const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
-      if (crudMethods.includes(method)) {
-        try {
-          const reqUrl = new URL(c.req.url || '')
-          const qUser = reqUrl.searchParams.get('user_id')
-          const hUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
-          const userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
-          if (userId) {
-            return { userId, authType: 'user-token', trusted: true }
-          }
-        } catch (e) {}
-      }
-    } catch (e) {}
-    // If an admin UI provided X-User-Id, and the request is a CRUD operation, treat it as authoritative
-    try {
-      const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
-      const reqPath = (typeof c.req.path === 'string' && c.req.path) ? c.req.path : (new URL(c.req.url || '', 'http://localhost')).pathname
-      const method = ((c.req.method || '') as string).toUpperCase()
-      const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
-      if (headerUser && crudMethods.includes(method) && !reqPath.startsWith('/api/auth')) {
-        return { userId: headerUser, authType: 'user-token', trusted: true }
-      }
-    } catch (e) {}
-    // 1) Check bearer token or sb-access-token cookie first
-    const auth = c.req.header('authorization') || c.req.header('Authorization') || ''
-    if (auth.toLowerCase().startsWith('bearer ')) {
-      const token = auth.slice(7).trim()
-      const viaSupabase = await verifyTokenWithSupabase(token, c)
-      if (viaSupabase) {
-        // If client provided X-User-Id header, ensure it matches the token's user id
-        try {
-          const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
-          if (headerUser && headerUser !== viaSupabase) {
-            try { console.log('resolveRequestUserContext: token user mismatch header=', headerUser, 'tokenUser=', viaSupabase) } catch {}
-            return { userId: null, authType: 'none', trusted: false }
-          }
-        } catch (e) {}
-        return { userId: viaSupabase, authType: 'user-token', trusted: true }
-      }
-    }
-
-    const cookieHeader = c.req.header('cookie') || ''
-    const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
-    if (m?.[1]) {
-      const token = decodeURIComponent(m[1])
-      const viaSupabase = await verifyTokenWithSupabase(token, c)
-      if (viaSupabase) {
-        try {
-          const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
-          if (headerUser && headerUser !== viaSupabase) {
-            try { console.log('resolveRequestUserContext: cookie token user mismatch header=', headerUser, 'tokenUser=', viaSupabase) } catch {}
-            return { userId: null, authType: 'none', trusted: false }
-          }
-        } catch (e) {}
-        return { userId: viaSupabase, authType: 'user-token', trusted: true }
-      }
-    }
-
-    // No internal key support: we require token-based auth only
-
-    // 3) x-user-id alone is not trusted for write operations. Treat as none.
-    const headerUser = c.req.header('x-user-id') || c.req.header('X-User-Id') || ''
-    if (headerUser) {
-      return { userId: headerUser || null, authType: 'none', trusted: false }
-    }
-
-    return { userId: null, authType: 'none', trusted: false }
-  } catch (e) {
-    return { userId: null, authType: 'none', trusted: false }
-  }
-}
-
-
-// Direct implementations for collections/profile/recipes/tag-groups/tags
-// All of these use Supabase anon client (RLS assumed) and share cache/ETag behavior.
-
-// /collections
-app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
-  const supabase = getSupabase(c.env)
-  const q = c.req.query()
-  const limit = q.limit ? Math.max(0, parseInt(q.limit)) : null
-  const offset = q.offset ? Math.max(0, parseInt(q.offset)) : 0
-  const wantCount = q.count === 'true'
-  const key = `collections${c.req.url.includes('?') ? c.req.url.substring(c.req.url.indexOf('?')) : ''}`
-  return cacheJson(c, key, async () => {
-    try {
-      // 1) collections
-      // If authenticated, return that user's collections (all visibility). Otherwise fall back to PUBLIC_OWNER_USER_ID or only public collections.
-      let collections: any[] = []
-      let total: number | null = null
-      const ctx = await resolveRequestUserContext(c)
-      // 管理ページ用途: 認証がない場合はアクセス拒否
-      if (!ctx.trusted) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
-      }
-      const reqUserId = ctx.userId
-      if (limit && limit > 0) {
-        if (wantCount) {
-          // Call select(...) first so Postgrest query builder methods like
-          // .order()/.range() are available consistently across versions.
-          let query: any = supabase.from('collections').select('*', { count: 'exact' }).order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
-          if (reqUserId) query = query.eq('user_id', reqUserId)
-          else {
-            const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
-            if (ownerId) query = query.eq('user_id', ownerId)
-            else query = query.eq('visibility', 'public')
-          }
-          const res = await query.range(offset, offset + Math.max(0, limit - 1))
-          collections = res.data || []
-          // @ts-ignore
-          total = typeof res.count === 'number' ? res.count : null
-        } else {
-          let query: any = supabase.from('collections').select('*').order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
-          if (reqUserId) query = query.eq('user_id', reqUserId)
-          else {
-            const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
-            if (ownerId) query = query.eq('user_id', ownerId)
-            else query = query.eq('visibility', 'public')
-          }
-          const res = await query.range(offset, offset + Math.max(0, limit - 1))
-          collections = res.data || []
-        }
-      } else {
-        let query: any = supabase.from('collections').select('*').order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
-        if (reqUserId) query = query.eq('user_id', reqUserId)
-        else {
-          const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
-          if (ownerId) query = query.eq('user_id', ownerId)
-          else query = query.eq('visibility', 'public')
-        }
-        const res = await query
-        collections = res.data || []
-      }
-
-      if (!collections || collections.length === 0) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ data: [], meta: total != null ? { total, limit, offset } : undefined }), { headers: merged })
-      }
-
-      const collectionIds = collections.map((c2: any) => c2.id)
-
-      // 2) collection_items
-      const { data: items = [] } = await supabase.from('collection_items').select('*').in('collection_id', collectionIds)
-      const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id)))
-
-      // 3) products
-      let products: any[] = []
-      if (productIds.length > 0) {
-        const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
-        const baseSelect = '*, images:product_images(*), affiliateLinks:affiliate_links(*)'
-        // 認証情報から userId を取得して優先的に絞り込む
-        // Use outer scoped reqUserId (resolved above for collections)
-        let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('published', true)
-        if (reqUserId) {
-          prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('user_id', reqUserId)
-        } else {
-          const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').trim()
-          if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
-        }
-        const { data: prods = [] } = await prodQuery
-        products = prods || []
-      }
-
-      const productMap = new Map<string, any>()
-      for (const p of products) productMap.set(p.id, p)
-
-      const transformed = collections.map((col: any) => {
-        const thisItems = (items || []).filter((it: any) => it.collection_id === col.id)
-        const thisProducts = thisItems.map((it: any) => productMap.get(it.product_id)).filter(Boolean)
-        return {
-          id: col.id,
-          userId: col.user_id,
-          title: col.title,
-          description: col.description,
-          visibility: col.visibility,
-          createdAt: col.created_at,
-          updatedAt: col.updated_at,
-          products: thisProducts.map((p: any) => ({
-            id: p.id,
-            userId: p.user_id,
-            title: p.title,
-            slug: p.slug,
-            shortDescription: p.short_description,
-            body: p.body,
-            tags: p.tags,
-            price: p.price,
-            published: p.published,
-            createdAt: p.created_at,
-            updatedAt: p.updated_at,
-            showPrice: p.show_price,
-            notes: p.notes,
-            relatedLinks: p.related_links,
-            images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, url: getPublicImageUrl(img.key, c.env.IMAGES_DOMAIN) || img.url || null, key: img.key ?? null, width: img.width, height: img.height, aspect: img.aspect, role: img.role })) : [],
-            affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : [],
-          })),
-        }
-      })
-
-      const meta = total != null ? { total, limit, offset } : undefined
-      const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ data: transformed, meta }), { headers: merged })
-    } catch (e: any) {
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
-    }
-  })
-})
-
-// /profile
-import resolvePublicOwnerUser from './helpers/getPublicOwnerUser'
-
-app.get('/profile', zValidator('query', listQuery.partial()), async (c) => {
-  const supabase = getSupabase(c.env)
-  const key = `profile`
-  return cacheJson(c, key, async () => {
-    try {
-      const ownerId = await resolvePublicOwnerUser(c)
-      if (!ownerId) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ data: null }), { headers: merged })
-      }
-
-      // Prefer reading from `profiles` table where available
-      try {
-        const { data, error } = await supabase.from('profiles').select('*').eq('user_id', ownerId).limit(1).maybeSingle()
-        if (!error && data) {
-          const user = data
-          const transformed = {
-            id: user.user_id || user.id,
-            name: user.name || null,
-            displayName: user.display_name || user.displayName || user.name || null,
-            email: user.email || null,
-            avatarUrl: user.avatar_url || (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
-            profileImage: (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
-            profileImageKey: user.profile_image_key || null,
-            headerImages: (Array.isArray(user.header_image_keys) ? user.header_image_keys.map((k:any) => buildResizedImageUrl(k, { width: 800 }, c.env.IMAGES_DOMAIN)).filter(Boolean) : null),
-            headerImageKey: user.header_image_key || null,
-            headerImageKeys: Array.isArray(user.header_image_keys) ? user.header_image_keys : null,
-            bio: user.bio || null,
-            socialLinks: user.social_links || null,
-          }
-          const base = { 'Content-Type': 'application/json; charset=utf-8' }
-          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return new Response(JSON.stringify({ data: transformed }), { headers: merged })
-        }
-      } catch (e) {
-        // continue to attempt users table
-      }
-
-      // Fallback: read from users table
-      try {
-        const { data, error } = await supabase.from('users').select('*').eq('id', ownerId).limit(1).maybeSingle()
-        if (!error && data) {
-          const user = data
-          const transformed = {
-            id: user.id,
-            name: user.name || null,
-            displayName: user.display_name || user.displayName || user.name || null,
-            email: user.email || null,
-            avatarUrl: user.avatar_url || (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
-            profileImage: (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
-            profileImageKey: user.profile_image_key || null,
-            headerImages: (Array.isArray(user.header_image_keys) ? user.header_image_keys.map((k:any) => buildResizedImageUrl(k, { width: 800 }, c.env.IMAGES_DOMAIN)).filter(Boolean) : null),
-            headerImageKey: user.header_image_key || null,
-            headerImageKeys: Array.isArray(user.header_image_keys) ? user.header_image_keys : null,
-            bio: user.bio || null,
-            socialLinks: user.social_links || null,
-          }
-          const base = { 'Content-Type': 'application/json; charset=utf-8' }
-          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return new Response(JSON.stringify({ data: transformed }), { headers: merged })
-        }
-      } catch (e) {
-        // fallthrough
-      }
-
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ data: null }), { headers: merged })
-    } catch (e: any) {
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
-    }
-  })
-})
-
-// /recipes
-app.get('/recipes', zValidator('query', listQuery.partial()), async (c) => {
-  const supabase = getSupabase(c.env)
-  const key = `recipes${c.req.url.includes('?') ? c.req.url.substring(c.req.url.indexOf('?')) : ''}`
-  return cacheJson(c, key, async () => {
-    try {
-      // 管理用途: 認証必須（ログイン画面からの呼び出しを除く）
-      const ctx = await resolveRequestUserContext(c)
-      if (!ctx.trusted) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
-      }
-      let recipesQuery = supabase.from('recipes').select('*').order('created_at', { ascending: false }).eq('user_id', ctx.userId)
-      const { data: recipes = [], error: recipesErr } = await recipesQuery
-      if (recipesErr) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: recipesErr.message }), { status: 500, headers: merged })
-      }
-      const recipeIds = recipes.map((r: any) => r.id)
-      const { data: pins = [] } = await supabase.from('recipe_pins').select('*').in('recipe_id', recipeIds)
-      const pinsByRecipe = new Map<string, any[]>()
-      for (const p of (pins || [])) {
-        const mapped = {
-          id: p.id,
-          recipeId: p.recipe_id,
-          productId: p.product_id,
-          userId: p.user_id,
-          tagDisplayText: p.tag_display_text ?? p.tag_text ?? null,
-          dotXPercent: Number(p.dot_x_percent ?? p.dot_x ?? 0),
-          dotYPercent: Number(p.dot_y_percent ?? p.dot_y ?? 0),
-          tagXPercent: Number(p.tag_x_percent ?? p.tag_x ?? 0),
-          tagYPercent: Number(p.tag_y_percent ?? p.tag_y ?? 0),
-          dotSizePercent: Number(p.dot_size_percent ?? p.dot_size ?? 0),
-          tagFontSizePercent: Number(p.tag_font_size_percent ?? p.tag_font_size ?? 0),
-          lineWidthPercent: Number(p.line_width_percent ?? p.line_width ?? 0),
-          tagPaddingXPercent: Number(p.tag_padding_x_percent ?? p.tag_padding_x ?? 0),
-          tagPaddingYPercent: Number(p.tag_padding_y_percent ?? p.tag_padding_y ?? 0),
-          tagBorderRadiusPercent: Number(p.tag_border_radius_percent ?? p.tag_border_radius ?? 0),
-          tagBorderWidthPercent: Number(p.tag_border_width_percent ?? p.tag_border_width ?? 0),
-          dotColor: p.dot_color ?? null,
-          dotShape: p.dot_shape ?? null,
-          tagText: p.tag_text ?? null,
-          tagFontFamily: p.tag_font_family ?? null,
-          tagFontWeight: p.tag_font_weight ?? null,
-          tagTextColor: p.tag_text_color ?? null,
-          tagTextShadow: p.tag_text_shadow ?? null,
-          tagBackgroundColor: p.tag_background_color ?? null,
-          tagBackgroundOpacity: Number(p.tag_background_opacity ?? 0),
-          tagBorderColor: p.tag_border_color ?? null,
-          tagShadow: p.tag_shadow ?? null,
-          lineType: p.line_type ?? null,
-          lineColor: p.line_color ?? null,
-          createdAt: p.created_at || null,
-          updatedAt: p.updated_at || null,
-        }
-        const arr = pinsByRecipe.get(mapped.recipeId) || []
-        arr.push(mapped)
-        pinsByRecipe.set(mapped.recipeId, arr)
-      }
-
-      const transformed = (recipes || []).map((r: any) => {
-        const imgsRaw = Array.isArray(r.images) ? r.images : []
-        const mappedImages = imgsRaw.map((img: any) => ({ id: img.id, recipeId: r.id, key: img.key ?? null, url: (img.key ? getPublicImageUrl(img.key, c.env.IMAGES_DOMAIN) : null), width: img.width, height: img.height }))
-        if (r.base_image_id && mappedImages.length > 1) {
-          const idx = mappedImages.findIndex((mi: any) => mi.id === r.base_image_id)
-          if (idx > 0) {
-            const [base] = mappedImages.splice(idx, 1)
-            mappedImages.unshift(base)
-          }
-        }
-        // Prefer joined recipe_images rows; otherwise derive from recipe_image_keys
-        const keysFromRecipe = Array.isArray(r.recipe_image_keys) ? r.recipe_image_keys : []
-        const imgsFromKeys = keysFromRecipe.map((k: any) => ({ id: null, recipeId: r.id, key: k, url: getPublicImageUrl(k, c.env.IMAGES_DOMAIN), width: null, height: null }))
-        const images = mappedImages.length > 0 ? mappedImages : imgsFromKeys
-        const mappedPins = pinsByRecipe.get(r.id) || []
-        return {
-          id: r.id,
-          userId: r.user_id,
-          title: r.title,
-          published: !!r.published,
-          createdAt: r.created_at,
-          updatedAt: r.updated_at,
-          images: images,
-          recipeImageKeys: keysFromRecipe,
-          pins: mappedPins,
-        }
-      })
-
-      return new Response(JSON.stringify({ data: transformed }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-    } catch (e: any) {
-      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500 })
-    }
-  })
-})
-
-// /tag-groups
-app.get('/tag-groups', zValidator('query', listQuery.partial()), async (c) => {
-  const supabase = getSupabase(c.env)
-  const key = `tag-groups`
-  return cacheJson(c, key, async () => {
-    try {
-      // TEMP LOG: show incoming cookie / headers for debugging auth forwarding
-      try {
-        console.log('=== public-worker: /tag-groups request ===')
-        try { console.log('cookie:', c.req.header('cookie')) } catch {}
-        try { console.log('x-user-id:', c.req.header('x-user-id') || c.req.header('X-User-Id')) } catch {}
-        try { console.log('method:', c.req.method) } catch {}
-        try { console.log('url:', c.req.url) } catch {}
-        console.log('========================================')
-      } catch(e) {}
-      // If request is authenticated, return that user's tag groups. Otherwise fall back to configured PUBLIC_OWNER_USER_ID or global list.
-        const ctx = await resolveRequestUserContext(c)
-        // 管理用途のタグ群は認証必須
-        if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-        const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ctx.userId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
-        if (res.error) return makeErrorResponse(c, 'タググループの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
-        return new Response(JSON.stringify({ data: res.data || [] }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
-    } catch (e: any) {
-      return makeErrorResponse(c, 'タググループの取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
-    }
-  })
-})
-
-// /tags
-app.get('/tags', zValidator('query', listQuery.partial()), async (c) => {
-  const supabase = getSupabase(c.env)
-  const key = `tags`
-  return cacheJson(c, key, async () => {
-    try {
-      // If authenticated, return only that user's tags. Otherwise return global tags or PUBLIC_OWNER_USER_ID-scoped tags.
-      const ctx = await resolveRequestUserContext(c)
-      // 管理用途のタグは認証必須
-      if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      let query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
-      query = query.eq('user_id', ctx.userId)
-      const res = await query
-      if (res.error) return makeErrorResponse(c, 'タグの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
-      const mapped = (res.data || []).map((row: any) => ({ id: row.id, name: row.name, group: row.group ?? undefined, linkUrl: row.link_url ?? undefined, linkLabel: row.link_label ?? undefined, userId: row.user_id ?? undefined, sortOrder: row.sort_order ?? 0, createdAt: row.created_at }))
-      return new Response(JSON.stringify({ data: mapped }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
-    } catch (e: any) {
-      return makeErrorResponse(c, 'タグ取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
-    }
-  })
-})
-
-// /amazon-sale-schedules
-app.get('/amazon-sale-schedules', async (c) => {
-  console.log('[ROUTE DEBUG]', { path: c.req.url, method: c.req.method, matched: '/amazon-sale-schedules' })
-  const supabase = getSupabase(c.env)
-  const key = `amazon-sale-schedules`
-  return cacheJson(c, key, async () => {
-    try {
-      // Scope schedules to authenticated user if present, otherwise PUBLIC_OWNER_USER_ID if configured
-      const ctx = await resolveRequestUserContext(c)
-      // 管理用途のスケジュールは認証必須
-      if (!ctx.trusted) return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      let query = supabase.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true }).eq('user_id', ctx.userId)
-      const { data = [], error } = await query
-      if (error) return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-      const mapped = (data || []).map((row: any) => ({
-        id: row.id,
-        userId: row.user_id,
-        saleName: row.sale_name,
-        startDate: row.start_date,
-        endDate: row.end_date,
-        collectionId: row.collection_id,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }))
-      console.log('[ROUTE DEBUG]', { path: c.req.url, method: c.req.method, matched: '/amazon-sale-schedules', resultCount: mapped.length })
-      return new Response(JSON.stringify({ data: mapped }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-    } catch (e: any) {
-      console.log('[ROUTE DEBUG] /amazon-sale-schedules error', String(e?.message || e))
-      return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-    }
-  })
-})
-
-// Mirror admin-prefixed route so admin-origin requests to /api/amazon-sale-schedules work
-app.get('/api/amazon-sale-schedules', async (c) => mirrorGet(c, async (c2) => {
-  console.log('[ROUTE DEBUG]', { path: c2.req.url, method: c2.req.method, matched: '/api/amazon-sale-schedules (mirror)' })
-  const supabase = getSupabase(c2.env)
-  const key = `amazon-sale-schedules`
-  return cacheJson(c2, key, async () => {
-    try {
-      const ctx = await resolveRequestUserContext(c2)
-      if (!ctx.trusted) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        console.log('[ROUTE DEBUG] /api/amazon-sale-schedules unauthenticated')
-        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
-      }
-      let query = supabase.from('amazon_sale_schedules').select('*').order('start_date', { ascending: true }).eq('user_id', ctx.userId)
-      const { data = [], error } = await query
-      if (error) {
-        console.log('[ROUTE DEBUG] /api/amazon-sale-schedules supabase error', String(error.message || error))
-
-    // Debug log endpoint (no-op) — keep silent and return 204 to avoid 404 noise
-    app.post('/api/debug/log', async (c) => {
-      const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-      // intentionally do not record or echo payload from browser to avoid leaking URLs
-      return new Response(null, { status: 204, headers })
-    })
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ data: [] }), { headers: merged })
-      }
-      const mapped = (data || []).map((row: any) => ({
-        id: row.id,
-        userId: row.user_id,
-        saleName: row.sale_name,
-        startDate: row.start_date,
-        endDate: row.end_date,
-        collectionId: row.collection_id,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }))
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      console.log('[ROUTE DEBUG]', { path: c2.req.url, method: c2.req.method, matched: '/api/amazon-sale-schedules (mirror)', resultCount: mapped.length })
-      return new Response(JSON.stringify({ data: mapped }), { headers: merged })
-    } catch (e: any) {
-      console.log('[ROUTE DEBUG] /api/amazon-sale-schedules handler error', String(e?.message || e))
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
-    }
-  })
-}))
-
-// Admin: read single tag or list (supports ?id= and optional ?userId= for admins)
-app.get('/api/admin/tags', async (c) => {
-  try {
-    const supabase = getSupabase(c.env)
-    const url = new URL(c.req.url)
-    const id = url.searchParams.get('id')
-    const qUser = url.searchParams.get('userId')
-    const ctx = await resolveRequestUserContext(c)
-    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
-    const actingUser = ctx.userId
-    const isAdminUser = isAdmin(actingUser, c.env)
-    const targetUser = qUser ? String(qUser) : actingUser
-    if (qUser && qUser !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
-
-    if (id) {
-      const { data: rows = [], error } = await supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').eq('id', String(id)).eq('user_id', targetUser).limit(1)
-      if (error) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの取得に失敗しました', error.message || error, 'db_error', 500)
-      return new Response(JSON.stringify({ ok: true, data: rows && rows[0] ? rows[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
-    }
-
-    // list
-    let query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
-    query = query.eq('user_id', targetUser)
-    const res = await query
-    if (res.error) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
-    return new Response(JSON.stringify({ ok: true, data: res.data || [] }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
-  } catch (e: any) {
-    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
-  }
-})
-
-// Admin: delete tags (accepts JSON body { id: '...', ids: ['...'] } )
-app.delete('/api/admin/tags', async (c) => {
-  try {
-    const supabase = getSupabase(c.env)
-    const body = await c.req.json().catch(() => ({}))
-    const ids = Array.isArray(body.ids) ? body.ids.map(String) : (body.id ? [String(body.id)] : [])
-    const ctx = await resolveRequestUserContext(c)
-    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
-    const actingUser = ctx.userId
-    const isAdminUser = isAdmin(actingUser, c.env)
-    const targetUser = body.userId ? String(body.userId) : actingUser
-    if (body.userId && body.userId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
-    if (!ids || ids.length === 0) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '削除するタグIDが指定されていません', null, 'invalid_request', 400)
-
-    const { data: delRes = [], error: delErr } = await supabase.from('tags').delete().in('id', ids).eq('user_id', targetUser).select('*')
-    if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの削除に失敗しました', delErr.message || delErr, 'db_error', 500)
-    return new Response(JSON.stringify({ ok: true, data: delRes }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
-  } catch (e: any) {
-    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ削除中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
-  }
-})
-
-// Admin: create single tag (convenience)
-app.post('/api/admin/tags', async (c) => {
-  try {
-    const supabase = getSupabase(c.env)
-    const body = await c.req.json().catch(() => ({}))
-    const name = body.name ? String(body.name).trim() : ''
-    const group = typeof body.group !== 'undefined' ? body.group : null
-    const linkUrl = body.linkUrl || body.link_url || null
-    const linkLabel = body.linkLabel || body.link_label || null
-    const sortOrder = typeof body.sortOrder !== 'undefined' ? Number(body.sortOrder) : null
-    if (!name) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ名が必要です', null, 'invalid_request', 400)
-    const ctx = await resolveRequestUserContext(c)
-    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
-    const actingUser = ctx.userId
-    const isAdminUser = isAdmin(actingUser, c.env)
-    const targetUser = body.userId ? String(body.userId) : actingUser
-    if (body.userId && body.userId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
-
-    // duplicate check
-    const { data: existing = [], error: existErr } = await supabase.from('tags').select('id,group').eq('user_id', targetUser).eq('name', name).limit(1)
-    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの検索に失敗しました', existErr.message || existErr, 'db_error', 500)
-    if (existing && existing.length > 0) {
-      const ex = existing[0]
-      const exGroup = ex.group ?? null
-      const tg = group ?? null
-      if ((exGroup === tg) || (exGroup == null && tg == null)) {
-        return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, `重複するタグが存在します: ${name}`, null, 'duplicate_tag', 400)
-      }
-    }
-
-    const insertBody: any = { name, group, link_url: linkUrl || null, link_label: linkLabel || null, sort_order: sortOrder, user_id: targetUser }
-    const { data: ins, error: insErr } = await supabase.from('tags').insert(insertBody).select('*')
-    if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
-    return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
-  } catch (e: any) {
-    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ作成中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
-  }
-})
-// /site-settings
-app.get('/site-settings', async (c) => {
-  const upstreamUrl = upstream(c, '/api/site-settings')
-  const key = `site-settings`
-  return cacheJson(c, key, async () => {
-    try {
-      // If an INTERNAL_API_BASE is configured, proxy to it (admin API)
-      if (upstreamUrl) {
-        const res = await fetch(upstreamUrl, { method: 'GET', headers: makeUpstreamHeaders(c) })
-        if (!res.ok) {
-          return { data: {} }
-        }
-        const json = await res.json().catch(() => ({ data: {} }))
-        return json
-      }
-
-      // Otherwise, try to read from Supabase (anon). Return key/value map like admin API.
-      const supabase = getSupabase(c.env)
-      const { data, error } = await supabase.from('site_settings').select('key, value').limit(100)
-      if (error) {
-        return { data: {} }
-      }
-      const rows = Array.isArray(data) ? data : []
-      const out: Record<string, any> = {}
-      for (const r of rows) {
-        try {
-          if (r && typeof r.key === 'string') out[r.key] = r.value
-        } catch {}
-      }
-      // If no settings found, provide safe fallbacks from environment to avoid empty {}
-      try {
-        if (Object.keys(out).length === 0) {
-          const envAny: any = c.env
-          if (envAny.PUBLIC_PROFILE_EMAIL) out['owner_email'] = envAny.PUBLIC_PROFILE_EMAIL
-          if (envAny.IMAGES_DOMAIN) out['images_domain'] = envAny.IMAGES_DOMAIN
-          if (envAny.WORKER_PUBLIC_HOST) out['public_host'] = envAny.WORKER_PUBLIC_HOST
-          if (Object.keys(out).length === 0) out['notice'] = 'no_site_settings'
-        }
-      } catch {}
-      // Normalize some image keys into usable public URLs so frontend doesn't
-      // need to parse JSON strings or construct URLs itself.
-      try {
-        const imagesDomain = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || out.images_domain || null
-        // profile image key could be stored as `profileImageKey` or `profile_image_key`
-        const profileKey = out.profileImageKey || out.profile_image_key || out.profileImageKey || null
-        if (profileKey) {
-          try {
-            const url = getPublicImageUrl(profileKey, imagesDomain)
-            if (url) {
-              out.profileImageUrl = url
-              out.profile_image_url = url
-            }
-          } catch {}
-        }
-
-        // header image keys are often stored as a JSON string; parse and build URLs
-        const headerRaw = out.headerImageKeys || out.header_image_keys || null
-        let headerArr: any[] = []
-        if (typeof headerRaw === 'string') {
-          try { headerArr = JSON.parse(headerRaw) } catch { headerArr = [] }
-        } else if (Array.isArray(headerRaw)) {
-          headerArr = headerRaw
-        }
-        if (Array.isArray(headerArr) && headerArr.length > 0) {
-          try {
-            const headerUrls = headerArr.map((k: any) => getPublicImageUrl(k, imagesDomain)).filter(Boolean)
-            out.headerImageUrls = headerUrls
-            out.header_image_urls = headerUrls
-          } catch {}
-        }
-      } catch {}
-      return { data: out }
-    } catch (e: any) {
-      return { data: {} }
-    }
-  })
-})
-
-// Also expose `/api/site-settings` explicitly so admin-origin requests
-// that hit `/api/site-settings` are handled directly (avoids proxy edge cases).
-app.get('/api/site-settings', async (c) => {
-  try {
-    const internal = upstream(c, '/api/site-settings')
-    const ctx = await resolveRequestUserContext(c)
-
-    // If an internal upstream is configured, proxy to it (maintain headers)
-    if (internal) {
-      const headers = makeUpstreamHeaders(c)
-      if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
-      const res = await fetch(internal, { method: 'GET', headers })
-      const json = await res.json().catch(() => ({ data: {} }))
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify(json), { status: res.status, headers: merged })
-    }
-
-    // Fallback: read from Supabase anon client and return key/value map
-    const supabase = getSupabase(c.env)
-    const { data, error } = await supabase.from('site_settings').select('key, value').limit(100)
-    if (error) {
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ data: {} }), { headers: merged })
-    }
-    const rows = Array.isArray(data) ? data : []
-    const out: Record<string, any> = {}
-    for (const r of rows) {
-      try {
-        if (r && typeof r.key === 'string') out[r.key] = r.value
-      } catch {}
-    }
-    // Provide safe fallbacks from environment when no rows found
-    try {
-      if (Object.keys(out).length === 0) {
-        const envAny: any = c.env
-        if (envAny.PUBLIC_PROFILE_EMAIL) out['owner_email'] = envAny.PUBLIC_PROFILE_EMAIL
-        if (envAny.IMAGES_DOMAIN) out['images_domain'] = envAny.IMAGES_DOMAIN
-        if (envAny.WORKER_PUBLIC_HOST) out['public_host'] = envAny.WORKER_PUBLIC_HOST
-        if (Object.keys(out).length === 0) out['notice'] = 'no_site_settings'
-      }
-    } catch {}
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: out }), { headers: merged })
-  } catch (e: any) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: {} }), { status: 500, headers: merged })
-  }
-})
-
-// Mirror common public endpoints under /api/* so admin-origin requests
-// that include the /api prefix are handled consistently.
-const mirrorGet = async (c: any, handler: (c: any) => Promise<Response>) => {
-  try {
-    try {
-      console.log('[MIRROR] incoming', { host: c.req.header('host') || c.req.header('Host'), path: (new URL(c.req.url)).pathname, url: c.req.url })
-    } catch {}
-    return await handler(c)
-  } catch (e: any) {
-    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: {} }), { status: 500, headers: merged })
-  }
-}
-
-app.get('/api/collections', async (c) => mirrorGet(c, async (c2) => {
-  // Reuse existing collections logic (same as /collections)
-  const supabase = getSupabase(c2.env)
-  const q = c2.req.query()
-  const limit = q.limit ? Math.max(0, parseInt(q.limit)) : null
-  const offset = q.limit ? Math.max(0, parseInt(q.offset || '0')) : 0
-  const wantCount = q.count === 'true'
-  const key = `collections${c2.req.url.includes('?') ? c2.req.url.substring(c2.req.url.indexOf('?')) : ''}`
-  return cacheJson(c2, key, async () => {
-    try {
-      const ctx = await resolveRequestUserContext(c2)
-      if (!ctx.trusted) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
-      }
-      const reqUserId = ctx.userId
-      let collections: any[] = []
-      let total: number | null = null
-      if (limit && limit > 0) {
-        if (wantCount) {
-          let query: any = supabase.from('collections').select('*', { count: 'exact' }).order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
-          if (reqUserId) query = query.eq('user_id', reqUserId)
-          else {
-            const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
-            if (ownerId) query = query.eq('user_id', ownerId)
-            else query = query.eq('visibility', 'public')
-          }
-          const res = await query.range(offset, offset + Math.max(0, limit - 1))
-          collections = res.data || []
-          // @ts-ignore
-          total = typeof res.count === 'number' ? res.count : null
-        } else {
-          let query: any = supabase.from('collections').select('*').order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
-          if (reqUserId) query = query.eq('user_id', reqUserId)
-          else {
-            const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
-            if (ownerId) query = query.eq('user_id', ownerId)
-            else query = query.eq('visibility', 'public')
-          }
-          const res = await query.range(offset, offset + Math.max(0, limit - 1))
-          collections = res.data || []
-        }
-      } else {
-        let query: any = supabase.from('collections').select('*').order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
-        if (reqUserId) query = query.eq('user_id', reqUserId)
-        else {
-          const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
-          if (ownerId) query = query.eq('user_id', ownerId)
-          else query = query.eq('visibility', 'public')
-        }
-        const res = await query
-        collections = res.data || []
-      }
-
-      if (!collections || collections.length === 0) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ data: [], meta: total != null ? { total, limit, offset } : undefined }), { headers: merged })
-      }
-
-      const collectionIds = collections.map((c3: any) => c3.id)
-      const { data: items = [] } = await supabase.from('collection_items').select('*').in('collection_id', collectionIds)
-      const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id)))
-      let products: any[] = []
-      if (productIds.length > 0) {
-        const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
-        let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('published', true)
-        if (reqUserId) prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('user_id', reqUserId)
-        else {
-          const ownerId = (c2.env.PUBLIC_OWNER_USER_ID || '').trim()
-          if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
-        }
-        const { data: prods = [] } = await prodQuery
-        products = prods || []
-      }
-      const productMap = new Map<string, any>()
-      for (const p of products) productMap.set(p.id, p)
-      const transformed = collections.map((col: any) => {
-        const thisItems = (items || []).filter((it: any) => it.collection_id === col.id)
-        const thisProducts = thisItems.map((it: any) => productMap.get(it.product_id)).filter(Boolean)
-        return {
-          id: col.id,
-          userId: col.user_id,
-          title: col.title,
-          description: col.description,
-          visibility: col.visibility,
-          createdAt: col.created_at,
-          updatedAt: col.updated_at,
-          products: thisProducts.map((p: any) => ({ id: p.id, userId: p.user_id, title: p.title, slug: p.slug }))
-        }
-      })
-      const meta = total != null ? { total, limit, offset } : undefined
-      const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
-      const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ data: transformed, meta }), { headers: merged })
-    } catch (e: any) {
-      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-    }
-  })
-}))
 
 // Admin-prefixed alias for collections so admin UI can call `/api/admin/collections`.
 // Behavior mirrors `/api/collections` but goes through admin-origin middleware above.
@@ -2959,7 +1488,7 @@ app.get('/api/admin/collections', async (c) => mirrorGet(c, async (c2) => {
       if (!ctx.trusted) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+        return ({ status: 401, headers: merged, body: { error: 'unauthenticated' } })
       }
       const reqUserId = ctx.userId
       let collections: any[] = []
@@ -3003,7 +1532,7 @@ app.get('/api/admin/collections', async (c) => mirrorGet(c, async (c2) => {
       if (!collections || collections.length === 0) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ data: [], meta: total != null ? { total, limit, offset } : undefined }), { headers: merged })
+        return ({ headers: merged, body: { data: [], meta: total != null ? { total, limit, offset } : undefined } })
       }
 
       const collectionIds = collections.map((c3: any) => c3.id)
@@ -3040,9 +1569,9 @@ app.get('/api/admin/collections', async (c) => mirrorGet(c, async (c2) => {
       const meta = total != null ? { total, limit, offset } : undefined
       const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ data: transformed, meta }), { headers: merged })
+      return ({ headers: merged, body: { data: transformed, meta } })
     } catch (e: any) {
-      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: String(e?.message || e) } })
     }
   })
 }))
@@ -3087,7 +1616,7 @@ app.post('/api/admin/collections', async (c) => {
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクションの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
 
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: Array.isArray(insData) && insData.length > 0 ? insData[0] : null }), { status: 200, headers: merged })
+    return ({ status: 200, headers: merged, body: { data: Array.isArray(insData) && insData.length > 0 ? insData[0] : null } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '作成中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3130,7 +1659,7 @@ app.put('/api/admin/collections/*', async (c) => {
     if (updErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクションの更新に失敗しました', updErr.message || updErr, 'db_error', 500)
 
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: Array.isArray(upd) && upd.length > 0 ? upd[0] : null }), { headers: merged })
+    return ({ headers: merged, body: { data: Array.isArray(upd) && upd.length > 0 ? upd[0] : null } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '更新中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3158,7 +1687,7 @@ app.post('/api/admin/collections/reorder', async (c) => {
     }
 
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: { success: true } }), { headers: merged })
+    return ({ headers: merged, body: { data: { success: true } } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '並べ替え処理中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3200,7 +1729,7 @@ app.get('/api/admin/collections/counts', async (c) => {
     }
 
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: { totalCount, publicCount } }), { headers: merged })
+    return ({ headers: merged, body: { data: { totalCount, publicCount } } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '集計中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3231,7 +1760,7 @@ app.get('/api/admin/collections/:id/inspect', async (c) => {
     const missingCount = Math.max(0, totalCount - existingCount)
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: { totalCount, existingCount, missingCount } }), { headers: merged })
+    return ({ headers: merged, body: { data: { totalCount, existingCount, missingCount } } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '検査中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3267,7 +1796,7 @@ app.post('/api/admin/collections/:id/sync', async (c) => {
     const newTotal = Math.max(0, totalCount - missingIds.length)
     const existingCount = newTotal
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: { totalCount: newTotal + missingIds.length, existingCount, missingCount: missingIds.length } }), { headers: merged })
+    return ({ headers: merged, body: { data: { totalCount: newTotal + missingIds.length, existingCount, missingCount: missingIds.length } } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '同期中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3318,7 +1847,7 @@ app.post('/api/admin/collection-items', async (c) => {
     }
     const itemCount = existingCount
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: { itemCount, item: ins && ins[0] ? ins[0] : null } }), { headers: merged })
+    return ({ headers: merged, body: { data: { itemCount, item: ins && ins[0] ? ins[0] : null } } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '追加処理中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3355,7 +1884,7 @@ app.get('/api/admin/collections/:id/items', async (c) => {
     // return only existing product ids
     const remaining = (items || []).filter((it: any) => existingIds.includes(it.product_id)).map((it: any) => ({ productId: it.product_id }))
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: remaining }), { headers: merged })
+    return ({ headers: merged, body: { data: remaining } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3388,7 +1917,7 @@ app.delete('/api/admin/collection-items', async (c) => {
     }
     const itemCount = finalCount
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: { itemCount } }), { headers: merged })
+    return ({ headers: merged, body: { data: { itemCount } } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '削除処理中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3431,7 +1960,7 @@ app.post('/api/admin/collection-items/reorder', async (c) => {
     }
 
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: { itemCount: finalCount } }), { headers: merged })
+    return ({ headers: merged, body: { data: { itemCount: finalCount } } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '並べ替え処理中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3473,7 +2002,7 @@ app.post('/api/admin/collections/repair', async (c) => {
     }
 
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: { repaired: true } }), { headers: merged })
+    return ({ headers: merged, body: { data: { repaired: true } } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '修復中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -3488,28 +2017,28 @@ app.get('/api/profile', async (c) => mirrorGet(c, async (c2) => {
       if (!ownerEmail) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ data: null }), { headers: merged })
+        return ({ headers: merged, body: { data: null } })
       }
       const { data, error } = await supabase.from('users').select('*').eq('email', ownerEmail).limit(1)
       if (error) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ data: null }), { headers: merged })
+        return ({ headers: merged, body: { data: null } })
       }
       const user = Array.isArray(data) && data.length > 0 ? data[0] : null
       if (!user) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ data: null }), { headers: merged })
+        return ({ headers: merged, body: { data: null } })
       }
       const transformed = { id: user.id, name: user.name || null, displayName: user.display_name || user.displayName || user.name || null, email: user.email || null, avatarUrl: user.avatar_url || (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c2.env.IMAGES_DOMAIN) : null) }
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ data: transformed }), { headers: merged })
+      return ({ headers: merged, body: { data: transformed } })
     } catch (e: any) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ data: null }), { status: 500, headers: merged })
+      return ({ status: 500, headers: merged, body: { data: null } })
     }
   })
 }))
@@ -3526,7 +2055,7 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
       if (url.searchParams.get('debug') === '1') {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ debug: true, ctx: { userId: ctx.userId, authType: ctx.authType, trusted: ctx.trusted } }), { status: 200, headers: merged })
+        return ({ status: 200, headers: merged, body: { debug: true, ctx: { userId: ctx.userId, authType: ctx.authType, trusted: ctx.trusted } } })
       }
     } catch {}
 
@@ -3575,7 +2104,7 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
       try { console.warn('[recipes] supabase query error', String(error)) } catch {}
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ data: [], total: 0 }), { status: 200, headers: merged })
+      return ({ status: 200, headers: merged, body: { data: [], total: 0 } })
     }
 
     // If requested, obtain total count separately (so pagination can be handled)
@@ -3642,7 +2171,7 @@ app.get('/api/recipes', async (c) => mirrorGet(c, async (c2) => {
     // Return list and total to match new OpenAPI spec
     const respBody: any = { data: transformed }
     respBody.total = typeof total === 'number' ? total : transformed.length
-    return new Response(JSON.stringify(respBody), { status: 200, headers: merged })
+    return ({ status: 200, headers: merged, body: respBody })
   } catch (e: any) {
     const detail = (e && (e.stack || e.message)) ? (e.stack || e.message) : String(e)
     return makeErrorResponse({ env: c2.env, computeCorsHeaders, req: c2.req }, 'レシピ取得中にサーバーエラーが発生しました', detail, 'server_error', 500)
@@ -3671,7 +2200,7 @@ app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
     const json = await res.json().catch(() => ({ data: [] }))
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify(json), { status: res.status, headers: merged })
+    return ({ status: res.status, headers: merged, body: json })
   }
 
   // Fallback: avoid proxy/fetch edge cases by performing the product
@@ -3684,13 +2213,13 @@ app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
       if (url.searchParams.get('debug') === '1') {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-        return new Response(JSON.stringify({ debug: true, ctx: { userId: ctx.userId, authType: ctx.authType, trusted: ctx.trusted } }), { status: 200, headers: merged })
+        return ({ status: 200, headers: merged, body: { debug: true, ctx: { userId: ctx.userId, authType: ctx.authType, trusted: ctx.trusted } } })
       }
     } catch {}
     if (!ctx.trusted) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      return ({ status: 401, headers: merged, body: { error: 'unauthenticated' } })
     }
     const supabase = getSupabase(c2.env)
     try {
@@ -3724,7 +2253,7 @@ app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
           const meta = total != null ? Object.assign({ total, limit: 0, offset }, publishedTotal != null ? { publishedTotal } : {}) : undefined
-          return new Response(JSON.stringify({ data: [], meta }), { headers: merged })
+          return ({ headers: merged, body: { data: [], meta } })
         } else {
           // fetch rows + exact count
           const res = await supabase.from('products').select(shallow ? selectShallow : selectFull, { count: 'exact' }).eq('user_id', ctx.userId).order('created_at', { ascending: false }).range(offset, offset + Math.max(0, limit - 1))
@@ -3741,7 +2270,7 @@ app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
           const meta = total != null ? Object.assign({ total, limit, offset }, publishedTotal != null ? { publishedTotal } : {}) : undefined
-          return new Response(JSON.stringify({ data, meta }), { headers: merged })
+          return ({ headers: merged, body: { data, meta } })
         }
       }
 
@@ -3757,16 +2286,16 @@ app.get('/api/admin/products', async (c) => mirrorGet(c, async (c2) => {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
       const meta = total != null ? { total, limit, offset } : undefined
-      return new Response(JSON.stringify({ data, meta }), { headers: merged })
+      return ({ headers: merged, body: { data, meta } })
     } catch (e: any) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ data: [], error: String(e?.message || e) }), { status: 500, headers: merged })
+      return ({ status: 500, headers: merged, body: { data: [], error: String(e?.message || e) } })
     }
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+    return ({ status: 500, headers: merged, body: { error: String(e?.message || e) } })
   }
 }))
 
@@ -3854,7 +2383,7 @@ app.post('/api/admin/products', async (c) => {
     try {
       if (body && body.__debug === true) {
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-        return new Response(JSON.stringify({ ok: true, debug: true, body, insertBody }), { headers: merged })
+        return ({ headers: merged, body: { ok: true, debug: true, body, insertBody } })
       }
     } catch {}
 
@@ -3864,7 +2393,7 @@ app.post('/api/admin/products', async (c) => {
       if (body && body.__perform === true) {
         const { data: ins, error: insErr } = await supabase.from('products').insert(insertBody).select('*')
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-        return new Response(JSON.stringify({ ok: true, debugPerform: true, supabase: { data: ins || null, error: insErr ? (insErr.message || insErr) : null } }), { headers: merged })
+        return ({ headers: merged, body: { ok: true, debugPerform: true, supabase: { data: ins || null, error: insErr ? (insErr.message || insErr) : null } } })
       }
     } catch (e) {
       try { console.error('[DBG] exception during debug perform insert', e, e && e.stack) } catch {}
@@ -3970,7 +2499,7 @@ app.post('/api/admin/products', async (c) => {
       }
 
       const created = ins && ins[0] ? normalizeRecipeForClient(ins[0], c.env) : null
-      return new Response(JSON.stringify({ ok: true, data: created }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+      return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: created } }) })
     } catch (e) {
       try { console.error('[DBG] exception during product insert handler', String(e), e && e.stack) } catch {}
       throw e
@@ -4087,7 +2616,7 @@ app.put('/api/admin/products/*', async (c) => {
       try { console.warn('[DBG] top-level product_images sync error during update', String(e)) } catch {}
     }
 
-    return new Response(JSON.stringify({ ok: true, data: up && up[0] ? up[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: up && up[0] ? up[0] : null } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品更新中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -4121,7 +2650,7 @@ app.post('/api/admin/recipe-images/upsert', async (c) => {
     try {
       const { data, error } = await supabase.from('recipe_images').insert([row]).select('*')
       if (error) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '画像の保存に失敗しました', error.message || error, 'db_error', 500)
-      return new Response(JSON.stringify({ ok: true, data: data && data[0] ? data[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+      return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: data && data[0] ? data[0] : null } }) })
     } catch (e) {
       try { console.error('[DBG] exception inserting recipe_images', String(e)) } catch {}
       return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '画像の保存中にエラーが発生しました', String(e), 'server_error', 500)
@@ -4257,7 +2786,7 @@ app.post('/api/admin/recipes', async (c) => {
         try { console.warn('[DBG] recipe_images top-level error', String(e)) } catch (e) {}
       }
 
-      return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+      return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: ins && ins[0] ? ins[0] : null } }) })
     } catch (e) {
       try { console.error('[DBG] exception during recipe insert handler', String(e), e && e.stack) } catch {}
       throw e
@@ -4330,7 +2859,7 @@ app.get('/api/admin/recipes/:id', async (c) => {
       items: r.items || null,
     }
 
-    return new Response(JSON.stringify({ data: transformed }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { data: transformed } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -4423,7 +2952,7 @@ app.put('/api/admin/recipes/:id', async (c) => {
     } catch (e) { try { console.warn('[DBG] pins update error', String(e)) } catch {} }
 
     const normalized = upres && upres[0] ? normalizeRecipeForClient(upres[0], c.env) : null
-    return new Response(JSON.stringify({ ok: true, data: normalized }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: normalized } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ更新中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -4450,7 +2979,7 @@ app.delete('/api/admin/recipes/*', async (c) => {
     if (delPinsErr) try { console.warn('[DBG] recipe_pins delete error', delPinsErr) } catch {}
     const { error: delErr } = await supabase.from('recipes').delete().eq('id', id)
     if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ削除に失敗しました', delErr.message || delErr, 'db_error', 500)
-    return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ削除中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -4464,7 +2993,7 @@ app.get('/api/recipes/counts', async (c) => mirrorGet(c, async (c2) => {
     if (!ctx.trusted || !ctx.userId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      return ({ status: 401, headers: merged, body: { error: 'unauthenticated' } })
     }
     const userId = ctx.userId
     const totalQ: any = getSupabase(c2.env).from('recipes').select('id', { count: 'exact', head: true }).eq('user_id', userId)
@@ -4475,7 +3004,7 @@ app.get('/api/recipes/counts', async (c) => mirrorGet(c, async (c2) => {
     const published = typeof pubRes?.count === 'number' ? pubRes.count : 0
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ data: { total, published } }), { status: 200, headers: merged })
+    return ({ status: 200, headers: merged, body: { data: { total, published } } })
   } catch (e: any) {
     return makeErrorResponse({ env: c2.env, computeCorsHeaders, req: c2.req }, '件数取得中にサーバーエラー', e?.message || String(e), 'server_error', 500)
   }
@@ -4505,7 +3034,7 @@ app.delete('/api/admin/products/*', async (c) => {
 
     const { error: delErr } = await supabase.from('products').delete().eq('id', id)
     if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品削除に失敗しました', delErr.message || delErr, 'db_error', 500)
-    return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品削除中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -4544,7 +3073,7 @@ app.get('/api/admin/products/:id', async (c) => {
       attachment_image_keys: Array.isArray(p.attachment_image_keys) ? p.attachment_image_keys : (p.attachment_image_keys || []),
       affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : []
     }
-    return new Response(JSON.stringify({ data: transformed }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { data: transformed } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -4577,7 +3106,7 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
         if (!ctx.trusted) {
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-          return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+          return ({ status: 401, headers: merged, body: { error: 'unauthenticated' } })
         }
         const supabase = getSupabase(c2.env)
         const res = await supabase.from('products').select('*, images:product_images(id,product_id,key,width,height,role), affiliateLinks:affiliate_links(*)').eq('id', tailId).limit(1).maybeSingle()
@@ -4586,7 +3115,7 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
         if (!p) {
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-          return new Response(JSON.stringify({ error: 'not_found' }), { status: 404, headers: merged })
+          return ({ status: 404, headers: merged, body: { error: 'not_found' } })
         }
         const transformed = {
           id: p.id,
@@ -4610,7 +3139,7 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
           affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : []
         }
         const headers = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8' })
-        return new Response(JSON.stringify({ data: transformed }), { headers })
+        return ({ headers, body: { data: transformed } })
       } catch (e) {
         // fall through to upstream handling below
       }
@@ -4692,7 +3221,7 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
     try { console.error('public-worker: upstream returned HTML for', targetUrl.toString(), 'status=', res.status) } catch {}
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ error: 'upstream_returned_html', message: 'Upstream returned HTML instead of JSON' }), { status: 502, headers: merged })
+    return ({ status: 502, headers: merged, body: { error: 'upstream_returned_html', message: 'Upstream returned HTML instead of JSON' } })
   }
   try { outHeaders['Content-Type'] = ct || 'application/json; charset=utf-8' } catch {}
   const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), outHeaders)
@@ -4706,11 +3235,11 @@ app.get('/api/tag-groups', async (c) => mirrorGet(c, async (c2) => {
     if (!ctx.trusted) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      return ({ status: 401, headers: merged, body: { error: 'unauthenticated' } })
     }
     const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ctx.userId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
     if (res.error) return makeErrorResponse(c2, 'タググループの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
-    return new Response(JSON.stringify({ data: res.data || [] }), { headers: Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8', body: { data: res.data || [] } }) })
   } catch (e: any) {
     return makeErrorResponse(c2, 'タググループの取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -4720,7 +3249,7 @@ app.get('/api/tag-groups', async (c) => mirrorGet(c, async (c2) => {
 app.get('/api/openapi.json', async (c) => {
   try {
     const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify(openapi), { headers })
+    return ({ headers, body: openapi })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'OpenAPI 生成に失敗しました', e?.message || String(e), 'server_error', 500)
   }
@@ -4781,14 +3310,14 @@ app.get('/api/tags', async (c) => mirrorGet(c, async (c2) => {
     if (!ctx.trusted) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      return ({ status: 401, headers: merged, body: { error: 'unauthenticated' } })
     }
     let query = supabase.from('tags').select('id, name, group, link_url, link_label, user_id, sort_order, created_at').order('sort_order', { ascending: true }).order('created_at', { ascending: true })
     query = query.eq('user_id', ctx.userId)
     const res = await query
     if (res.error) return makeErrorResponse(c2, 'タグの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
     const mapped = (res.data || []).map((row: any) => ({ id: row.id, name: row.name, group: row.group ?? undefined, linkUrl: row.link_url ?? undefined, linkLabel: row.link_label ?? undefined, userId: row.user_id ?? undefined, sortOrder: row.sort_order ?? 0, createdAt: row.created_at }))
-    return new Response(JSON.stringify({ data: mapped }), { headers: Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8', body: { data: mapped } }) })
   } catch (e: any) {
     return makeErrorResponse(c2, 'タグ取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -4853,7 +3382,7 @@ app.post('/api/admin/tags/save', async (c) => {
       }
     }
 
-    return new Response(JSON.stringify({ ok: true, data: results }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: results } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ保存時にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
@@ -4892,11 +3421,11 @@ app.post('/api/admin/tags/custom', async (c) => {
       inserts.push({ name: tagName, group: tagGroup, link_url: t.linkUrl || t.link_url || null, link_label: t.linkLabel || t.link_label || null, sort_order: typeof t.sortOrder !== 'undefined' ? t.sortOrder : null, user_id: targetUserId })
     }
 
-    if (inserts.length === 0) return new Response(JSON.stringify({ ok: true, data: [] }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    if (inserts.length === 0) return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: [] } }) })
 
     const { data: insRes = [], error: insErr } = await supabase.from('tags').insert(inserts).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
-    return new Response(JSON.stringify({ ok: true, data: insRes }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: insRes } }) })
   } catch (e: any) {
     // Include stack in detail temporarily to aid debugging of null-ref
     const detail = (e && (e.stack || e.message)) ? (e.stack || e.message) : String(e)
@@ -4926,7 +3455,7 @@ app.post('/api/admin/tag-groups', async (c) => {
     const insertBody = { name, label, user_id: targetUser }
     const { data: ins, error: insErr } = await supabase.from('tag_groups').insert(insertBody).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
-    return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: ins && ins[0] ? ins[0] : null } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ作成中にサーバーエラー', e?.message || String(e), 'server_error', 500)
   }
@@ -4955,7 +3484,7 @@ app.put('/api/admin/tag-groups', async (c) => {
     const { error: tagUpdErr } = await supabase.from('tags').update({ group: newName }).eq('user_id', targetUser).eq('group', name)
     if (tagUpdErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの参照更新に失敗しました', tagUpdErr.message || tagUpdErr, 'db_error', 500)
 
-    return new Response(JSON.stringify({ ok: true, data: upd }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: upd } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ更新中にサーバーエラー', e?.message || String(e), 'server_error', 500)
   }
@@ -4967,7 +3496,7 @@ app.post('/api/admin/tag-groups/reorder', async (c) => {
     const supabase = getSupabase(c.env)
     const body = await c.req.json().catch(() => ({}))
     const groups = Array.isArray(body.groups) ? body.groups : []
-    if (groups.length === 0) return new Response(JSON.stringify({ ok: true, data: [] }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    if (groups.length === 0) return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: [] } }) })
     const ctx = await resolveRequestUserContext(c)
     if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
     const targetUser = body.userId ? String(body.userId) : ctx.userId
@@ -4983,7 +3512,7 @@ app.post('/api/admin/tag-groups/reorder', async (c) => {
       if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ並び替えに失敗しました', upErr.message || upErr, 'db_error', 500)
     }
 
-    return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ並び替え中にサーバーエラー', e?.message || String(e), 'server_error', 500)
   }
@@ -4995,7 +3524,7 @@ app.post('/api/admin/tags/reorder', async (c) => {
     const supabase = getSupabase(c.env)
     const body = await c.req.json().catch(() => ({}))
     const tagsArr = Array.isArray(body.tags) ? body.tags : []
-    if (tagsArr.length === 0) return new Response(JSON.stringify({ ok: true, data: [] }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    if (tagsArr.length === 0) return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true, data: [] } }) })
     const ctx = await resolveRequestUserContext(c)
     if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
     const targetUser = body.userId ? String(body.userId) : ctx.userId
@@ -5018,7 +3547,7 @@ app.post('/api/admin/tags/reorder', async (c) => {
       }
     }
 
-    return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+    return ({ headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8', body: { ok: true } }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグ並び替え中にサーバーエラー', e?.message || String(e), 'server_error', 500)
   }
@@ -5033,7 +3562,7 @@ app.get('/api/products', async (c) => mirrorGet(c, async (c2) => {
     if (!workerHost) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ error: 'no_internal_handler', message: 'WORKER_PUBLIC_HOST not configured; internal API not found' }), { status: 404, headers: merged })
+      return ({ status: 404, headers: merged, body: { error: 'no_internal_handler', message: 'WORKER_PUBLIC_HOST not configured; internal API not found' } })
     }
 
     const urlObj = new URL(c2.req.url)
@@ -5049,7 +3578,7 @@ app.get('/api/products', async (c) => mirrorGet(c, async (c2) => {
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ error: 'upstream_fetch_failed', message: String(e?.message || e) }), { status: 502, headers: merged })
+    return ({ status: 502, headers: merged, body: { error: 'upstream_fetch_failed', message: String(e?.message || e) } })
   }
 }))
 
@@ -5060,21 +3589,21 @@ app.get('/api/recipe-pins', async (c) => mirrorGet(c, async (c2) => {
     if (!ctx.trusted) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      return ({ status: 401, headers: merged, body: { error: 'unauthenticated' } })
     }
     const { data = [], error } = await supabase.from('recipe_pins').select('*').eq('user_id', ctx.userId)
     if (error) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-      return new Response(JSON.stringify({ error: error.message || 'db_error' }), { status: 500, headers: merged })
+      return ({ status: 500, headers: merged, body: { error: error.message || 'db_error' } })
     }
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ data }), { headers: merged })
+    return ({ headers: merged, body: { data } })
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+    return ({ status: 500, headers: merged, body: { error: String(e?.message || e) } })
   }
 }))
 
@@ -5147,7 +3676,7 @@ app.post('/api/admin/recipe-pins/bulk', async (c) => {
 
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: merged })
+    return ({ status: 200, headers: merged, body: { ok: true } })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'recipe-pins のバルク更新中にサーバーエラー', e?.message || String(e), 'server_error', 500)
   }
@@ -5156,7 +3685,7 @@ app.post('/api/admin/recipe-pins/bulk', async (c) => {
 app.get('/api/custom-fonts', async (c) => mirrorGet(c, async (c2) => {
   const base = { 'Content-Type': 'application/json; charset=utf-8' }
   const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
-  return new Response(JSON.stringify({ data: [] }), { headers: merged })
+  return ({ headers: merged, body: { data: [] } })
 }))
 
 // Mirror images wildcard
@@ -5173,7 +3702,7 @@ app.get('/api/images/*', async (c) => {
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+    return ({ status: 500, headers: merged, body: { error: String(e?.message || e) } })
   }
 })
 
@@ -5182,12 +3711,12 @@ app.post('/api/site-settings', async (c) => {
   try {
     // mimic /site-settings POST behavior
     const ctx = await resolveRequestUserContext(c)
-    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!ctx.trusted || !ctx.userId) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'unauthorized' } })
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
-    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'not_configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!supabaseUrl || !serviceKey) return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'not_configured' } })
     const body = await c.req.json().catch(() => null)
-    if (!body || typeof body.key !== 'string') return new Response(JSON.stringify({ error: 'bad_request' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!body || typeof body.key !== 'string') return ({ status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'bad_request' } })
     const valueRaw = body.value === undefined ? null : body.value
     const value = typeof valueRaw === 'string' ? valueRaw : JSON.stringify(valueRaw)
     const upUrl = `${supabaseUrl}/rest/v1/site_settings?on_conflict=key`
@@ -5196,14 +3725,14 @@ app.post('/api/site-settings', async (c) => {
       headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
       body: JSON.stringify({ key: body.key, value })
     })
-    if (!res.ok) return new Response(JSON.stringify({ error: 'upsert_failed' }), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!res.ok) return ({ status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'upsert_failed' } })
     const j = await res.json().catch(() => null)
     const outVal = j && Array.isArray(j) && j.length > 0 ? j[0].value : null
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: { [body.key]: outVal } }), { headers: merged })
+    return ({ headers: merged, body: { data: { [body.key]: outVal } } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: String(e?.message || e) } })
   }
 })
 
@@ -5213,7 +3742,7 @@ app.post('/site-settings', async (c) => {
     const internal = upstream(c, '/api/site-settings')
     const ctx = await resolveRequestUserContext(c)
     // require authenticated admin user (Supabase token)
-    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!ctx.trusted || !ctx.userId) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'unauthorized' } })
 
     // If there's an internal API configured, proxy the write upstream
     if (internal) {
@@ -5228,10 +3757,10 @@ app.post('/site-settings', async (c) => {
     // Otherwise perform upsert directly to Supabase site_settings using service role
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
-    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'not_configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!supabaseUrl || !serviceKey) return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'not_configured' } })
 
     const body = await c.req.json().catch(() => null)
-    if (!body || typeof body.key !== 'string') return new Response(JSON.stringify({ error: 'bad_request' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!body || typeof body.key !== 'string') return ({ status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'bad_request' } })
 
     const valueRaw = body.value === undefined ? null : body.value
     const value = typeof valueRaw === 'string' ? valueRaw : JSON.stringify(valueRaw)
@@ -5243,12 +3772,12 @@ app.post('/site-settings', async (c) => {
       body: JSON.stringify({ key: body.key, value })
     })
 
-    if (!res.ok) return new Response(JSON.stringify({ error: 'upsert_failed' }), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!res.ok) return ({ status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'upsert_failed' } })
     const j = await res.json().catch(() => null)
     const outVal = j && Array.isArray(j) && j.length > 0 ? j[0].value : null
-    return new Response(JSON.stringify({ data: { [body.key]: outVal } }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: { [body.key]: outVal } } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: String(e?.message || e) } })
   }
 })
 
@@ -5267,7 +3796,7 @@ app.get('/api/admin/settings', async (c) => {
     if (!ctx.trusted || !ctx.userId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: merged })
+      return ({ status: 401, headers: merged, body: { error: 'unauthorized' } })
     }
     if (internal) {
       const headers = makeUpstreamHeaders(c)
@@ -5276,7 +3805,7 @@ app.get('/api/admin/settings', async (c) => {
       const json = await res.json().catch(() => ({ data: {} }))
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify(json), { status: res.status, headers: merged })
+      return ({ status: res.status, headers: merged, body: json })
     }
 
     // Fallback: read from Supabase site_settings table and return as key/value map
@@ -5288,12 +3817,12 @@ app.get('/api/admin/settings', async (c) => {
     // cannot perform secure upserts; admin users should configure either
     // `INTERNAL_API_BASE` or `SUPABASE_SERVICE_ROLE_KEY` in production.
     if (!supabaseUrl || !serviceKey) {
-      return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      return ({ status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: {} } })
     }
 
     const url = `${supabaseUrl}/rest/v1/site_settings?select=key,value`
     const resp = await fetch(url, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
-    if (!resp.ok) return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!resp.ok) return ({ headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: {} } })
     const rows = await resp.json().catch(() => [])
     const out: Record<string, any> = {}
     // Keys that belong to user profile should not be populated from site_settings
@@ -5392,9 +3921,9 @@ app.get('/api/admin/settings', async (c) => {
 
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: out }), { headers: merged })
+    return ({ headers: merged, body: { data: out } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: {} } })
   }
 })
 
@@ -5407,7 +3936,7 @@ app.get('/admin/settings', async (c) => {
     if (!ctx.trusted || !ctx.userId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: merged })
+      return ({ status: 401, headers: merged, body: { error: 'unauthorized' } })
     }
 
     if (internal) {
@@ -5417,18 +3946,18 @@ app.get('/admin/settings', async (c) => {
       const json = await res.json().catch(() => ({ data: {} }))
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify(json), { status: res.status, headers: merged })
+      return ({ status: res.status, headers: merged, body: json })
     }
 
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
     if (!supabaseUrl || !serviceKey) {
-      return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      return ({ status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: {} } })
     }
 
     const url = `${supabaseUrl}/rest/v1/site_settings?select=key,value`
     const resp = await fetch(url, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
-    if (!resp.ok) return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!resp.ok) return ({ headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: {} } })
     const rows = await resp.json().catch(() => [])
     const out: Record<string, any> = {}
     // Keys that belong to user profile should not be populated from site_settings
@@ -5516,9 +4045,9 @@ app.get('/admin/settings', async (c) => {
 
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: out }), { headers: merged })
+    return ({ headers: merged, body: { data: out } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: {} } })
   }
 })
 
@@ -5528,7 +4057,7 @@ app.put('/api/admin/settings', async (c) => {
     const bodyText = await c.req.text()
     const ctx = await resolveRequestUserContext(c)
     // require authenticated admin user (Supabase token)
-    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!ctx.trusted || !ctx.userId) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'unauthorized' } })
     if (internal) {
       const headers = { ...makeUpstreamHeaders(c) }
       if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
@@ -5541,7 +4070,7 @@ app.put('/api/admin/settings', async (c) => {
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
     // If Supabase service role is not configured, return a neutral success
     // response so the admin UI can continue without blowing up.
-    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!supabaseUrl || !serviceKey) return ({ status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: {} } })
 
     const payload = JSON.parse(bodyText || '{}')
     // If payload contains user fields or an id, upsert users table using service role key
@@ -5603,13 +4132,13 @@ app.put('/api/admin/settings', async (c) => {
           if (maybeId !== ctx.userId && ctx.userId !== ownerIdGlobal) {
             const base = { 'Content-Type': 'application/json; charset=utf-8' }
             const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-            return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+            return ({ status: 403, headers: merged, body: { error: 'forbidden' } })
           }
         } catch (e) {
           // if owner lookup fails unexpectedly, treat as forbidden to be safe
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+          return ({ status: 403, headers: merged, body: { error: 'forbidden' } })
         }
 
         // upsert into users table
@@ -5692,9 +4221,9 @@ app.put('/api/admin/settings', async (c) => {
     }
 
     const mergedOk = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: out }), { headers: mergedOk })
+    return ({ headers: mergedOk, body: { data: out } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: String(e?.message || e) } })
   }
 })
 
@@ -5705,7 +4234,7 @@ app.put('/admin/settings', async (c) => {
     const bodyText = await c.req.text()
     const ctx = await resolveRequestUserContext(c)
     // require authenticated admin user for admin settings
-    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!ctx.trusted || !ctx.userId) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'unauthorized' } })
       if (internal) {
       const headers = { ...makeUpstreamHeaders(c) }
       if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
@@ -5717,7 +4246,7 @@ app.put('/admin/settings', async (c) => {
 
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
-    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!supabaseUrl || !serviceKey) return ({ status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: {} } })
 
     const payload = JSON.parse(bodyText || '{}')
     const out: Record<string, any> = {}
@@ -5736,10 +4265,10 @@ app.put('/admin/settings', async (c) => {
       }
     }
     const mergedOut = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ data: out }), { headers: mergedOut })
+    return ({ headers: mergedOut, body: { data: out } })
   } catch (e: any) {
     const mergedErr = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: mergedErr })
+    return ({ status: 500, headers: mergedErr, body: { error: String(e?.message || e) } })
   }
 })
 
@@ -5829,7 +4358,7 @@ async function productsHandler(c: any): Promise<Response> {
         error = res.error || null
       }
 
-      if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 })
+      if (error) return ({ status: 500, body: { error: error.message } })
 
       const transformed = (data || []).map((p: any) => {
         if (shallow) {
@@ -5893,9 +4422,9 @@ async function productsHandler(c: any): Promise<Response> {
         meta.offset = offset || 0
       }
 
-      return new Response(JSON.stringify({ data: transformed, meta }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      return ({ headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: transformed, meta } })
     } catch (e: any) {
-      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500 })
+      return ({ status: 500, body: { error: String(e?.message || e) } })
     }
   })
 }
@@ -5926,20 +4455,20 @@ app.put('/api/admin/users/:id', async (c) => {
 
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
-    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!supabaseUrl || !serviceKey) return ({ status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'internal api not configured' } })
 
     const id = c.req.param('id')
     const payload = JSON.parse(bodyText || '{}')
     const ctx = await resolveRequestUserContext(c, payload)
     // Only allow users to update their own profile or an owner account.
     if (!ctx.trusted || !ctx.userId) {
-      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'unauthorized' } })
     }
     const ownerId = (c.env.PUBLIC_OWNER_USER_ID || '').toString() || null
     if (ctx.userId !== id && ctx.userId !== ownerId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+      return ({ status: 403, headers: merged, body: { error: 'forbidden' } })
     }
     // Update profiles table by id (assuming profiles table exists with id column)
     const url = `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(id)}`
@@ -5949,9 +4478,9 @@ app.put('/api/admin/users/:id', async (c) => {
       body: JSON.stringify(payload)
     })
     const j = await res.json().catch(() => null)
-    return new Response(JSON.stringify({ data: j }), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: j } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: String(e?.message || e) } })
   }
 })
 
@@ -5961,7 +4490,7 @@ app.post('/api/admin/amazon/credentials', async (c) => {
     const internal = upstream(c, '/api/admin/amazon/credentials')
     const bodyText = await c.req.text().catch(() => '')
     const ctx = await resolveRequestUserContext(c)
-    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!ctx.trusted || !ctx.userId) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'unauthorized' } })
 
     if (internal) {
       const headers = { ...makeUpstreamHeaders(c) }
@@ -5974,7 +4503,7 @@ app.post('/api/admin/amazon/credentials', async (c) => {
     const payload = JSON.parse(bodyText || '{}')
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
-    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'not_configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!supabaseUrl || !serviceKey) return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'not_configured' } })
 
     const id = payload?.id || payload?.userId || 'default'
     // Enforce owner check: only the user themself or configured site owner may set credentials for a user
@@ -5983,12 +4512,12 @@ app.post('/api/admin/amazon/credentials', async (c) => {
       if (id !== ctx.userId && ctx.userId !== ownerIdGlobal) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+        return ({ status: 403, headers: merged, body: { error: 'forbidden' } })
       }
     } catch (e) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+      return ({ status: 403, headers: merged, body: { error: 'forbidden' } })
     }
     const accessKey = payload?.accessKey || payload?.access_key || null
     const secretKey = payload?.secretKey || payload?.secret_key || null
@@ -6001,11 +4530,11 @@ app.post('/api/admin/amazon/credentials', async (c) => {
       body: JSON.stringify({ id, access_key: accessKey, secret_key: secretKey, associate_id: associateId })
     })
 
-    if (!res.ok) return new Response(JSON.stringify({ error: 'upsert_failed' }), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!res.ok) return ({ status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'upsert_failed' } })
     const j = await res.json().catch(() => null)
-    return new Response(JSON.stringify({ data: j && Array.isArray(j) && j.length > 0 ? j[0] : null }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { data: j && Array.isArray(j) && j.length > 0 ? j[0] : null } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: String(e?.message || e) } })
   }
 })
 
@@ -6019,13 +4548,13 @@ async function handleUploadImage(c: any) {
     if (!ctx.trusted || !ctx.userId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: merged })
+      return ({ status: 401, headers: merged, body: { error: 'unauthorized' } })
     }
     const ct = c.req.header('content-type') || ''
     if (!ct.includes('multipart/form-data')) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'multipart/form-data required' }), { status: 400, headers: merged })
+      return ({ status: 400, headers: merged, body: { error: 'multipart/form-data required' } })
     }
     const form = await c.req.formData()
     const file = form.get('file') as File | null
@@ -6034,7 +4563,7 @@ async function handleUploadImage(c: any) {
     if (!file) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'file is required' }), { status: 400, headers: merged })
+      return ({ status: 400, headers: merged, body: { error: 'file is required' } })
     }
 
     const buf = await file.arrayBuffer()
@@ -6090,7 +4619,7 @@ async function handleUploadImage(c: any) {
     if (!putRes) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'failed to put object' }), { status: 500, headers: merged })
+      return ({ status: 500, headers: merged, body: { error: 'failed to put object' } })
     }
 
     // Return a worker-relative publicUrl so clients can use it for preview
@@ -6183,7 +4712,7 @@ async function handleUploadImage(c: any) {
         if (effectiveTargetUserId && ctx.userId !== effectiveTargetUserId && ctx.userId !== ownerIdGlobal) {
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+          return ({ status: 403, headers: merged, body: { error: 'forbidden' } })
         }
         const supabaseUrl2 = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
         const serviceKey2 = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
@@ -6284,12 +4813,12 @@ async function handleUploadImage(c: any) {
       const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
       const contentType = (file && (file.type || 'application/octet-stream')) || 'application/octet-stream'
-      return new Response(JSON.stringify({ key, contentType }), { headers: merged })
+      return ({ headers: merged, body: { key, contentType } })
     }
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
     const merged = Object.assign({}, computeCorsHeaders((c as any).req?.header?.('Origin') || null, (c as any).env), base)
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+    return ({ status: 500, headers: merged, body: { error: String(e?.message || e) } })
   }
 }
 
@@ -6312,7 +4841,7 @@ async function handleImagesComplete(c: any) {
     if (!key) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'key is required' }), { status: 400, headers: merged })
+      return ({ status: 400, headers: merged, body: { error: 'key is required' } })
     }
 
     // Build record to insert into `images` table. We store key only (no full URL).
@@ -6328,7 +4857,7 @@ async function handleImagesComplete(c: any) {
     if (!tokenUserId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: merged })
+      return ({ status: 401, headers: merged, body: { error: 'unauthorized' } })
     }
     // effectiveUserId: token-authenticated user id
     const effectiveUserId = tokenUserId || null
@@ -6346,12 +4875,12 @@ async function handleImagesComplete(c: any) {
       if (wantsAssignToProfile && assignTargetUserId && ctx.userId !== assignTargetUserId && ctx.userId !== ownerIdGlobal) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+        return ({ status: 403, headers: merged, body: { error: 'forbidden' } })
       }
     } catch (e) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
+      return ({ status: 403, headers: merged, body: { error: 'forbidden' } })
     }
 
     async function tryAssignProfile(keyToAssign: string) {
@@ -6405,7 +4934,7 @@ async function handleImagesComplete(c: any) {
     if (!supabaseUrl || !serviceKey) {
       // If service role key not configured, do not fail hard; return success but log.
       try { console.warn('SUPABASE_SERVICE_ROLE_KEY not configured; images/complete did not persist to DB') } catch {}
-      return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+      return ({ status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }, body: { key } })
     }
 
     // Atomic upsert using Postgres ON CONFLICT DO NOTHING pattern via Supabase REST.
@@ -6433,7 +4962,7 @@ async function handleImagesComplete(c: any) {
           await tryAssignProfile(key)
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+          return ({ status: 200, headers: merged, body: { key } })
         }
 
         // Insert was ignored due to conflict — fetch the existing record
@@ -6446,17 +4975,17 @@ async function handleImagesComplete(c: any) {
             await tryAssignProfile(key)
             const base = { 'Content-Type': 'application/json; charset=utf-8' }
             const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-            return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+            return ({ status: 200, headers: merged, body: { key } })
           }
         } catch (e) {
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+          return ({ status: 200, headers: merged, body: { key } })
         }
         await tryAssignProfile(key)
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+        return ({ status: 200, headers: merged, body: { key } })
       }
 
       // If upsert failed, inspect the response for Postgres-on-conflict support error (42P10)
@@ -6477,7 +5006,7 @@ async function handleImagesComplete(c: any) {
             await tryAssignProfile(key)
             const base = { 'Content-Type': 'application/json; charset=utf-8' }
             const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-            return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+            return ({ status: 200, headers: merged, body: { key } })
           }
         } catch (e) {
           // ignore and fallback to SELECT/INSERT loop below
@@ -6498,7 +5027,7 @@ async function handleImagesComplete(c: any) {
             const existing = await qRes.json().catch(() => null)
             if (Array.isArray(existing) && existing.length > 0) {
               await tryAssignProfile(key)
-              return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+              return ({ status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }, body: { key } })
             }
           }
 
@@ -6512,7 +5041,7 @@ async function handleImagesComplete(c: any) {
                 await tryAssignProfile(key)
                 const base = { 'Content-Type': 'application/json; charset=utf-8' }
                 const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-                return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+                return ({ status: 200, headers: merged, body: { key } })
               }
             } else {
             const txt = await insRes.text().catch(() => '')
@@ -6526,7 +5055,7 @@ async function handleImagesComplete(c: any) {
                   await tryAssignProfile(key)
                   const base = { 'Content-Type': 'application/json; charset=utf-8' }
                   const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-                  return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+                  return ({ status: 200, headers: merged, body: { key } })
                 }
               }
             }
@@ -6538,21 +5067,21 @@ async function handleImagesComplete(c: any) {
         // After retries, return error
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'failed to persist image metadata after retries' }), { status: 500, headers: merged })
+        return ({ status: 500, headers: merged, body: { error: 'failed to persist image metadata after retries' } })
       } catch (e: any) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+        return ({ status: 500, headers: merged, body: { error: String(e?.message || e) } })
       }
     } catch (e: any) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+      return ({ status: 500, headers: merged, body: { error: String(e?.message || e) } })
     }
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+    return ({ status: 500, headers: merged, body: { error: String(e?.message || e) } })
   }
 }
 
@@ -6563,12 +5092,12 @@ app.post('/api/images/complete', handleImagesComplete)
 app.delete('/api/images/:key', async (c) => {
   try {
     const keyParam = c.req.param('key')
-    if (!keyParam) return new Response(JSON.stringify({ error: 'key required' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!keyParam) return ({ status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'key required' } })
 
     // Resolve user context and ensure authorized
     const ctx = await resolveRequestUserContext(c)
     const allowed = ctx.trusted && !!ctx.userId
-    if (!allowed) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!allowed) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: 'unauthorized' } })
 
     const key = decodeURIComponent(keyParam)
     // Delete from R2 (best-effort)
@@ -6598,9 +5127,9 @@ app.delete('/api/images/:key', async (c) => {
       try { console.warn('images delete DB operation failed', String(e?.message || e)) } catch(e){}
     }
 
-    return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: true } })
   } catch (e:any) {
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { error: String(e?.message || e) } })
   }
 })
 
@@ -6609,11 +5138,11 @@ app.post('/api/images/direct-upload', async (c) => {
   try {
     // Require authenticated/admin user (token only) to get direct-upload token
     const ctx = await resolveRequestUserContext(c)
-    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!ctx.trusted || !ctx.userId) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: 'unauthorized' } })
     const account = (c.env.CLOUDFLARE_ACCOUNT_ID || '').toString()
     const token = (c.env.CLOUDFLARE_IMAGES_API_TOKEN || '').toString()
     if (!account || !token) {
-      return new Response(JSON.stringify({ ok: false, error: 'Cloudflare Images credentials not configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: 'Cloudflare Images credentials not configured' } })
     }
 
     const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/images/v2/direct_upload`, {
@@ -6622,9 +5151,9 @@ app.post('/api/images/direct-upload', async (c) => {
       body: JSON.stringify({})
     })
     const json = await res.json().catch(() => ({ ok: false }))
-    return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: json })
   } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: String(e?.message || e) } })
   }
 })
 // Also accept `/images/direct-upload` (some proxies strip the `/api` prefix).
@@ -6632,11 +5161,11 @@ app.post('/images/direct-upload', async (c) => {
   try {
     // Require authenticated/admin user (token only) to get direct-upload token
     const ctx = await resolveRequestUserContext(c)
-    if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!ctx.trusted || !ctx.userId) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: 'unauthorized' } })
     const account = (c.env.CLOUDFLARE_ACCOUNT_ID || '').toString()
     const token = (c.env.CLOUDFLARE_IMAGES_API_TOKEN || '').toString()
     if (!account || !token) {
-      return new Response(JSON.stringify({ ok: false, error: 'Cloudflare Images credentials not configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: 'Cloudflare Images credentials not configured' } })
     }
 
     const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/images/v2/direct_upload`, {
@@ -6645,9 +5174,9 @@ app.post('/images/direct-upload', async (c) => {
       body: JSON.stringify({})
     })
     const json = await res.json().catch(() => ({ ok: false }))
-    return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: res.status, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: json })
   } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: String(e?.message || e) } })
   }
 })
 
@@ -6655,13 +5184,13 @@ app.post('/images/direct-upload', async (c) => {
 app.get('/api/auth/whoami', async (c) => {
   try {
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
-    if (!supabaseUrl) return new Response(JSON.stringify({ ok: false }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    if (!supabaseUrl) return ({ status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }, body: { ok: false } })
     // Use shared helper: extract token (Authorization or cookie) and fetch user
     const user = await getUserFromRequest(c)
-    if (!user) return new Response(JSON.stringify({ ok: false }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-    return new Response(JSON.stringify({ ok: true, user }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    if (!user) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }, body: { ok: false } })
+    return ({ status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }, body: { ok: true, user } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }, body: { ok: false, error: String(e?.message || e) } })
   }
 })
 
@@ -6671,7 +5200,7 @@ app.post('/api/auth/session', async (c) => {
     const payload = await c.req.json().catch(() => ({}))
     const access = payload?.access_token || ''
     const refresh = payload?.refresh_token || ''
-    if (!access) return new Response(JSON.stringify({ ok: false, error: 'missing_access_token' }), { status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!access) return ({ status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: 'missing_access_token' } })
 
     const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' })
     // Ensure cookies are scoped appropriately. In production we scope to
@@ -6685,9 +5214,9 @@ app.post('/api/auth/session', async (c) => {
     headers.append('Set-Cookie', `sb-access-token=${encodeURIComponent(access)};${cookieOpts}`)
     if (refresh) headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(refresh)};${cookieOpts}`)
 
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+    return ({ status: 200, headers, body: { ok: true } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: String(e?.message || e) } })
   }
 })
 
@@ -6699,12 +5228,12 @@ app.post('/api/auth/refresh', async (c) => {
     const cookieHeader = c.req.header('cookie') || ''
     const match = cookieHeader.split(';').map((s: string) => s.trim()).find((s: string) => s.startsWith('sb-refresh-token='))
     const refreshToken = match ? decodeURIComponent(match.split('=')[1]) : null
-    if (!refreshToken) return new Response(JSON.stringify({ ok: false, error: 'no_refresh_token' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!refreshToken) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: 'no_refresh_token' } })
 
     const supabaseBase = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const anonKey = (c.env.SUPABASE_ANON_KEY || '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '') || null
-    if (!supabaseBase) return new Response(JSON.stringify({ ok: false, error: 'SUPABASE_URL not configured' }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!supabaseBase) return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: 'SUPABASE_URL not configured' } })
 
     const tokenUrl = `${supabaseBase}/auth/v1/token`
     const body = `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`
@@ -6716,7 +5245,7 @@ app.post('/api/auth/refresh', async (c) => {
 
     const tokenRes = await fetch(tokenUrl, { method: 'POST', headers: reqHeaders, body })
     const tokenJson = await tokenRes.json().catch(() => null)
-    if (!tokenRes.ok || !tokenJson) return new Response(JSON.stringify({ ok: false, error: tokenJson || 'token_refresh_failed' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    if (!tokenRes.ok || !tokenJson) return ({ status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: tokenJson || 'token_refresh_failed' } })
 
     const accessToken = tokenJson.access_token || null
     const newRefreshToken = tokenJson.refresh_token || null
@@ -6732,9 +5261,9 @@ app.post('/api/auth/refresh', async (c) => {
       headers.append('Set-Cookie', `sb-refresh-token=${encodeURIComponent(newRefreshToken)}; ${cookieBase}; Max-Age=${60 * 60 * 24 * 30}`)
     }
 
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+    return ({ status: 200, headers, body: { ok: true } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: String(e?.message || e) } })
   }
 })
 
@@ -6745,9 +5274,9 @@ app.post('/api/auth/logout', async (c) => {
     // Include Expires for broader compatibility when clearing cookies
     headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Domain=.shirasame.com`)
     headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Domain=.shirasame.com`)
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+    return ({ status: 200, headers, body: { ok: true } })
   } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    return ({ status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: { ok: false, error: String(e?.message || e) } })
   }
 })
     
@@ -6928,21 +5457,21 @@ app.get('/recipe-pins', zValidator('query', listQuery.partial()), async (c) => {
     if (!ctx.trusted) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      return ({ status: 401, headers: merged, body: { error: 'unauthenticated' } })
     }
     const { data = [], error } = await supabase.from('recipe_pins').select('*').eq('user_id', ctx.userId)
     if (error) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: error.message || 'db_error' }), { status: 500, headers: merged })
+      return ({ status: 500, headers: merged, body: { error: error.message || 'db_error' } })
     }
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data }), { headers: merged })
+    return ({ headers: merged, body: { data } })
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+    return ({ status: 500, headers: merged, body: { error: String(e?.message || e) } })
   }
 })
 
@@ -6950,11 +5479,11 @@ app.get('/custom-fonts', async (c) => {
   try {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: [] }), { headers: merged })
+    return ({ headers: merged, body: { data: [] } })
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ data: [] }), { status: 500, headers: merged })
+    return ({ status: 500, headers: merged, body: { data: [] } })
   }
 })
 
@@ -6975,11 +5504,11 @@ app.get('/api/debug/echo-headers', async (c) => {
     }
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ ok: true, headers: headersToEcho }), { status: 200, headers: merged })
+    return ({ status: 200, headers: merged, body: { ok: true, headers: headersToEcho } })
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: merged })
+    return ({ status: 500, headers: merged, body: { ok: false, error: String(e?.message || e) } })
   }
 })
 
@@ -7001,7 +5530,7 @@ app.all('/api/*', async (c) => {
         headers.set('Content-Type', 'application/json; charset=utf-8')
         headers.append('Set-Cookie', `sb-access-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
         headers.append('Set-Cookie', `sb-refresh-token=; Path=/; HttpOnly; SameSite=None; Max-Age=0; Secure; Domain=.shirasame.com`)
-        return new Response(JSON.stringify({ ok: true }), { status: 200, headers })
+        return ({ status: 200, headers, body: { ok: true } })
       }
     } catch (e) {}
 
@@ -7087,7 +5616,7 @@ app.all('/api/*', async (c) => {
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
+    return ({ status: 500, headers: merged, body: { error: String(e?.message || e) } })
   }
 })
 
@@ -7102,7 +5631,7 @@ app.all('*', async (c) => {
     headers['Content-Type'] = 'application/json; charset=utf-8'
     const out: any = { error: 'サーバーエラー発生（詳細はコンソール参照）', message: e?.message || String(e) }
     try { out.stack = e?.stack || null } catch {}
-    return new Response(JSON.stringify(out), { status: 500, headers })
+    return ({ status: 500, headers, body: out })
   }
 })
 
@@ -7120,7 +5649,7 @@ app.all('*', async (c) => {
         headers['X-Served-By'] = 'public-worker'
         const body: any = { error: 'サーバーエラー発生（詳細はコンソール参照）', message: err instanceof Error ? err.message : String(err) }
         try { body.stack = err?.stack || null } catch {}
-        return new Response(JSON.stringify(body), { status: 500, headers })
+        return ({ status: 500, headers, body: body })
       }
     })())
   })

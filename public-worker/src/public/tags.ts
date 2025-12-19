@@ -14,13 +14,13 @@ export function registerTags(app: Hono<any>) {
       if (error) throw error
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       const key = `public_tags`
-      return await cacheJson(c, key, async () => new Response(JSON.stringify({ data: data || [] }), { status: 200, headers }))
+      return await cacheJson(c, key, async () => ({ body: { data: data || [] }, headers }))
     } catch (e: any) {
       try { console.error('public/tags error', e) } catch {}
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       const details = e && e.message ? e.message : JSON.stringify(e)
       const key = `public_tags_error`
-      return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'server_error', message: 'タグ一覧取得に失敗しました', details }), { status: 500, headers }))
+      return await cacheJson(c, key, async () => ({ status: 500, body: { code: 'server_error', message: 'タグ一覧取得に失敗しました', details }, headers }))
     }
   })
 }

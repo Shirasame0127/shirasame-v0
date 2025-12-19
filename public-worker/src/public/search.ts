@@ -46,13 +46,13 @@ export function registerSearch(app: Hono<any>) {
       }
 
       const key = `public_search:${encodeURIComponent(q)}:${encodeURIComponent(type)}`
-      return await cacheJson(c, key, async () => new Response(JSON.stringify({ data: results }), { status: 200, headers }))
+      return await cacheJson(c, key, async () => ({ body: { data: results }, headers }))
     } catch (e: any) {
       try { console.error('public/search error', e) } catch {}
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       const details = e && e.message ? e.message : JSON.stringify(e)
       const key = `public_search:error:${encodeURIComponent(q)}:${encodeURIComponent(type)}`
-      return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'server_error', message: '検索に失敗しました', details }), { status: 500, headers }))
+      return await cacheJson(c, key, async () => ({ status: 500, body: { code: 'server_error', message: '検索に失敗しました', details }, headers }))
     }
   })
 }

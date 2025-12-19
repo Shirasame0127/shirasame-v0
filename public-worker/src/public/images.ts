@@ -20,7 +20,7 @@ export function registerImages(app: Hono<any>) {
       if (!base) {
         const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
         const key = `public_images_not_configured`
-        return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'not_configured', message: '画像配信が設定されていません' }), { status: 404, headers }))
+        return await cacheJson(c, key, async () => ({ status: 404, body: { code: 'not_configured', message: '画像配信が設定されていません' }, headers }))
       }
 
       // If width parameter present, produce a resized URL using helper
@@ -40,7 +40,7 @@ export function registerImages(app: Hono<any>) {
     } catch (e: any) {
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       const key = `public_images_server_error`
-      return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'server_error', message: '画像配信中にエラーが発生しました', details: String(e) }), { status: 500, headers }))
+      return await cacheJson(c, key, async () => ({ status: 500, body: { code: 'server_error', message: '画像配信中にエラーが発生しました', details: String(e) }, headers }))
     }
   })
 }

@@ -27,7 +27,7 @@ export function registerCollections(app: Hono<any>) {
         const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
         const key = `public_collections_empty:${page}:${per_page}`
-        return await cacheJson(c, key, async () => new Response(JSON.stringify({ data: [], meta: total != null ? { total, limit: per_page, offset } : undefined }), { headers: merged }))
+          return await cacheJson(c, key, async () => ({ body: { data: [], meta: total != null ? { total, limit: per_page, offset } : undefined }, headers: merged }))
       }
 
       const collectionIds = (data || []).map((c2: any) => c2.id)
@@ -83,13 +83,13 @@ export function registerCollections(app: Hono<any>) {
       const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
       const key = `public_collections:${page}:${per_page}`
-      return await cacheJson(c, key, async () => new Response(JSON.stringify({ data: transformed, meta: { total, page, per_page } }), { headers: merged }))
+        return await cacheJson(c, key, async () => ({ body: { data: transformed, meta: { total, page, per_page } }, headers: merged }))
     } catch (e: any) {
       try { console.error('public/collections list error', e) } catch {}
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       const details = e && e.message ? e.message : JSON.stringify(e)
       const key = `public_collections_error:${page}:${per_page}`
-      return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'server_error', message: 'コレクション一覧取得に失敗しました', details }), { status: 500, headers }))
+        return await cacheJson(c, key, async () => ({ status: 500, body: { code: 'server_error', message: 'コレクション一覧取得に失敗しました', details }, headers }))
     }
   })
 
@@ -106,7 +106,7 @@ export function registerCollections(app: Hono<any>) {
       if (!data) {
         const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
         const key = `public_collection_not_found:${id}`
-        return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'not_found', message: 'コレクションが見つかりません' }), { status: 404, headers }))
+          return await cacheJson(c, key, async () => ({ status: 404, body: { code: 'not_found', message: 'コレクションが見つかりません' }, headers }))
       }
       const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
       // Collections do not have a direct `image` column; expose product_ids and leave image resolution to client
@@ -118,7 +118,7 @@ export function registerCollections(app: Hono<any>) {
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       const details = e && e.message ? e.message : JSON.stringify(e)
       const key = `public_collection_error:${id}`
-      return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'server_error', message: 'コレクション取得に失敗しました', details }), { status: 500, headers }))
+        return await cacheJson(c, key, async () => ({ status: 500, body: { code: 'server_error', message: 'コレクション取得に失敗しました', details }, headers }))
     }
   })
 }
