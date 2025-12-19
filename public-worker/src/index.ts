@@ -823,48 +823,77 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
 })
 
 // /profile
+import resolvePublicOwnerUser from './helpers/getPublicOwnerUser'
+
 app.get('/profile', zValidator('query', listQuery.partial()), async (c) => {
   const supabase = getSupabase(c.env)
   const key = `profile`
   return cacheJson(c, key, async () => {
     try {
-      const ownerEmail = (c.env.PUBLIC_PROFILE_EMAIL || '').toString() || ''
-      if (!ownerEmail) {
+      const ownerId = await resolvePublicOwnerUser(c)
+      if (!ownerId) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
         return new Response(JSON.stringify({ data: null }), { headers: merged })
       }
-      const { data, error } = await supabase.from('users').select('*').eq('email', ownerEmail).limit(1)
-      if (error) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ data: null }), { headers: merged })
+
+      // Prefer reading from `profiles` table where available
+      try {
+        const { data, error } = await supabase.from('profiles').select('*').eq('user_id', ownerId).limit(1).maybeSingle()
+        if (!error && data) {
+          const user = data
+          const transformed = {
+            id: user.user_id || user.id,
+            name: user.name || null,
+            displayName: user.display_name || user.displayName || user.name || null,
+            email: user.email || null,
+            avatarUrl: user.avatar_url || (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
+            profileImage: (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
+            profileImageKey: user.profile_image_key || null,
+            headerImages: (Array.isArray(user.header_image_keys) ? user.header_image_keys.map((k:any) => buildResizedImageUrl(k, { width: 800 }, c.env.IMAGES_DOMAIN)).filter(Boolean) : null),
+            headerImageKey: user.header_image_key || null,
+            headerImageKeys: Array.isArray(user.header_image_keys) ? user.header_image_keys : null,
+            bio: user.bio || null,
+            socialLinks: user.social_links || null,
+          }
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+          return new Response(JSON.stringify({ data: transformed }), { headers: merged })
+        }
+      } catch (e) {
+        // continue to attempt users table
       }
-      const user = Array.isArray(data) && data.length > 0 ? data[0] : null
-      if (!user) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ data: null }), { headers: merged })
+
+      // Fallback: read from users table
+      try {
+        const { data, error } = await supabase.from('users').select('*').eq('id', ownerId).limit(1).maybeSingle()
+        if (!error && data) {
+          const user = data
+          const transformed = {
+            id: user.id,
+            name: user.name || null,
+            displayName: user.display_name || user.displayName || user.name || null,
+            email: user.email || null,
+            avatarUrl: user.avatar_url || (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
+            profileImage: (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
+            profileImageKey: user.profile_image_key || null,
+            headerImages: (Array.isArray(user.header_image_keys) ? user.header_image_keys.map((k:any) => buildResizedImageUrl(k, { width: 800 }, c.env.IMAGES_DOMAIN)).filter(Boolean) : null),
+            headerImageKey: user.header_image_key || null,
+            headerImageKeys: Array.isArray(user.header_image_keys) ? user.header_image_keys : null,
+            bio: user.bio || null,
+            socialLinks: user.social_links || null,
+          }
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+          return new Response(JSON.stringify({ data: transformed }), { headers: merged })
+        }
+      } catch (e) {
+        // fallthrough
       }
-      const transformed = {
-        id: user.id,
-        name: user.name || null,
-        displayName: user.display_name || user.displayName || user.name || null,
-        email: user.email || null,
-        // Prefer explicit key fields. Do not expose legacy full-URL columns.
-        avatarUrl: user.avatar_url || (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
-        profileImage: (user.profile_image_key ? getPublicImageUrl(user.profile_image_key, c.env.IMAGES_DOMAIN) : null),
-        profileImageKey: user.profile_image_key || null,
-        // header images: build resized variants only from the canonical key array
-        headerImages: (Array.isArray(user.header_image_keys) ? user.header_image_keys.map((k:any) => buildResizedImageUrl(k, { width: 800 }, c.env.IMAGES_DOMAIN)).filter(Boolean) : null),
-        headerImageKey: user.header_image_key || null,
-        headerImageKeys: Array.isArray(user.header_image_keys) ? user.header_image_keys : null,
-        bio: user.bio || null,
-        socialLinks: user.social_links || null,
-      }
+
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ data: transformed }), { headers: merged })
+      return new Response(JSON.stringify({ data: null }), { headers: merged })
     } catch (e: any) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
