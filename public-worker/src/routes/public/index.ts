@@ -7,6 +7,7 @@ import { collectionsHandler } from './collections'
 import { recipesHandler } from './recipes'
 import { tagGroupsHandler } from './tag-groups'
 import { tagsHandler } from './tags'
+import { getSupabase } from '../../supabase'
 
 export function registerPublicRoutes(app: any) {
   // All routes under /api/public/* per spec
@@ -63,5 +64,32 @@ export function registerPublicRoutes(app: any) {
     }
     const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
     return new Response(JSON.stringify(info), { headers })
+  })
+
+  // Debug: expose collections + items counts to help diagnose empty responses
+  app.get('/api/public/_collections-debug', async (c: any) => {
+    try {
+      const supabase = getSupabase(c.env)
+      const ownerId = (c.env && c.env.PUBLIC_OWNER_USER_ID) ? String(c.env.PUBLIC_OWNER_USER_ID).trim() : null
+      let collections: any[] = []
+      if (ownerId) {
+        const { data } = await supabase.from('collections').select('*').eq('user_id', ownerId).order('sort_order', { ascending: true })
+        collections = Array.isArray(data) ? data : []
+      } else {
+        const { data } = await supabase.from('collections').select('*').eq('visibility', 'public').order('sort_order', { ascending: true })
+        collections = Array.isArray(data) ? data : []
+      }
+      const ids = collections.map((r: any) => r.id).filter(Boolean)
+      let items: any[] = []
+      if (ids.length > 0) {
+        const res = await supabase.from('collection_items').select('*').in('collection_id', ids)
+        items = Array.isArray(res.data) ? res.data : []
+      }
+      const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ ownerId, collectionsCount: collections.length, itemsCount: items.length, collections, items }), { headers })
+    } catch (e: any) {
+      const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers })
+    }
   })
 }
