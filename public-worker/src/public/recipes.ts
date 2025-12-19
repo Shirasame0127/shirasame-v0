@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { getSupabase } from '../supabase'
 import { computeCorsHeaders } from '../middleware'
-import { responsiveImageForUsage } from '../../shared/lib/image-usecases'
+import { responsiveImageForUsage } from '../../../shared/lib/image-usecases'
 
 export function registerRecipes(app: Hono<any>) {
   app.get('/api/public/recipes', async (c) => {

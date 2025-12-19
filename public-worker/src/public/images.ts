@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { computeCorsHeaders } from '../middleware'
-import { getPublicImageUrl, buildResizedImageUrl } from '../../shared/lib/image-usecases'
+import { getPublicImageUrl, buildResizedImageUrl } from '../../../shared/lib/image-usecases'
 
 // Images handler: generate public image URLs using shared utilities and
 // redirect to a Cloudflare-style URL when resize params are present.
