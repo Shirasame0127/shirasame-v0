@@ -45,12 +45,7 @@ export function registerPublicCors(app: any) {
       if (!reqPath.startsWith('/api/public')) {
         return await next()
       }
-      // Preflight
-      if ((c.req.method || '').toUpperCase() === 'OPTIONS') {
-        const headers = computePublicCorsHeaders(c.req.header('Origin') || null, c.env)
-        return new Response(null, { status: 204, headers })
-      }
-    try {
+
       // Preflight
       if ((c.req.method || '').toUpperCase() === 'OPTIONS') {
         const headers = computePublicCorsHeaders(c.req.header('Origin') || null, c.env)
