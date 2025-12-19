@@ -4148,7 +4148,8 @@ app.put('/api/admin/settings', async (c) => {
       delete out.user
     }
 
-    return new Response(JSON.stringify({ data: out }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const mergedOk = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: out }), { headers: mergedOk })
   } catch (e: any) {
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   }
@@ -4162,12 +4163,13 @@ app.put('/admin/settings', async (c) => {
     const ctx = await resolveRequestUserContext(c)
     // require authenticated admin user for admin settings
     if (!ctx.trusted || !ctx.userId) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-    if (internal) {
+      if (internal) {
       const headers = { ...makeUpstreamHeaders(c) }
       if (ctx.trusted && ctx.userId) headers['x-user-id'] = ctx.userId
       const res = await fetch(internal, { method: 'PUT', body: bodyText, headers })
       const buf = await res.arrayBuffer()
-      return new Response(buf, { status: res.status, headers: { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' } })
+      const mergedFromUp = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8' })
+      return new Response(buf, { status: res.status, headers: mergedFromUp })
     }
 
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
@@ -4190,9 +4192,11 @@ app.put('/admin/settings', async (c) => {
         // continue
       }
     }
-    return new Response(JSON.stringify({ data: out }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const mergedOut = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: out }), { headers: mergedOut })
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const mergedErr = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: mergedErr })
   }
 })
 
