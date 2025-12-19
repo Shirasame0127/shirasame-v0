@@ -197,22 +197,57 @@ export default function HomePage() {
     }
     ;(async () => {
       try {
-        const [prodRes, colRes, recRes, profileRes, saleRes] = await Promise.allSettled([
+        const [prodRes, colRes, recRes, profileRes, saleRes, siteRes] = await Promise.allSettled([
           apiFetch(`/products?published=true&shallow=true&limit=${pageLimit}&offset=0`),
           apiFetch(`/collections`),
           apiFetch(`/recipes`),
           apiFetch('/profile'),
           apiFetch('/amazon-sale-schedules'),
+          apiFetch('/site-settings'),
         ])
         const prodJson = prodRes.status === 'fulfilled' ? await prodRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const colJson = colRes.status === 'fulfilled' ? await colRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const recJson = recRes.status === 'fulfilled' ? await recRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const profileJson = profileRes.status === 'fulfilled' ? await profileRes.value.json().catch(() => null) : null
+        const siteJson = siteRes && siteRes.status === 'fulfilled' ? await siteRes.value.json().catch(() => ({ data: {} })) : { data: {} }
 
         const apiProducts: Product[] = Array.isArray(prodJson.data) ? prodJson.data : []
         const apiCollections: Collection[] = Array.isArray(colJson.data) ? colJson.data : []
         const apiRecipes = Array.isArray(recJson.data) ? recJson.data : []
         let loadedUser = profileJson?.data || profileJson || null
+        // If profile is missing or lacks public-facing fields, merge site-settings as fallback
+        try {
+          const siteData = siteJson?.data || {}
+          if (!loadedUser || typeof loadedUser !== 'object') loadedUser = {}
+          // Copy common fields from site settings when absent on user
+          if (!loadedUser.displayName && siteData.displayName) loadedUser.displayName = siteData.displayName
+          if (!loadedUser.bio && siteData.bio) loadedUser.bio = siteData.bio
+          if (!loadedUser.profileImage && siteData.profileImageKey) loadedUser.profileImageKey = siteData.profileImageKey
+          if (!loadedUser.profileImage && siteData.profileImage) loadedUser.profileImage = siteData.profileImage
+          if ((!loadedUser.headerImageKeys || (Array.isArray(loadedUser.headerImageKeys) && loadedUser.headerImageKeys.length === 0)) && siteData.headerImageKeys) {
+            try { loadedUser.headerImageKeys = typeof siteData.headerImageKeys === 'string' ? JSON.parse(siteData.headerImageKeys) : siteData.headerImageKeys } catch { loadedUser.headerImageKeys = Array.isArray(siteData.headerImageKeys) ? siteData.headerImageKeys : [siteData.headerImageKeys] }
+          }
+          if ((!loadedUser.socialLinks || Object.keys(loadedUser.socialLinks || {}).length === 0) && siteData.socialLinks) {
+            if (typeof siteData.socialLinks === 'string') {
+              try {
+                const arr = JSON.parse(siteData.socialLinks)
+                if (Array.isArray(arr)) {
+                  const map: Record<string, string> = {}
+                  for (const s of arr) {
+                    if (!s) continue
+                    const key = (s.platform && String(s.platform).trim()) || s.username || s.url || 'link'
+                    if (s.url) map[key] = s.url
+                  }
+                  loadedUser.socialLinks = map
+                }
+              } catch {
+                loadedUser.socialLinks = { links: siteData.socialLinks }
+              }
+            } else if (typeof siteData.socialLinks === 'object') {
+              loadedUser.socialLinks = siteData.socialLinks
+            }
+          }
+        } catch {}
         const apiSchedules: AmazonSaleSchedule[] = saleRes.status === 'fulfilled' ? (await saleRes.value.json().catch(() => ({ data: [] }))).data || [] : []
         // Normalize profile/site settings so components receive expected shapes
         if (loadedUser && typeof loadedUser === 'object') {
