@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { getSupabase } from '../supabase'
 import { computeCorsHeaders } from '../middleware'
-import { responsiveImageForUsage } from '../../../shared/lib/image-usecases'
+import { responsiveImageForUsage, getPublicImageUrl } from '../../../shared/lib/image-usecases'
 import resolvePublicOwnerUser from '../helpers/getPublicOwnerUser'
 
 export function registerCollections(app: Hono<any>) {
@@ -13,26 +13,74 @@ export function registerCollections(app: Hono<any>) {
       const offset = (page - 1) * per_page
 
       const supabase = getSupabase(c.env)
-      const selectCols = 'id,slug,title,description,product_ids'
+      const selectCols = '*'
       const ownerId = await resolvePublicOwnerUser(c)
-      let query = supabase.from('collections').select(selectCols, { count: 'exact' })
-      if (ownerId) {
-        query = query.eq('user_id', ownerId)
-      } else {
-        query = query.eq('visibility', 'public')
-      }
+      // mirror admin collection logic but scoped to public owner or visibility
+      let query: any = supabase.from('collections').select(selectCols, { count: 'exact' }).order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
+      if (ownerId) query = query.eq('user_id', ownerId)
+      else query = query.eq('visibility', 'public')
       const { data, error, count } = await query.range(offset, offset + per_page - 1)
       if (error) throw error
       const total = typeof count === 'number' ? count : (data ? data.length : 0)
-      const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
-      const mapped = (data || []).map((it: any) => {
-        // collections expose `product_ids`; collection-level image resolution
-        // is handled by the client by inspecting related products. Expose
-        // a stable `image_public` placeholder (null) so clients can opt-in.
-        return Object.assign({}, it, { image_public: null })
+
+      if (!data || data.length === 0) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        return new Response(JSON.stringify({ data: [], meta: total != null ? { total, limit: per_page, offset } : undefined }), { headers: merged })
+      }
+
+      const collectionIds = (data || []).map((c2: any) => c2.id)
+      // collection_items
+      const { data: items = [] } = await supabase.from('collection_items').select('*').in('collection_id', collectionIds)
+      const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id)))
+
+      // products join (shallow)
+      let products: any[] = []
+      if (productIds.length > 0) {
+        const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
+        let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('published', true)
+        if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
+        const { data: prods = [] } = await prodQuery
+        products = prods || []
+      }
+
+      const productMap = new Map<string, any>()
+      for (const p of products) productMap.set(p.id, p)
+
+      const transformed = (data || []).map((col: any) => {
+        const thisItems = (items || []).filter((it: any) => it.collection_id === col.id)
+        const thisProducts = thisItems.map((it: any) => productMap.get(it.product_id)).filter(Boolean)
+        return {
+          id: col.id,
+          userId: col.user_id,
+          title: col.title,
+          description: col.description,
+          visibility: col.visibility,
+          createdAt: col.created_at,
+          updatedAt: col.updated_at,
+          products: thisProducts.map((p: any) => ({
+            id: p.id,
+            userId: p.user_id,
+            title: p.title,
+            slug: p.slug,
+            shortDescription: p.short_description,
+            body: p.body,
+            tags: p.tags,
+            price: p.price,
+            published: p.published,
+            createdAt: p.created_at,
+            updatedAt: p.updated_at,
+            showPrice: p.show_price,
+            notes: p.notes,
+            relatedLinks: p.related_links,
+            images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, url: getPublicImageUrl(img.key, c.env.IMAGES_DOMAIN) || img.url || null, key: img.key ?? null, width: img.width, height: img.height, aspect: img.aspect, role: img.role })) : [],
+          })),
+        }
       })
-      const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-      return new Response(JSON.stringify({ data: mapped, meta: { page, per_page, total } }), { status: 200, headers })
+
+      const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify({ data: transformed, meta: { total, page, per_page } }), { headers: merged })
     } catch (e: any) {
       try { console.error('public/collections list error', e) } catch {}
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
