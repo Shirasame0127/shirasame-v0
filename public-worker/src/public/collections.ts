@@ -15,16 +15,21 @@ export function registerCollections(app: Hono<any>) {
       const supabase = getSupabase(c.env)
       const selectCols = 'id,slug,title,description,product_ids'
       const ownerId = await resolvePublicOwnerUser(c)
-      let query = supabase.from('collections').select(selectCols, { count: 'exact' }).eq('published', true)
-      if (ownerId) query = query.eq('user_id', ownerId)
+      let query = supabase.from('collections').select(selectCols, { count: 'exact' })
+      if (ownerId) {
+        query = query.eq('user_id', ownerId)
+      } else {
+        query = query.eq('visibility', 'public')
+      }
       const { data, error, count } = await query.range(offset, offset + per_page - 1)
       if (error) throw error
       const total = typeof count === 'number' ? count : (data ? data.length : 0)
       const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
       const mapped = (data || []).map((it: any) => {
-        const img = it.image || null
-        const image_public = img ? responsiveImageForUsage(img, 'list', domainOverride) : null
-        return Object.assign({}, it, { image_public })
+        // collections expose `product_ids`; collection-level image resolution
+        // is handled by the client by inspecting related products. Expose
+        // a stable `image_public` placeholder (null) so clients can opt-in.
+        return Object.assign({}, it, { image_public: null })
       })
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ data: mapped, meta: { page, per_page, total } }), { status: 200, headers })
@@ -41,8 +46,9 @@ export function registerCollections(app: Hono<any>) {
       const id = c.req.param('id')
       const supabase = getSupabase(c.env)
       const ownerId = await resolvePublicOwnerUser(c)
-      let colQuery = supabase.from('collections').select('id,slug,title,description,product_ids').or(`id.eq.${id},slug.eq.${id}`).eq('published', true)
+      let colQuery = supabase.from('collections').select('id,slug,title,description,product_ids').or(`id.eq.${id},slug.eq.${id}`)
       if (ownerId) colQuery = colQuery.eq('user_id', ownerId)
+      else colQuery = colQuery.eq('visibility', 'public')
       const { data, error } = await colQuery.limit(1).maybeSingle()
       if (error) throw error
       if (!data) {
