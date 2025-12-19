@@ -13,19 +13,26 @@ export function registerRecipes(app: Hono<any>) {
       const offset = (page - 1) * per_page
 
       const supabase = getSupabase(c.env)
-      const selectCols = 'id,slug,title,excerpt,images,tags,created_at'
+      // Mirror admin shallow select for recipes to avoid missing-column issues
+      const selectShallow = 'id,user_id,title,slug,published,recipe_image_keys,created_at,updated_at'
       const ownerId = await resolvePublicOwnerUser(c)
-      let query = supabase.from('recipes').select(selectCols, { count: 'exact' }).eq('published', true)
+      let query = supabase.from('recipes').select(selectShallow, { count: 'exact' }).eq('published', true)
       if (ownerId) query = query.eq('user_id', ownerId)
       const { data, error, count } = await query.range(offset, offset + per_page - 1)
       if (error) throw error
       const total = typeof count === 'number' ? count : (data ? data.length : 0)
       const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
-      const mapped = (data || []).map((it: any) => {
-        const imgs = Array.isArray(it.images) ? it.images : []
-        const images_public = imgs.map((k: any) => responsiveImageForUsage(k, 'recipe', domainOverride))
-        return Object.assign({}, it, { images_public })
-      })
+      // No images joined in shallow select; clients can request detail per-recipe.
+      const mapped = (data || []).map((it: any) => ({
+        id: it.id,
+        userId: it.user_id,
+        title: it.title,
+        slug: it.slug,
+        published: !!it.published,
+        recipeImageKeys: Array.isArray(it.recipe_image_keys) ? it.recipe_image_keys : [],
+        createdAt: it.created_at || null,
+        updatedAt: it.updated_at || null,
+      }))
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ data: mapped, meta: { page, per_page, total } }), { status: 200, headers })
     } catch (e: any) {
@@ -41,7 +48,8 @@ export function registerRecipes(app: Hono<any>) {
       const id = c.req.param('id')
       const supabase = getSupabase(c.env)
       const ownerId = await resolvePublicOwnerUser(c)
-      let recQuery = supabase.from('recipes').select('id,slug,title,excerpt,content,images,tags,created_at').or(`id.eq.${id},slug.eq.${id}`).eq('published', true)
+      const selectFull = '*, images:recipe_images(id,recipe_id,key,width,height,role,caption)'
+      let recQuery = supabase.from('recipes').select(selectFull).or(`id.eq.${id},slug.eq.${id}`).eq('published', true)
       if (ownerId) recQuery = recQuery.eq('user_id', ownerId)
       const { data, error } = await recQuery.limit(1).maybeSingle()
       if (error) throw error
@@ -51,7 +59,7 @@ export function registerRecipes(app: Hono<any>) {
       }
       const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
       const imgs = Array.isArray((data as any).images) ? (data as any).images : []
-      const images_public = imgs.map((k: any) => responsiveImageForUsage(k, 'recipe', domainOverride))
+      const images_public = imgs.map((img: any) => ({ id: img.id || null, recipeId: img.recipe_id || null, url: responsiveImageForUsage(img.key || img, 'recipe', domainOverride), key: img.key ?? null, width: img.width ?? null, height: img.height ?? null, role: img.role ?? null, caption: img.caption || null }))
       const out = Object.assign({}, data, { images_public })
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ data: out }), { status: 200, headers })

@@ -20,20 +20,26 @@ export function registerSearch(app: Hono<any>) {
 
       const ownerId = await resolvePublicOwnerUser(c)
       if (!type || type === 'product') {
-        let qprod = supabase.from('products').select('id,slug,title,description').ilike('title', `%${q}%`).or(`description.ilike.%${q}%`).eq('published', true).limit(10)
+        const productSelect = 'id,user_id,title,slug,short_description,price,tags,created_at,updated_at,images:product_images(id,product_id,key,width,height,role,caption)'
+        let qprod = supabase.from('products').select(productSelect).ilike('title', `%${q}%`).or(`short_description.ilike.%${q}%`).limit(10)
         if (ownerId) qprod = qprod.eq('user_id', ownerId)
+        else qprod = qprod.eq('visibility', 'public')
         const { data } = await qprod
         results.products = data || []
       }
       if (!type || type === 'collection') {
-        let qcol = supabase.from('collections').select('id,slug,title,description').ilike('title', `%${q}%`).or(`description.ilike.%${q}%`).eq('published', true).limit(10)
+        const collectionSelect = 'id,user_id,slug,title,short_description,visibility,created_at,updated_at'
+        let qcol = supabase.from('collections').select(collectionSelect).ilike('title', `%${q}%`).or(`short_description.ilike.%${q}%`).limit(10)
         if (ownerId) qcol = qcol.eq('user_id', ownerId)
+        else qcol = qcol.eq('visibility', 'public')
         const { data } = await qcol
         results.collections = data || []
       }
       if (!type || type === 'recipe') {
-        let qrec = supabase.from('recipes').select('id,slug,title,excerpt').ilike('title', `%${q}%`).or(`excerpt.ilike.%${q}%`).eq('published', true).limit(10)
+        const recipeSelect = 'id,user_id,title,slug,excerpt,recipe_image_keys,created_at,updated_at'
+        let qrec = supabase.from('recipes').select(recipeSelect).ilike('title', `%${q}%`).or(`excerpt.ilike.%${q}%`).limit(10)
         if (ownerId) qrec = qrec.eq('user_id', ownerId)
+        else qrec = qrec.eq('published', true)
         const { data } = await qrec
         results.recipes = data || []
       }
