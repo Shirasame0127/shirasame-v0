@@ -7,6 +7,7 @@ import { getSupabase } from './supabase'
 import { openapi } from './openapi'
 import { isAdmin, makeErrorResponse } from './helpers'
 import { getPublicImageUrl, buildResizedImageUrl, responsiveImageForUsage } from '../../shared/lib/image-usecases'
+import { registerPublicRoutes } from './routes/public/index'
 
 export type Env = {
   PUBLIC_ALLOWED_ORIGINS?: string
@@ -34,6 +35,9 @@ export type Env = {
 }
 
 const app = new Hono<{ Bindings: Env }>()
+
+// Register public (read-only) API routes implemented in separate files
+registerPublicRoutes(app)
 
 // Early docs/openapi bypass: some proxies rewrite or prefix paths so the later
 // middleware checks may not match. Serve docs and OpenAPI JSON early when the
