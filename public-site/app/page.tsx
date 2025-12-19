@@ -216,8 +216,8 @@ export default function HomePage() {
 
         const normalizedProducts = apiProducts.map((p: any) => {
           if (Array.isArray(p.images)) return p
-          if (p.image && p.image.url) {
-            return { ...p, images: [{ id: p.image.id || null, product_id: p.id, url: p.image.url, width: p.image.width || null, height: p.image.height || null, aspect: p.image.width && p.image.height ? p.image.width / p.image.height : p.image.aspect || null, role: p.image.role || 'main', basePath: p.image.basePath || null }] }
+          if (p.image) {
+            return { ...p, images: [{ id: p.image.id || null, product_id: p.id, key: p.image.key || p.image.basePath || p.image.url || null, url: p.image.url || null, width: p.image.width || null, height: p.image.height || null, aspect: p.image.width && p.image.height ? p.image.width / p.image.height : p.image.aspect || null, role: p.image.role || 'main', basePath: p.image.basePath || null }] }
           }
           return { ...p, images: [] }
         })
@@ -303,21 +303,14 @@ export default function HomePage() {
     } catch {}
   }, [displayMode])
 
-  const thumbnailFor = (rawUrl: string | null | undefined, w: number, basePath?: string | null) => {
-    // Prefer the normalized public image URL first (works even if basePath metadata is incomplete).
-    if (!rawUrl) return '/placeholder.svg'
-    if ((rawUrl as any).startsWith && (rawUrl as any).startsWith('data:')) return rawUrl
+  const thumbnailFor = (rawKey: string | null | undefined, usage: 'list' | 'gallery' | 'detail' = 'list') => {
+    if (!rawKey) return '/placeholder.svg'
+    if ((rawKey as any).startsWith && (rawKey as any).startsWith('data:')) return rawKey
     try {
-      const pu = getPublicImageUrl(rawUrl) || rawUrl
-      // If a basePath is provided, prefer the normalized public image URL first
-      // to avoid returning a pre-generated variant that may not actually exist.
-      if (basePath) {
-        return pu || buildR2VariantFromBasePath(basePath, w <= 400 ? 'thumb-400' : 'detail-800')
-      }
-      // Otherwise, attempt to use the thumbnail proxy (worker) which can resize/cache, but fall back to the original URL.
-      try { return api(`/images/thumbnail?url=${encodeURIComponent(pu)}&w=${w}`) } catch { return pu }
+      const resp = responsiveImageForUsage(rawKey, usage as any)
+      return resp.src || (rawKey as string)
     } catch {
-      return rawUrl
+      return rawKey as string
     }
   }
 
@@ -340,13 +333,14 @@ export default function HomePage() {
   }, [])
 
   const handleProductClick = async (product: Product, imageUrl?: string) => {
-    // Prefer detail-800 when basePath is available for crisp modal image
+    // Prefer usage-based detail when basePath or key is available for crisp modal image
     let initial = imageUrl || null
     try {
       const img0: any = (product as any)?.images?.[0] || null
-      const bp = img0?.basePath || null
-      if (!initial && bp) {
-        initial = buildR2VariantFromBasePath(bp, 'detail-800') || null
+      const raw = img0?.key || img0?.basePath || img0?.url || null
+      if (!initial && raw) {
+        const resp = responsiveImageForUsage(raw, 'detail')
+        initial = resp.src || null
       }
     } catch {}
     setSelectedProduct(product)
@@ -391,10 +385,10 @@ export default function HomePage() {
     if (displayMode !== 'gallery') return [] as any[]
     return shuffleArray(products.flatMap((product) => {
       return (product.images || []).map((img: any, idx: number) => {
-        const bp = img?.basePath || null
-        const pu = getPublicImageUrl(img.key || img.url) || img.key || img.url
-        const image = bp ? (buildR2VariantFromBasePath(bp, 'thumb-400') || pu) : pu
-        return ({ id: `${product.id}__${idx}`, productId: product.id, image: image || "/placeholder.svg", aspect: img.aspect || undefined, title: product.title, href: `/products/${product.slug}` })
+        const raw = img?.key || img?.basePath || img?.url || null
+        const resp = responsiveImageForUsage(raw, 'gallery')
+        const image = resp.src || '/placeholder.svg'
+        return ({ id: `${product.id}__${idx}`, productId: product.id, image: image, aspect: img.aspect || undefined, title: product.title, href: `/products/${product.slug}` })
       })
     }))
   }, [shuffleKey, products, displayMode])

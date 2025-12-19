@@ -27,8 +27,8 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
       const loadedImages = headerImageKeys
         .map((key) => {
           if (!key) return null
-          const candidate = typeof key === "string" && (key.startsWith("http") || key.startsWith("/")) ? key : String(key)
-          return getPublicImageUrl(candidate)
+          // keep key (or basePath) and let responsiveImageForUsage normalize
+          return String(key)
         })
         .filter((img): img is string => !!img)
 

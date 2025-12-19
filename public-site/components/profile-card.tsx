@@ -20,6 +20,9 @@ interface ProfileCardProps { user: User }
 export function ProfileCard({ user }: ProfileCardProps) {
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
   useEffect(() => {
+    // Prefer already-normalized URL from API (profileImageUrl), then fall back to key/basePath/avatarUrl
+    const rawPref = (user as any)?.profileImageUrl || (user as any)?.profile_image_url || null
+    if (rawPref) { setProfileImageUrl(String(rawPref)); return }
     const raw = user.profileImage || user.avatarUrl || user.profileImageKey || null
     const url = getPublicImageUrl(raw as string) || null
     setProfileImageUrl(url)

@@ -10,7 +10,7 @@ export function ProductCardSimple({ product, onClick, saleName }: ProductCardSim
   const images = Array.isArray(product.images) ? product.images : []
   const mainImage = images.find((img) => img?.role === "main") || images[0] || null
 
-  const raw = mainImage?.url || null
+  const raw = mainImage?.key || mainImage?.basePath || mainImage?.url || null
   const resp = responsiveImageForUsage(raw, 'list')
   const jpg = resp.src || (raw ?? '/placeholder.svg')
   const webp = resp.src ? resp.src.replace(/\.(jpg|jpeg|png)$/i, '.webp') : null
