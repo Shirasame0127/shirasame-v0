@@ -9,7 +9,7 @@ const RecipeDisplay = dynamic(() => import('@/components/recipe-display').then((
 const ProductMasonry = dynamic(() => import('@/components/product-masonry').then((m) => m.default), { ssr: false, loading: () => <div className="h-32" /> })
 
 import Image from "next/image"
-import { getPublicImageUrl, buildR2VariantFromBasePath, buildR2VariantFromBasePathWithFormat } from "@/lib/image-url"
+import { getPublicImageUrl, buildR2VariantFromBasePath, buildR2VariantFromBasePathWithFormat, responsiveImageForUsage } from "@/lib/image-url"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
@@ -215,11 +215,29 @@ export default function HomePage() {
         const apiSchedules: AmazonSaleSchedule[] = saleRes.status === 'fulfilled' ? (await saleRes.value.json().catch(() => ({ data: [] }))).data || [] : []
 
         const normalizedProducts = apiProducts.map((p: any) => {
-          if (Array.isArray(p.images)) return p
-          if (p.image) {
-            return { ...p, images: [{ id: p.image.id || null, product_id: p.id, key: p.image.key || p.image.basePath || p.image.url || null, url: p.image.url || null, width: p.image.width || null, height: p.image.height || null, aspect: p.image.width && p.image.height ? p.image.width / p.image.height : p.image.aspect || null, role: p.image.role || 'main', basePath: p.image.basePath || null }] }
+          // Ensure published is boolean
+          const published = (typeof p.published === 'boolean') ? p.published : (String(p.published) === 'true')
+          // normalize short description + tags
+          const shortDescription = p.shortDescription ?? p.short_description ?? p.short_description ?? null
+          const tags = Array.isArray(p.tags) ? p.tags : (Array.isArray(p.tag_list) ? p.tag_list : [])
+
+          // Normalize images from various shapes:
+          // - admin/public shallow list may include `images` (joined rows)
+          // - newer public endpoints may include `images_public` (array of urls or objects)
+          // - older shape may include single `image` object
+          let images: any[] = []
+          if (Array.isArray(p.images) && p.images.length > 0) {
+            images = p.images.map((img: any) => ({ id: img.id || null, product_id: img.product_id || img.productId || null, key: img.key || null, url: img.url || null, width: img.width ?? null, height: img.height ?? null, aspect: img.aspect ?? (img.width && img.height ? img.width / img.height : null), role: img.role || null, basePath: img.basePath || null }))
+          } else if (Array.isArray((p as any).images_public) && (p as any).images_public.length > 0) {
+            images = (p as any).images_public.map((it: any) => {
+              if (typeof it === 'string') return { id: null, product_id: p.id, key: null, url: it, width: null, height: null, aspect: null, role: 'main', basePath: null }
+              return { id: it.id || null, product_id: p.id, key: it.key || null, url: it.url || null, width: it.width ?? null, height: it.height ?? null, aspect: it.aspect ?? (it.width && it.height ? it.width / it.height : null), role: it.role || null, basePath: it.basePath || null }
+            })
+          } else if (p.image && typeof p.image === 'object') {
+            images = [{ id: p.image.id || null, product_id: p.id, key: p.image.key || p.image.basePath || null, url: p.image.url || null, width: p.image.width || null, height: p.image.height || null, aspect: p.image.width && p.image.height ? p.image.width / p.image.height : p.image.aspect || null, role: p.image.role || 'main', basePath: p.image.basePath || null }]
           }
-          return { ...p, images: [] }
+
+          return Object.assign({}, p, { published, shortDescription, tags, images })
         })
 
         setProducts(normalizedProducts.filter((p: any) => p.published))
@@ -303,12 +321,21 @@ export default function HomePage() {
     } catch {}
   }, [displayMode])
 
-  const thumbnailFor = (rawKey: string | null | undefined, usage: 'list' | 'gallery' | 'detail' = 'list') => {
+  const thumbnailFor = (rawKey: string | null | undefined, width: number = 400, basePath: string | null = null) => {
     if (!rawKey) return '/placeholder.svg'
     if ((rawKey as any).startsWith && (rawKey as any).startsWith('data:')) return rawKey
     try {
-      const resp = responsiveImageForUsage(rawKey, usage as any)
-      return resp.src || (rawKey as string)
+      // If basePath (R2 base) is present, prefer R2 variant helper
+      if (basePath) {
+        try {
+          const webp = buildR2VariantFromBasePathWithFormat(basePath, `thumb-${width}`, 'webp')
+          return webp || (getPublicImageUrl(rawKey as string) || rawKey as string)
+        } catch {}
+      }
+      // If rawKey already looks like a URL, return it
+      if (typeof rawKey === 'string' && (rawKey.startsWith('http://') || rawKey.startsWith('https://') || rawKey.startsWith('//'))) return rawKey
+      // Otherwise, treat as storage key and build public url
+      return getPublicImageUrl(rawKey as string) || (rawKey as string)
     } catch {
       return rawKey as string
     }
