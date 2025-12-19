@@ -33,13 +33,14 @@ export function registerRecipes(app: Hono<any>) {
         createdAt: it.created_at || null,
         updatedAt: it.updated_at || null,
       }))
-      const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-      return new Response(JSON.stringify({ data: mapped, meta: { page, per_page, total } }), { status: 200, headers })
+      const key = `public_recipes:${page}:${per_page}`
+      return await cacheJson(c, key, async () => ({ data: mapped, meta: { page, per_page, total } }))
     } catch (e: any) {
       try { console.error('public/recipes list error', e) } catch {}
-      const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       const details = e && e.message ? e.message : JSON.stringify(e)
-      return new Response(JSON.stringify({ code: 'server_error', message: 'レシピ一覧取得に失敗しました', details }), { status: 500, headers })
+      const key = `public_recipes_error:${page}:${per_page}`
+      const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'server_error', message: 'レシピ一覧取得に失敗しました', details }), { status: 500, headers }))
     }
   })
 
@@ -55,19 +56,21 @@ export function registerRecipes(app: Hono<any>) {
       if (error) throw error
       if (!data) {
         const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-        return new Response(JSON.stringify({ code: 'not_found', message: 'レシピが見つかりません' }), { status: 404, headers })
+        const key = `public_recipe_not_found:${id}`
+        return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'not_found', message: 'レシピが見つかりません' }), { status: 404, headers }))
       }
       const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
       const imgs = Array.isArray((data as any).images) ? (data as any).images : []
       const images_public = imgs.map((img: any) => ({ id: img.id || null, recipeId: img.recipe_id || null, url: getPublicImageUrl(img.key || img, domainOverride), key: img.key ?? null, width: img.width ?? null, height: img.height ?? null, role: img.role ?? null, caption: img.caption || null }))
       const out = Object.assign({}, data, { images_public })
-      const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-      return new Response(JSON.stringify({ data: out }), { status: 200, headers })
+      const key = `public_recipe:${id}`
+      return await cacheJson(c, key, async () => ({ data: out }))
     } catch (e: any) {
       try { console.error('public/recipes get error', e) } catch {}
-      const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       const details = e && e.message ? e.message : JSON.stringify(e)
-      return new Response(JSON.stringify({ code: 'server_error', message: 'レシピ取得に失敗しました', details }), { status: 500, headers })
+      const key = `public_recipe_error:${id}`
+      const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'server_error', message: 'レシピ取得に失敗しました', details }), { status: 500, headers }))
     }
   })
 }

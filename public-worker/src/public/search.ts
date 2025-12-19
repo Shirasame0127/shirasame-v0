@@ -11,7 +11,8 @@ export function registerSearch(app: Hono<any>) {
       const type = (url.searchParams.get('type') || '').trim()
       if (!q) {
         const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-        return new Response(JSON.stringify({ data: [] }), { status: 200, headers })
+        const key = `public_search_empty`
+        return await cacheJson(c, key, async () => new Response(JSON.stringify({ data: [] }), { status: 200, headers }))
       }
       const supabase = getSupabase(c.env)
       // Simple implementation: search title/description by ilike for each resource type
@@ -44,12 +45,14 @@ export function registerSearch(app: Hono<any>) {
         results.recipes = data || []
       }
 
-      return new Response(JSON.stringify({ data: results }), { status: 200, headers })
+      const key = `public_search:${encodeURIComponent(q)}:${encodeURIComponent(type)}`
+      return await cacheJson(c, key, async () => new Response(JSON.stringify({ data: results }), { status: 200, headers }))
     } catch (e: any) {
       try { console.error('public/search error', e) } catch {}
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       const details = e && e.message ? e.message : JSON.stringify(e)
-      return new Response(JSON.stringify({ code: 'server_error', message: '検索に失敗しました', details }), { status: 500, headers })
+      const key = `public_search:error:${encodeURIComponent(q)}:${encodeURIComponent(type)}`
+      return await cacheJson(c, key, async () => new Response(JSON.stringify({ code: 'server_error', message: '検索に失敗しました', details }), { status: 500, headers }))
     }
   })
 }

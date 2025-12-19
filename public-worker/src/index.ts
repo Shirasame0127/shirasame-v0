@@ -48,10 +48,9 @@ registerPublicRoutes(app)
 app.use('*', async (c, next) => {
   try {
     const reqPath = (new URL(c.req.url)).pathname || ''
-    if (reqPath.includes('/api/openapi.json')) {
+      if (reqPath.includes('/api/openapi.json')) {
       try {
-        const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-        return new Response(JSON.stringify(openapi), { headers })
+        return await cacheJson(c, 'openapi', async () => openapi)
       } catch (e) {
         // fallback to normal flow
       }
@@ -109,14 +108,14 @@ app.use('/api/*', async (c, next) => {
     if (!userId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'missing_user_id' }), { status: 400, headers: merged })
+      return await cacheJson(c, 'missing_user_id', async () => new Response(JSON.stringify({ error: 'missing_user_id' }), { status: 400, headers: merged }))
     }
     try { c.set && c.set('userId', userId) } catch {}
     return await next()
   } catch (e) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: 'server_error', detail: String(e) }), { status: 500, headers: merged })
+    return await cacheJson(c, 'userctx_server_error', async () => new Response(JSON.stringify({ error: 'server_error', detail: String(e) }), { status: 500, headers: merged }))
   }
 })
 
@@ -191,7 +190,8 @@ app.put('/api/admin/products/*/published', async (c) => {
       const { data: updated, error: updErr } = await supabase.from('products').update({ published: !!published, updated_at: now }).eq('id', id).select('*')
       if (updErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '公開ステータスの更新に失敗しました', updErr.message || updErr, 'db_error', 500)
 
-      return new Response(JSON.stringify({ ok: true, data: updated && updated[0] ? updated[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+      const key = `admin_products_publish:${id}`
+      return await cacheJson(c, key, async () => ({ ok: true, data: updated && updated[0] ? updated[0] : null }))
     } catch (e) {
       return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '公開切替中にサーバーエラーが発生しました', String(e), 'server_error', 500)
     }
@@ -231,14 +231,14 @@ app.use('/api/admin/*', async (c, next) => {
         if (!userId) {
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return new Response(JSON.stringify({ error: 'missing_user_id' }), { status: 400, headers: merged })
+          return await cacheJson(c, 'admin_missing_user_id', async () => new Response(JSON.stringify({ error: 'missing_user_id' }), { status: 400, headers: merged }))
         }
         try { c.set && c.set('userId', userId) } catch {}
         return await next()
       } catch (e) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
+        return await cacheJson(c, 'admin_unauthorized', async () => new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged }))
       }
     }
 
@@ -256,19 +256,19 @@ app.use('/api/admin/*', async (c, next) => {
       if (!token) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
+        return await cacheJson(c, 'admin_unauthorized_no_token', async () => new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged }))
       }
       if (!verified) {
         if (debug) try { console.log('admin-auth middleware: token verification failed') } catch {}
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
+        return await cacheJson(c, 'admin_unauthorized_verify_failed', async () => new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged }))
       }
       if (verified !== headerUser) {
         if (debug) try { console.log('admin-auth middleware: token user mismatch header=', headerUser, 'tokenUser=', verified) } catch {}
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
+        return await cacheJson(c, 'admin_unauthorized_mismatch', async () => new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged }))
       }
       // matched
       try { c.set && c.set('userId', verified) } catch {}
@@ -284,11 +284,11 @@ app.use('/api/admin/*', async (c, next) => {
     // No headerUser and no valid token -> unauthorized
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
+    return await cacheJson(c, 'admin_unauthorized_final', async () => new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged }))
   } catch (e) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
+    return await cacheJson(c, 'admin_unauthorized_exception', async () => new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged }))
   }
 })
 // Admin-origin guard: for admin-origin requests to sensitive paths,
@@ -332,7 +332,7 @@ app.use('*', async (c, next) => {
     if (!ctx.trusted || !ctx.userId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+      return await cacheJson(c, 'admin_origin_unauthenticated', async () => new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged }))
     }
 
     try { c.set && c.set('userId', ctx.userId) } catch {}
@@ -340,7 +340,7 @@ app.use('*', async (c, next) => {
   } catch (e) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-    return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
+    return await cacheJson(c, 'admin_origin_unauthenticated_exception', async () => new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged }))
   }
 })
 
@@ -398,7 +398,7 @@ app.use('*', async (c, next) => {
       const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
       headers['X-Served-By'] = 'public-worker'
       headers['Content-Type'] = 'application/json; charset=utf-8'
-      return new Response(JSON.stringify({ ok: false, message: 'サーバーエラー', detail: String(e2) }), { status: 500, headers })
+      return await cacheJson(c, 'global_error_fallback', async () => new Response(JSON.stringify({ ok: false, message: 'サーバーエラー', detail: String(e2) }), { status: 500, headers }))
     }
   }
 })
@@ -418,13 +418,12 @@ app.get('/_debug', async (c) => {
       R2_PUBLIC_URL: (c.env as any).R2_PUBLIC_URL ?? null,
       hasIMAGESBinding: typeof (c.env as any).IMAGES !== 'undefined',
     }
-    const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-    headers['Content-Type'] = 'application/json; charset=utf-8'
-    return new Response(JSON.stringify({ ok: true, bindings }), { headers })
+    const key = `debug_bindings`
+    return await cacheJson(c, key, async () => ({ ok: true, bindings }))
   } catch (e: any) {
     const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
     headers['Content-Type'] = 'application/json; charset=utf-8'
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers })
+    return await cacheJson(c, 'debug_bindings_error', async () => new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers }))
   }
 })
 
@@ -479,13 +478,12 @@ app.get('/api/debug/headers', async (c) => {
       env: envFlags
     }
 
-    const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-    headers['Content-Type'] = 'application/json; charset=utf-8'
-    return new Response(JSON.stringify(payload, null, 2), { headers })
+    const key = `debug_headers`
+    return await cacheJson(c, key, async () => payload)
   } catch (e: any) {
     const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
     headers['Content-Type'] = 'application/json; charset=utf-8'
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers })
+    return await cacheJson(c, 'debug_headers_error', async () => new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers }))
   }
 })
 

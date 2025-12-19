@@ -42,6 +42,54 @@ export function computeCorsHeaders(origin: string | null, env: any) {
   }
 }
 
+// Normalize response objects for clients: add camelCase aliases for snake_case keys.
+function toCamel(s: string) {
+  return s.replace(/_([a-zA-Z0-9])/g, (_, ch) => ch.toUpperCase())
+}
+
+function normalizeValue(v: any): any {
+  if (Array.isArray(v)) return v.map(normalizeValue)
+  if (v && typeof v === 'object' && !(v instanceof Date)) return normalizeObject(v)
+  return v
+}
+
+function normalizeObject(obj: any): any {
+  const out: any = Array.isArray(obj) ? [] : {}
+  for (const k of Object.keys(obj || {})) {
+    const v = obj[k]
+    const normV = normalizeValue(v)
+    out[k] = normV
+    try {
+      const ck = toCamel(k)
+      if (ck && ck !== k && typeof out[ck] === 'undefined') out[ck] = normV
+    } catch {}
+  }
+  return out
+}
+
+function normalizeForClient(body: any): any {
+  try {
+    if (body == null) return body
+    // If wrapper like { data, meta }
+    if (typeof body === 'object' && body !== null && 'data' in body) {
+      const d = body.data
+      if (Array.isArray(d)) {
+        return Object.assign({}, body, { data: d.map(normalizeValue) })
+      }
+      if (d && typeof d === 'object') {
+        return Object.assign({}, body, { data: normalizeValue(d) })
+      }
+      return body
+    }
+    // If body is array or object, normalize recursively
+    if (Array.isArray(body)) return body.map(normalizeValue)
+    if (typeof body === 'object') return normalizeValue(body)
+    return body
+  } catch (e) {
+    return body
+  }
+}
+
 // cacheJson is a small helper to return json with caching headers
 export async function cacheJson(arg1: any, arg2?: any, arg3?: any) {
   // Dual-purpose helper:
@@ -54,14 +102,38 @@ export async function cacheJson(arg1: any, arg2?: any, arg3?: any) {
       const fn = arg3
       const opts = typeof arg2 === 'object' && arg2 && arg2.maxAge ? arg2 : { maxAge: 60 }
       const maxAge = typeof opts.maxAge === 'number' ? opts.maxAge : 60
-      const body = await fn()
+      let body = await fn()
+      // If handler returned a Response object directly, extract its text/status
+      // and normalize the parsed JSON if possible. This preserves original
+      // status codes while still applying CORS/cache headers and normalization.
+      try {
+        if (body && typeof (body as any).text === 'function' && typeof (body as any).status === 'number' && (body as any).headers) {
+          const resp = body as Response
+          const txt = await resp.text()
+          try {
+            const parsed = JSON.parse(txt)
+            const norm = normalizeForClient(parsed)
+            const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${maxAge}, stale-while-revalidate=300` }
+            const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+            return new Response(JSON.stringify(norm), { status: resp.status || 200, headers })
+          } catch {
+            const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${maxAge}, stale-while-revalidate=300` }
+            const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+            return new Response(txt, { status: resp.status || 200, headers })
+          }
+        }
+      } catch {}
+
+      try {
+        body = normalizeForClient(body)
+      } catch {}
       const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${maxAge}, stale-while-revalidate=300` }
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
       return new Response(JSON.stringify(body), { status: 200, headers })
     }
 
     // Fallback: treat as (body, opts)
-    const body = arg1
+    let body = arg1
     const opts = typeof arg2 === 'object' && arg2 && arg2.maxAge ? arg2 : { maxAge: 60 }
     const maxAge = typeof opts.maxAge === 'number' ? opts.maxAge : 60
     // When no context is provided, still return safe permissive CORS headers so
@@ -75,6 +147,9 @@ export async function cacheJson(arg1: any, arg2?: any, arg3?: any) {
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, X-User-Id',
       'Access-Control-Allow-Credentials': 'false'
     }
+    try {
+      body = normalizeForClient(body)
+    } catch {}
     return new Response(JSON.stringify(body), { status: 200, headers })
   } catch (e) {
     // On error, return safe JSON with CORS when possible
