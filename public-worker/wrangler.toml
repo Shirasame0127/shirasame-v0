@@ -70,6 +70,8 @@ R2_BUCKET = "images"
 # Cloudflare D1/Queues等は現状未使用。Supabase直取得に切替する場合はANONキー等を[vars]へ。
 # Public profile email used by GET /profile
 PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"
+PUBLIC_OWNER_EMAIL = "shirasame.official@gmail.com"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppa3dlbG5oY3BubnB1cmxvbXJmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzcyNTcyOSwiZXhwIjoyMDc5MzAxNzI5fQ.W1A0vf7I-RffzGsk06Ez4tcKbXDD0c1a7MtCquU8SCw"
 
 [env.production]
 name = "public-worker"
@@ -90,5 +92,7 @@ PUBLIC_OWNER_USER_ID = ""
 R2_PUBLIC_URL = "https://images.shirasame.com"
 R2_BUCKET = "images"
 PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"
+PUBLIC_OWNER_EMAIL = "shirasame.official@gmail.com"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppa3dlbG5oY3BubnB1cmxvbXJmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzcyNTcyOSwiZXhwIjoyMDc5MzAxNzI5fQ.W1A0vf7I-RffzGsk06Ez4tcKbXDD0c1a7MtCquU8SCw"
 IMAGES_DOMAIN = "https://images.shirasame.com"
 WORKER_PUBLIC_HOST = "https://public-worker.shirasame-official.workers.dev"

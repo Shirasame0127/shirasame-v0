@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { getSupabase } from '../supabase'
 import { computeCorsHeaders } from '../middleware'
 import { responsiveImageForUsage } from '../../../shared/lib/image-usecases'
+import resolvePublicOwnerUser from '../helpers/getPublicOwnerUser'
 
 export function registerRecipes(app: Hono<any>) {
   app.get('/api/public/recipes', async (c) => {
@@ -13,7 +14,10 @@ export function registerRecipes(app: Hono<any>) {
 
       const supabase = getSupabase(c.env)
       const selectCols = 'id,handle,title,excerpt,images,tags,created_at'
-      const { data, error, count } = await supabase.from('recipes').select(selectCols, { count: 'exact' }).eq('published', true).range(offset, offset + per_page - 1)
+      const ownerId = await resolvePublicOwnerUser(c)
+      let query = supabase.from('recipes').select(selectCols, { count: 'exact' }).eq('published', true)
+      if (ownerId) query = query.eq('user_id', ownerId)
+      const { data, error, count } = await query.range(offset, offset + per_page - 1)
       if (error) throw error
       const total = typeof count === 'number' ? count : (data ? data.length : 0)
       const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
@@ -25,8 +29,10 @@ export function registerRecipes(app: Hono<any>) {
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ data: mapped, meta: { page, per_page, total } }), { status: 200, headers })
     } catch (e: any) {
+      try { console.error('public/recipes list error', e) } catch {}
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-      return new Response(JSON.stringify({ code: 'server_error', message: 'レシピ一覧取得に失敗しました', details: String(e) }), { status: 500, headers })
+      const details = e && e.message ? e.message : JSON.stringify(e)
+      return new Response(JSON.stringify({ code: 'server_error', message: 'レシピ一覧取得に失敗しました', details }), { status: 500, headers })
     }
   })
 
@@ -34,7 +40,10 @@ export function registerRecipes(app: Hono<any>) {
     try {
       const id = c.req.param('id')
       const supabase = getSupabase(c.env)
-      const { data, error } = await supabase.from('recipes').select('id,handle,title,excerpt,content,images,tags,created_at').or(`id.eq.${id},handle.eq.${id}`).eq('published', true).limit(1).maybeSingle()
+      const ownerId = await resolvePublicOwnerUser(c)
+      let recQuery = supabase.from('recipes').select('id,handle,title,excerpt,content,images,tags,created_at').or(`id.eq.${id},handle.eq.${id}`).eq('published', true)
+      if (ownerId) recQuery = recQuery.eq('user_id', ownerId)
+      const { data, error } = await recQuery.limit(1).maybeSingle()
       if (error) throw error
       if (!data) {
         const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
@@ -47,8 +56,10 @@ export function registerRecipes(app: Hono<any>) {
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ data: out }), { status: 200, headers })
     } catch (e: any) {
+      try { console.error('public/recipes get error', e) } catch {}
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-      return new Response(JSON.stringify({ code: 'server_error', message: 'レシピ取得に失敗しました', details: String(e) }), { status: 500, headers })
+      const details = e && e.message ? e.message : JSON.stringify(e)
+      return new Response(JSON.stringify({ code: 'server_error', message: 'レシピ取得に失敗しました', details }), { status: 500, headers })
     }
   })
 }
