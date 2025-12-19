@@ -6,7 +6,10 @@ import { makeWeakEtag } from './utils/etag'
 import { getSupabase } from './supabase'
 import { openapi } from './openapi'
 import { isAdmin, makeErrorResponse } from './helpers'
+import { computeCorsHeaders, cacheJson } from './middleware'
+import { parseJwtPayload, verifyTokenWithSupabase, getTokenFromRequest, fetchUserFromToken, getUserFromRequest, getRequestUserId } from './auth'
 import { getPublicImageUrl, buildResizedImageUrl, responsiveImageForUsage } from '../../shared/lib/image-usecases'
+import { registerPublicRoutes } from './public'
 
 export type Env = {
   PUBLIC_ALLOWED_ORIGINS?: string
@@ -34,6 +37,9 @@ export type Env = {
 }
 
 const app = new Hono<{ Bindings: Env }>()
+
+// Register public (read-only) API routes implemented in separate files
+registerPublicRoutes(app)
 
 // Early docs/openapi bypass: some proxies rewrite or prefix paths so the later
 // middleware checks may not match. Serve docs and OpenAPI JSON early when the
@@ -339,29 +345,7 @@ app.use('*', async (c, next) => {
 })
 
 // Debug and global error middleware: キャッチされなかった例外を詳細に返す（DEBUG_WORKER=true の場合は stack を含める）
-// Centralized CORS header computation used across handlers and cache
-function computeCorsHeaders(origin: string | null, env: any) {
-  const allowed = ((env as any).PUBLIC_ALLOWED_ORIGINS || '').split(',').map((s: string) => s.trim()).filter(Boolean)
-  let acOrigin = '*'
-  if (origin) {
-    if (allowed.length === 0 || allowed.indexOf('*') !== -1 || allowed.indexOf(origin) !== -1) {
-      acOrigin = origin
-    } else if (allowed.length > 0) {
-      acOrigin = allowed[0]
-    }
-  } else if (allowed.length > 0) {
-    acOrigin = allowed[0]
-  }
-  return {
-    'Access-Control-Allow-Origin': acOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Headers': 'Content-Type, If-None-Match, Authorization, X-User-Id',
-    'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS,POST,PUT,DELETE',
-    'Access-Control-Expose-Headers': 'ETag',
-    'Vary': 'Origin',
-    'X-Served-By': 'public-worker',
-  }
-}
+// computeCorsHeaders and cacheJson are provided by `src/middleware.ts`
 
 app.use('*', async (c, next) => {
   // Handle preflight immediately
@@ -505,79 +489,7 @@ app.get('/api/debug/headers', async (c) => {
   }
 })
 
-// Cache/ETag ヘルパ（GET専用）
-async function cacheJson(c: any, key: string, getPayload: () => Promise<Response>) {
-  const cache = (caches as any).default
-  const req = new Request(new URL(key, 'http://dummy').toString())
-  const ifNoneMatch = c.req.header('If-None-Match')
-  // If the incoming request has an Origin header (i.e. a browser cross-origin
-  // request), avoid returning potentially stale edge-cached responses that
-  // might have been stored before CORS headers were added. For such requests
-  // we fetch fresh payload, attach CORS headers, and do NOT return a cached
-  // entry that could lack Access-Control-Allow-* headers. This prevents
-  // browsers from being blocked by stale cached responses.
-  const originHeader = c.req.header('Origin') || c.req.header('origin') || null
-  if (originHeader) {
-    const fresh = await getPayload()
-    try {
-      const buf = await fresh.clone().arrayBuffer()
-      const etag = await makeWeakEtag(buf).catch(() => '')
-      const cors = computeCorsHeaders(originHeader, c.env)
-      const headers: Record<string, string> = Object.assign({
-        'Content-Type': 'application/json; charset=utf-8',
-        // For browser-originated requests prefer not to cache at CDN edge
-        // to avoid serving stale responses without CORS. Use no-store here.
-        'Cache-Control': 'no-store',
-        'ETag': etag
-      }, cors)
-      return new Response(buf, { status: fresh.status, headers })
-    } catch {
-      return fresh
-    }
-  }
-
-  const matched = await cache.match(req)
-  if (matched) {
-    const etag = matched.headers.get('ETag')
-    const cors = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-    if (etag && ifNoneMatch && etag === ifNoneMatch) {
-      const headers: Record<string, string> = Object.assign({}, cors, { 'ETag': etag })
-      return new Response(null, { status: 304, headers })
-    }
-    try {
-      const buf = await matched.arrayBuffer()
-      const merged: Record<string, string> = {}
-      matched.headers.forEach((v: string, k: string) => { merged[k] = v })
-      Object.assign(merged, cors)
-      return new Response(buf, { status: matched.status, headers: merged })
-    } catch {
-      return matched
-    }
-  }
-
-  const res = await getPayload()
-  // 200系のみキャッシュ対象
-  if (res.ok) {
-    const buf = await res.clone().arrayBuffer()
-    const etag = await makeWeakEtag(buf)
-    const cors = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-    const withHeaders = new Response(buf, {
-      status: res.status,
-      headers: Object.assign({
-        'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
-        'ETag': etag,
-      }, cors)
-    })
-    await cache.put(req, withHeaders.clone())
-    if (ifNoneMatch && etag === ifNoneMatch) {
-      const merged304 = Object.assign({}, cors, { 'ETag': etag })
-      return new Response(null, { status: 304, headers: merged304 })
-    }
-    return withHeaders
-  }
-  return res
-}
+// cacheJson is provided by `src/middleware.ts`
 
 // zod スキーマ（共通）
 const listQuery = z.object({
@@ -666,138 +578,7 @@ function makeUpstreamHeaders(c: any): Record<string, string> {
 // NOTE: final catch-all moved to the end of the file so that explicitly
 // registered routes (declared below) are matched before a 404 is returned.
 
-// ヘルパ: JWT のペイロードをデコードして返す（署名検証は行いません。存在確認と sub/user_id 抽出用）
-function parseJwtPayload(token: string | null | undefined): any | null {
-  if (!token) return null
-  try {
-    const parts = token.split('.')
-    if (parts.length < 2) return null
-    // base64url -> base64
-    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-    // pad
-    const pad = payload.length % 4
-    const padded = payload + (pad === 2 ? '==' : pad === 3 ? '=' : pad === 0 ? '' : '')
-    const decoded = atob(padded)
-    return JSON.parse(decoded)
-  } catch (e) {
-    return null
-  }
-}
-
-// トークン検証キャッシュ
-const tokenUserCache = new Map<string, { id: string | null, ts: number }>()
-
-// Supabase の auth エンドポイントを使ってトークンを検証しユーザーIDを取得する（キャッシュ付き）
-async function verifyTokenWithSupabase(token: string, c: any): Promise<string | null> {
-  try {
-    if (!token) return null
-    const now = Date.now()
-    const cached = tokenUserCache.get(token)
-    if (cached && (now - cached.ts) < 60_000) {
-      try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('verifyTokenWithSupabase: cache hit userId=', cached.id) } catch {}
-      return cached.id
-    }
-
-    // Use the lightweight fetch-based helper to validate token and avoid
-    // supabase-js client internals that may hang in some environments.
-    try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('verifyTokenWithSupabase: verifying token length=', token ? token.length : 0) } catch {}
-    try {
-      const user = await fetchUserFromToken(token, c)
-      if (!user) {
-        try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('verifyTokenWithSupabase: fetchUserFromToken returned no user') } catch {}
-        tokenUserCache.set(token, { id: null, ts: now })
-        return null
-      }
-      const id = user?.id || user?.user?.id || user?.sub || user?.user_id || null
-      try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('verifyTokenWithSupabase: resolved userId=', id) } catch {}
-      tokenUserCache.set(token, { id: id || null, ts: now })
-      return id || null
-    } catch (e) {
-      try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('verifyTokenWithSupabase: exception', String(e)) } catch {}
-      tokenUserCache.set(token, { id: null, ts: now })
-      return null
-    }
-  } catch (e) {
-    return null
-  }
-}
-
-// Extract token from request: prefer Authorization Bearer, then sb-access-token cookie
-async function getTokenFromRequest(c: any): Promise<string | null> {
-  try {
-    const auth = (c.req.header('authorization') || c.req.header('Authorization') || '').toString()
-    if (auth && auth.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim()
-    const cookieHeader = c.req.header('cookie') || ''
-    const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
-    if (m && m[1]) return decodeURIComponent(m[1])
-    return null
-  } catch {
-    return null
-  }
-}
-
-// Fetch full user object from Supabase auth endpoint using a token
-async function fetchUserFromToken(token: string | null, c: any): Promise<any | null> {
-  try {
-    if (!token) return null
-    const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
-    if (!supabaseUrl) return null
-    // TEMP LOG: do not log token contents; log masked metadata for debugging
-    try { console.log('fetchUserFromToken: tokenPresent=', !!token, 'tokenLen=', token ? token.length : 0) } catch {}
-    // Use AbortController to avoid hanging the worker if Supabase is slow/unreachable.
-    const controller = new AbortController()
-    const timeoutMs = 6000
-    const id = setTimeout(() => controller.abort(), timeoutMs)
-    try {
-      const anonKey = (c.env.SUPABASE_ANON_KEY || '')
-      const res = await fetch(`${supabaseUrl}/auth/v1/user`, { method: 'GET', headers: { Authorization: `Bearer ${token}`, apikey: anonKey, 'Content-Type': 'application/json' }, signal: controller.signal })
-      try { console.log('fetchUserFromToken: supabase /user status=', res.status) } catch {}
-      if (!res.ok) return null
-      const user = await res.json().catch(() => null)
-      try { console.log('fetchUserFromToken: got user id=', user?.id || user?.user?.id || user?.sub || user?.user_id || null) } catch {}
-      return user || null
-    } catch (e) {
-      try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('fetchUserFromToken: fetch error', String(e)) } catch {}
-      return null
-    } finally {
-      clearTimeout(id)
-    }
-  } catch {
-    return null
-  }
-}
-
-// Convenience: get user object from incoming request (Authorization or cookie)
-async function getUserFromRequest(c: any): Promise<any | null> {
-  const token = await getTokenFromRequest(c)
-  return await fetchUserFromToken(token, c)
-}
-
-// リクエストから userId を推定する（署名検証を優先）。非同期化したため呼び出し側で await が必要。
-async function getRequestUserId(c: any): Promise<string | null> {
-  try {
-    const auth = c.req.header('authorization') || c.req.header('Authorization') || ''
-    if (auth.toLowerCase().startsWith('bearer ')) {
-      const token = auth.slice(7).trim()
-
-      // ✅ 検証できた場合のみ返す
-      const viaSupabase = await verifyTokenWithSupabase(token, c)
-      return viaSupabase ?? null
-    }
-
-    const cookieHeader = c.req.header('cookie') || ''
-    const m = cookieHeader.match(/(?:^|; )sb-access-token=([^;]+)/)
-    if (m?.[1]) {
-      const token = decodeURIComponent(m[1])
-      const viaSupabase = await verifyTokenWithSupabase(token, c)
-      return viaSupabase ?? null
-    }
-
-    return null
-  } catch {
-    return null
-  }
-}
+// Auth helpers moved to `src/auth.ts`
 
 // Centralized request user context resolver.
 // Returns { userId, authType, trusted } where authType is one of:
