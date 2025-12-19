@@ -5,6 +5,9 @@ export type ImageMeta = {
   // Deprecated: legacy full URL field. Keep optional for transitional reads only;
   // DO NOT write new records with `url` — persist `key` only.
   url?: string | null
+  // R2 base path (bucket-relative or full base path) when available.
+  // This is used by the public-site to build variant URLs for R2-hosted images.
+  basePath?: string | null
   width?: number | null
   height?: number | null
   aspect?: number | null
