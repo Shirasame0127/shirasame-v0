@@ -23,8 +23,8 @@ import InitialLoading from '@/components/initial-loading'
 import { ProfileHeader } from "@/components/profile-header"
 import type { Product, Collection, User, AmazonSaleSchedule } from "@shared/types"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || ""
-const api = (p: string) => `${API_BASE}${p}`
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/public"
+const api = (p: string) => `${API_BASE}${p.startsWith('/') ? p : '/' + p}`
 
 // Types are now provided by @shared/types
 
