@@ -13,7 +13,7 @@ export function registerProducts(app: Hono<any>) {
       const offset = (page - 1) * per_page
 
       const supabase = getSupabase(c.env)
-      const selectCols = 'id,title,description,price,currency,slug,published,images,tags'
+      const selectCols = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
       const ownerId = await resolvePublicOwnerUser(c)
       let query = supabase.from('products').select(selectCols, { count: 'exact' }).eq('published', true)
       if (ownerId) query = query.eq('user_id', ownerId)
@@ -41,7 +41,7 @@ export function registerProducts(app: Hono<any>) {
     try {
       const id = c.req.param('id')
       const supabase = getSupabase(c.env)
-      const selectCols = 'id,handle,title,description,price,currency,slug,published,images,tags'
+      const selectCols = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
       const ownerId = await resolvePublicOwnerUser(c)
       let prodQuery = supabase.from('products').select(selectCols).or(`id.eq.${id},slug.eq.${id}`).eq('published', true)
       if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
@@ -53,8 +53,8 @@ export function registerProducts(app: Hono<any>) {
       }
       const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
       const imgs = Array.isArray((data as any).images) ? (data as any).images : []
-      const images_public = imgs.map((k: any) => responsiveImageForUsage(k, 'detail', domainOverride))
-      const out = Object.assign({}, data, { images_public })
+      const images_public = imgs.map((img: any) => ({ id: img.id || null, productId: img.product_id || null, url: responsiveImageForUsage(img.key || img, 'detail', domainOverride), key: img.key ?? null, width: img.width ?? null, height: img.height ?? null, role: img.role ?? null }))
+      const out = Object.assign({}, data, { images_public, short_description: (data as any).short_description || null })
       return new Response(JSON.stringify({ data: out }), { status: 200, headers })
     } catch (e: any) {
       try { console.error('public/products get error', e) } catch {}

@@ -13,7 +13,7 @@ export function registerCollections(app: Hono<any>) {
       const offset = (page - 1) * per_page
 
       const supabase = getSupabase(c.env)
-      const selectCols = 'id,slug,title,description,image'
+      const selectCols = 'id,slug,title,description,product_ids'
       const ownerId = await resolvePublicOwnerUser(c)
       let query = supabase.from('collections').select(selectCols, { count: 'exact' }).eq('published', true)
       if (ownerId) query = query.eq('user_id', ownerId)
@@ -41,7 +41,7 @@ export function registerCollections(app: Hono<any>) {
       const id = c.req.param('id')
       const supabase = getSupabase(c.env)
       const ownerId = await resolvePublicOwnerUser(c)
-      let colQuery = supabase.from('collections').select('id,slug,title,description,image,product_ids').or(`id.eq.${id},slug.eq.${id}`).eq('published', true)
+      let colQuery = supabase.from('collections').select('id,slug,title,description,product_ids').or(`id.eq.${id},slug.eq.${id}`).eq('published', true)
       if (ownerId) colQuery = colQuery.eq('user_id', ownerId)
       const { data, error } = await colQuery.limit(1).maybeSingle()
       if (error) throw error
@@ -50,9 +50,8 @@ export function registerCollections(app: Hono<any>) {
         return new Response(JSON.stringify({ code: 'not_found', message: 'コレクションが見つかりません' }), { status: 404, headers })
       }
       const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
-      const img = (data as any).image || null
-      const image_public = img ? responsiveImageForUsage(img, 'detail', domainOverride) : null
-      const out = Object.assign({}, data, { image_public })
+      // Collections do not have a direct `image` column; expose product_ids and leave image resolution to client
+      const out = Object.assign({}, data, { image_public: null })
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ data: out }), { status: 200, headers })
     } catch (e: any) {
