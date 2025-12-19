@@ -35,8 +35,21 @@ function computePublicCorsHeaders(origin: string | null, env: any) {
 }
 
 export function registerPublicCors(app: any) {
-  // Apply to all public routes
-  app.use('/api/public/*', async (c: any, next: any) => {
+  // Register a global wrapper so any handler that returns a Response
+  // (including early returns) for paths under /api/public will be
+  // wrapped and have CORS headers merged. This ensures no code path
+  // can accidentally return a Response without the required headers.
+  app.use('*', async (c: any, next: any) => {
+    try {
+      const reqPath = (new URL(c.req.url)).pathname || ''
+      if (!reqPath.startsWith('/api/public')) {
+        return await next()
+      }
+      // Preflight
+      if ((c.req.method || '').toUpperCase() === 'OPTIONS') {
+        const headers = computePublicCorsHeaders(c.req.header('Origin') || null, c.env)
+        return new Response(null, { status: 204, headers })
+      }
     try {
       // Preflight
       if ((c.req.method || '').toUpperCase() === 'OPTIONS') {
