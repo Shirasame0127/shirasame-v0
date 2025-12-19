@@ -13,7 +13,7 @@ export function registerCollections(app: Hono<any>) {
       const offset = (page - 1) * per_page
 
       const supabase = getSupabase(c.env)
-      const selectCols = 'id,handle,title,description,image'
+      const selectCols = 'id,slug,title,description,image'
       const ownerId = await resolvePublicOwnerUser(c)
       let query = supabase.from('collections').select(selectCols, { count: 'exact' }).eq('published', true)
       if (ownerId) query = query.eq('user_id', ownerId)
@@ -41,7 +41,7 @@ export function registerCollections(app: Hono<any>) {
       const id = c.req.param('id')
       const supabase = getSupabase(c.env)
       const ownerId = await resolvePublicOwnerUser(c)
-      let colQuery = supabase.from('collections').select('id,handle,title,description,image,product_ids').or(`id.eq.${id},handle.eq.${id}`).eq('published', true)
+      let colQuery = supabase.from('collections').select('id,slug,title,description,image,product_ids').or(`id.eq.${id},slug.eq.${id}`).eq('published', true)
       if (ownerId) colQuery = colQuery.eq('user_id', ownerId)
       const { data, error } = await colQuery.limit(1).maybeSingle()
       if (error) throw error

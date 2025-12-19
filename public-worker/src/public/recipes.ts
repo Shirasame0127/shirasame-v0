@@ -13,7 +13,7 @@ export function registerRecipes(app: Hono<any>) {
       const offset = (page - 1) * per_page
 
       const supabase = getSupabase(c.env)
-      const selectCols = 'id,handle,title,excerpt,images,tags,created_at'
+      const selectCols = 'id,slug,title,excerpt,images,tags,created_at'
       const ownerId = await resolvePublicOwnerUser(c)
       let query = supabase.from('recipes').select(selectCols, { count: 'exact' }).eq('published', true)
       if (ownerId) query = query.eq('user_id', ownerId)
@@ -41,7 +41,7 @@ export function registerRecipes(app: Hono<any>) {
       const id = c.req.param('id')
       const supabase = getSupabase(c.env)
       const ownerId = await resolvePublicOwnerUser(c)
-      let recQuery = supabase.from('recipes').select('id,handle,title,excerpt,content,images,tags,created_at').or(`id.eq.${id},handle.eq.${id}`).eq('published', true)
+      let recQuery = supabase.from('recipes').select('id,slug,title,excerpt,content,images,tags,created_at').or(`id.eq.${id},slug.eq.${id}`).eq('published', true)
       if (ownerId) recQuery = recQuery.eq('user_id', ownerId)
       const { data, error } = await recQuery.limit(1).maybeSingle()
       if (error) throw error

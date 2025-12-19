@@ -20,19 +20,19 @@ export function registerSearch(app: Hono<any>) {
 
       const ownerId = await resolvePublicOwnerUser(c)
       if (!type || type === 'product') {
-        let qprod = supabase.from('products').select('id,handle,title,description').ilike('title', `%${q}%`).or(`description.ilike.%${q}%`).eq('published', true).limit(10)
+        let qprod = supabase.from('products').select('id,slug,title,description').ilike('title', `%${q}%`).or(`description.ilike.%${q}%`).eq('published', true).limit(10)
         if (ownerId) qprod = qprod.eq('user_id', ownerId)
         const { data } = await qprod
         results.products = data || []
       }
       if (!type || type === 'collection') {
-        let qcol = supabase.from('collections').select('id,handle,title,description').ilike('title', `%${q}%`).or(`description.ilike.%${q}%`).eq('published', true).limit(10)
+        let qcol = supabase.from('collections').select('id,slug,title,description').ilike('title', `%${q}%`).or(`description.ilike.%${q}%`).eq('published', true).limit(10)
         if (ownerId) qcol = qcol.eq('user_id', ownerId)
         const { data } = await qcol
         results.collections = data || []
       }
       if (!type || type === 'recipe') {
-        let qrec = supabase.from('recipes').select('id,handle,title,excerpt').ilike('title', `%${q}%`).or(`excerpt.ilike.%${q}%`).eq('published', true).limit(10)
+        let qrec = supabase.from('recipes').select('id,slug,title,excerpt').ilike('title', `%${q}%`).or(`excerpt.ilike.%${q}%`).eq('published', true).limit(10)
         if (ownerId) qrec = qrec.eq('user_id', ownerId)
         const { data } = await qrec
         results.recipes = data || []

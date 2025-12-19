@@ -13,7 +13,7 @@ export function registerProducts(app: Hono<any>) {
       const offset = (page - 1) * per_page
 
       const supabase = getSupabase(c.env)
-      const selectCols = 'id,handle,title,description,price,currency,slug,published,images,tags'
+      const selectCols = 'id,title,description,price,currency,slug,published,images,tags'
       const ownerId = await resolvePublicOwnerUser(c)
       let query = supabase.from('products').select(selectCols, { count: 'exact' }).eq('published', true)
       if (ownerId) query = query.eq('user_id', ownerId)
@@ -43,7 +43,7 @@ export function registerProducts(app: Hono<any>) {
       const supabase = getSupabase(c.env)
       const selectCols = 'id,handle,title,description,price,currency,slug,published,images,tags'
       const ownerId = await resolvePublicOwnerUser(c)
-      let prodQuery = supabase.from('products').select(selectCols).or(`id.eq.${id},handle.eq.${id}`).eq('published', true)
+      let prodQuery = supabase.from('products').select(selectCols).or(`id.eq.${id},slug.eq.${id}`).eq('published', true)
       if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
       const { data, error } = await prodQuery.limit(1).maybeSingle()
       if (error) throw error
