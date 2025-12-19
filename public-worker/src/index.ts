@@ -1205,15 +1205,24 @@ app.get('/site-settings', async (c) => {
       // If an INTERNAL_API_BASE is configured, proxy to it (admin API)
       if (upstreamUrl) {
         const res = await fetch(upstreamUrl, { method: 'GET', headers: makeUpstreamHeaders(c) })
-        if (!res.ok) return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+        if (!res.ok) {
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+          return new Response(JSON.stringify({ data: {} }), { headers: merged })
+        }
         const json = await res.json().catch(() => ({ data: {} }))
-        return new Response(JSON.stringify(json), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+        {
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+          return new Response(JSON.stringify(json), { headers: merged })
+        }
       }
 
       // Otherwise, try to read from Supabase (anon). Return key/value map like admin API.
       const supabase = getSupabase(c.env)
       const { data, error } = await supabase.from('site_settings').select('key, value').limit(100)
-      if (error) return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      if (error) {
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+        return new Response(JSON.stringify({ data: {} }), { headers: merged })
+      }
       const rows = Array.isArray(data) ? data : []
       const out: Record<string, any> = {}
       for (const r of rows) {
@@ -1221,9 +1230,11 @@ app.get('/site-settings', async (c) => {
           if (r && typeof r.key === 'string') out[r.key] = r.value
         } catch {}
       }
-      return new Response(JSON.stringify({ data: out }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ data: out }), { headers: merged })
     } catch (e: any) {
-      return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ data: {} }), { headers: merged })
     }
   })
 })
