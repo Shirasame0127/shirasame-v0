@@ -46,7 +46,7 @@ preview_bucket_name = "images"
 
 [vars]
 # 公開APIからの受け入れ許可オリジン（カンマ区切り）
-PUBLIC_ALLOWED_ORIGINS = "https://admin.shirasame.com,https://public.shirasame.com,https://shirasame-box.pages.dev"
+PUBLIC_ALLOWED_ORIGINS = "https://admin.shirasame.com,https://public.shirasame.com,https://shirasame-box.pages.dev,https://www.shirasame.com,https://shirasame.com"
 # Enable debug bypass for local testing. REMOVE or set to empty in production.
 DEBUG_WORKER = "true"
 # 既存Next APIのベースURL（暫定プロキシ先）。例: https://admin.example.com
@@ -82,7 +82,7 @@ bucket_name = "images"
 preview_bucket_name = "images"
 
 [env.production.vars]
-PUBLIC_ALLOWED_ORIGINS = "https://admin.shirasame.com,https://public.shirasame.com,https://shirasame-box.pages.dev"
+PUBLIC_ALLOWED_ORIGINS = "https://admin.shirasame.com,https://public.shirasame.com,https://shirasame-box.pages.dev,https://www.shirasame.com,https://shirasame.com"
 INTERNAL_API_BASE = ""
 SUPABASE_URL = "https://zikwelnhcpnnpurlomrf.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppa3dlbG5oY3BubnB1cmxvbXJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MjU3MjksImV4cCI6MjA3OTMwMTcyOX0.jpXt88FpfYpfni8eHAh2zAXl22biBruWHA-MPnu4F1A"
