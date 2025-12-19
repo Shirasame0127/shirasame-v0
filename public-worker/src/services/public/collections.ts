@@ -8,7 +8,8 @@ export async function fetchPublicCollections(env: any) {
   try {
     // Return public collections (visibility = 'public'). Using visibility avoids RLS blocking
     // reads that may occur when attempting to filter by `user_id` with an anon key.
-    const { data } = await supabase.from('collections').select('id,title,description').eq('visibility', 'public').order('sort_order', { ascending: true })
+    // Select commonly-used fields and order by legacy `order` column (fallback to created_at if absent)
+    const { data } = await supabase.from('collections').select('id,title,description,order,item_count,created_at').eq('visibility', 'public').order('order', { ascending: true })
     const rows = Array.isArray(data) ? data : []
     const ids = rows.map((r: any) => r.id).filter(Boolean)
     if (ids.length === 0) return { data: rows }
