@@ -20,7 +20,21 @@ export async function fetchPublicCollections(env: any) {
       if (!itemsByCollection.has(colId)) itemsByCollection.set(colId, [])
       itemsByCollection.get(colId).push(it)
     }
-    for (const r of rows) { r.items = itemsByCollection.get(r.id) || [] }
+
+    // Fetch products referenced by collection_items and replace items with product objects
+    const productIds = Array.from(new Set((items || []).map((it: any) => it.product_id).filter(Boolean)))
+    let productsById = new Map<string, any>()
+    if (productIds.length > 0) {
+      const { data: products = [] } = await supabase.from('products').select('*').in('id', productIds)
+      for (const p of products || []) productsById.set(p.id, p)
+    }
+
+    for (const r of rows) {
+      const rawItems = itemsByCollection.get(r.id) || []
+      // Preserve order from collection_items.order when available
+      rawItems.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0))
+      r.items = rawItems.map((it: any) => productsById.get(it.product_id)).filter(Boolean)
+    }
     return { data: rows }
   } catch (e) {
     return { data: [] }
