@@ -33,4 +33,3 @@ export async function fetchPublicProfile(env: any) {
   } catch (e) {
     return { data: null }
   }
-}
