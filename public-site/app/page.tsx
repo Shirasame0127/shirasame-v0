@@ -328,7 +328,8 @@ export default function HomePage() {
       // If basePath (R2 base) is present, prefer R2 variant helper
       if (basePath) {
         try {
-          const webp = buildR2VariantFromBasePathWithFormat(basePath, `thumb-${width}`, 'webp')
+          const variant: 'thumb-400' | 'detail-800' = (width && width > 400) ? 'detail-800' : 'thumb-400'
+          const webp = buildR2VariantFromBasePathWithFormat(basePath, variant, 'webp')
           return webp || (getPublicImageUrl(rawKey as string) || rawKey as string)
         } catch {}
       }
