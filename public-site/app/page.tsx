@@ -212,8 +212,37 @@ export default function HomePage() {
         const apiProducts: Product[] = Array.isArray(prodJson.data) ? prodJson.data : []
         const apiCollections: Collection[] = Array.isArray(colJson.data) ? colJson.data : []
         const apiRecipes = Array.isArray(recJson.data) ? recJson.data : []
-        const loadedUser = profileJson?.data || profileJson || null
+        let loadedUser = profileJson?.data || profileJson || null
         const apiSchedules: AmazonSaleSchedule[] = saleRes.status === 'fulfilled' ? (await saleRes.value.json().catch(() => ({ data: [] }))).data || [] : []
+        // Normalize profile/site settings so components receive expected shapes
+        if (loadedUser && typeof loadedUser === 'object') {
+          try {
+            if (typeof loadedUser.socialLinks === 'string') {
+              try {
+                const arr = JSON.parse(loadedUser.socialLinks)
+                if (Array.isArray(arr)) {
+                  const map: Record<string, string> = {}
+                  for (const s of arr) {
+                    if (!s) continue
+                    const key = (s.platform && String(s.platform).trim()) || s.username || s.url || 'link'
+                    if (s.url) map[key] = s.url
+                  }
+                  loadedUser.socialLinks = map
+                }
+              } catch {
+                loadedUser.socialLinks = { links: loadedUser.socialLinks }
+              }
+            }
+
+            if (typeof loadedUser.headerImageKeys === 'string') {
+              try { loadedUser.headerImageKeys = JSON.parse(loadedUser.headerImageKeys) } catch { loadedUser.headerImageKeys = [loadedUser.headerImageKeys] }
+            }
+
+            if (loadedUser.loading_animation && typeof loadedUser.loading_animation === 'object' && loadedUser.loading_animation.url) {
+              loadedUser.loadingAnimation = loadedUser.loading_animation
+            }
+          } catch {}
+        }
 
         // Normalize API fields (snake_case -> camelCase) for products/collections/recipes
         const normalizeProduct = (raw: any) => {
