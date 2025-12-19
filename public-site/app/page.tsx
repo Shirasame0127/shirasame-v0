@@ -299,7 +299,20 @@ export default function HomePage() {
           const c = { ...raw } as any
           if (raw.created_at && !raw.createdAt) c.createdAt = raw.created_at
           if (raw.updated_at && !raw.updatedAt) c.updatedAt = raw.updated_at
+          // If API returns 'items' (collection_items) map them to actual product objects using normalizedProducts
           if (Array.isArray(c.products)) c.products = c.products.map((pr: any) => normalizeProduct(pr))
+          else if (Array.isArray(c.items)) {
+            const prodList: any[] = []
+            for (const it of c.items) {
+              const pid = it?.product_id ?? it?.id ?? it?.productId ?? null
+              if (!pid) continue
+              const found = normalizedProducts.find((np: any) => String(np.id) === String(pid))
+              if (found) prodList.push(found)
+            }
+            c.products = prodList
+          } else {
+            c.products = []
+          }
           return c
         }
 
@@ -310,6 +323,20 @@ export default function HomePage() {
           if (raw.created_at && !raw.createdAt) r.createdAt = raw.created_at
           if (raw.updated_at && !raw.updatedAt) r.updatedAt = raw.updated_at
           if (raw.short_description && !raw.shortDescription) r.shortDescription = raw.short_description
+          // Ensure imageUrl/imageDataUrl are available for the Recipe display component
+          try {
+            if (Array.isArray(r.images) && r.images.length > 0) {
+              const img = r.images[0]
+              r.imageUrl = img.url || img.key || null
+              r.imageWidth = img.width || null
+              r.imageHeight = img.height || null
+              r.imageDataUrl = img.dataUrl || null
+            } else if (r.recipeImageKeys && Array.isArray(r.recipeImageKeys) && r.recipeImageKeys.length > 0) {
+              r.imageUrl = r.recipeImageKeys[0]
+            }
+          } catch {}
+          // Ensure pins array exists (some APIs return pins joined)
+          if (!Array.isArray(r.pins)) r.pins = Array.isArray(raw.pins) ? raw.pins : []
           return r
         }
 
