@@ -42,4 +42,17 @@ export function registerPublicRoutes(app: any) {
     const item = Array.isArray(res.data) ? res.data.find((r: any) => String(r.id) === String(id)) : null
     return new Response(JSON.stringify({ data: item }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   })
+
+  // Simple CORS test endpoint to validate middleware behavior
+  app.get('/api/public/_cors-test', async (c: any) => {
+    const info = {
+      ok: true,
+      timestamp: new Date().toISOString(),
+      env: {
+        PUBLIC_ALLOWED_ORIGINS: (c.env && (c.env as any).PUBLIC_ALLOWED_ORIGINS) || null,
+        WORKER_PUBLIC_HOST: (c.env && (c.env as any).WORKER_PUBLIC_HOST) || null
+      }
+    }
+    return new Response(JSON.stringify(info), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  })
 }
