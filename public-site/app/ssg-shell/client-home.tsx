@@ -1,14 +1,13 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { apiFetch } from '@/lib/api-client'
 
 export default function ClientHome() {
   const [data, setData] = useState<any | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL || ''
-    const url = base ? `${base}/site-settings` : '/site-settings'
-    fetch(url, { method: 'GET', credentials: 'include' })
+    apiFetch('/site-settings')
       .then((r) => r.json())
       .then((j) => setData(j))
       .catch((e) => setErr(String(e)))

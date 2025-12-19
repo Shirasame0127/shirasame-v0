@@ -45,13 +45,37 @@ export function registerPublicCors(app: any) {
       }
 
       const res = await next()
+      // Ensure CORS headers are present on every returned Response by
+      // creating a new Response that merges existing headers with CORS.
       try {
-        const headers = computePublicCorsHeaders(c.req.header('Origin') || null, c.env)
-        for (const k of Object.keys(headers)) {
-          try { res.headers.set(k, (headers as any)[k]) } catch {}
+        const cors = computePublicCorsHeaders(c.req.header('Origin') || null, c.env)
+        // Build merged headers
+        const merged = new Headers()
+        try {
+          // copy existing headers from upstream response
+          if (res && res.headers) {
+            for (const [k, v] of Array.from(res.headers.entries())) {
+              merged.set(k, v)
+            }
+          }
+        } catch {}
+        // set/override with CORS headers
+        for (const k of Object.keys(cors)) {
+          try { merged.set(k, (cors as any)[k]) } catch {}
         }
-      } catch {}
-      return res
+
+        // Create a new Response preserving status and body
+        const body = res && typeof res.arrayBuffer === 'function' ? await res.arrayBuffer() : null
+        const newRes = new Response(body, {
+          status: res?.status || 200,
+          statusText: res?.statusText || undefined,
+          headers: merged,
+        })
+        return newRes
+      } catch (err) {
+        // If merging fails, fall back to original response
+        try { return res } catch { return new Response(null, { status: 500 }) }
+      }
     } catch (e: any) {
       const headers = computePublicCorsHeaders(c.req.header('Origin') || null, c.env)
       headers['Content-Type'] = 'application/json; charset=utf-8'

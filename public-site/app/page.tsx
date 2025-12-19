@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input"
 import { PublicNav } from "@/components/public-nav"
 import InitialLoading from '@/components/initial-loading'
 import { ProfileHeader } from "@/components/profile-header"
+import { apiFetch } from "@/lib/api-client"
 import type { Product, Collection, User, AmazonSaleSchedule } from "@shared/types"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/public"
@@ -197,11 +198,11 @@ export default function HomePage() {
     ;(async () => {
       try {
         const [prodRes, colRes, recRes, profileRes, saleRes] = await Promise.allSettled([
-          fetch(api(`/products?published=true&shallow=true&limit=${pageLimit}&offset=0`)),
-          fetch(api("/collections")),
-          fetch(api("/recipes")),
-          fetch(api('/profile')),
-          fetch(api('/amazon-sale-schedules')),
+          apiFetch(`/products?published=true&shallow=true&limit=${pageLimit}&offset=0`),
+          apiFetch(`/collections`),
+          apiFetch(`/recipes`),
+          apiFetch('/profile'),
+          apiFetch('/amazon-sale-schedules'),
         ])
         const prodJson = prodRes.status === 'fulfilled' ? await prodRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const colJson = colRes.status === 'fulfilled' ? await colRes.value.json().catch(() => ({ data: [] })) : { data: [] }
@@ -253,7 +254,7 @@ export default function HomePage() {
         } catch {}
 
         try {
-          const [groupsRes, tagsRes] = await Promise.all([fetch(api('/tag-groups')), fetch(api('/tags'))])
+          const [groupsRes, tagsRes] = await Promise.all([apiFetch('/tag-groups'), apiFetch('/tags')])
           const groupsJson = await groupsRes.json().catch(() => ({ data: [] }))
           const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
           const serverGroups = Array.isArray(groupsJson.data) ? groupsJson.data : groupsJson.data || []
@@ -354,7 +355,7 @@ export default function HomePage() {
     setIsModalOpen(true)
     ;(async () => {
       try {
-        const res = await fetch(api(`/products?id=${encodeURIComponent(product.id)}`))
+        const res = await apiFetch(`/products?id=${encodeURIComponent(product.id)}`)
         if (res.ok) {
           const js = await res.json().catch(() => ({ data: [] }))
           const full = Array.isArray(js.data) && js.data.length > 0 ? js.data[0] : null
@@ -406,7 +407,7 @@ export default function HomePage() {
     if (loadingMore || !hasMore) return
     setLoadingMore(true)
     try {
-      const res = await fetch(api(`/products?published=true&shallow=true&limit=${pageLimit}&offset=${pageOffset}`))
+      const res = await apiFetch(`/products?published=true&shallow=true&limit=${pageLimit}&offset=${pageOffset}`)
       if (!res.ok) throw new Error('failed to fetch')
       const js = await res.json().catch(() => ({ data: [], meta: undefined }))
       const items = Array.isArray(js.data) ? js.data : []
