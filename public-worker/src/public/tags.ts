@@ -8,7 +8,7 @@ export function registerTags(app: Hono<any>) {
     try {
       const supabase = getSupabase(c.env)
       const ownerId = await resolvePublicOwnerUser(c)
-      let query = supabase.from('tags').select('id,name,product_count').order('name', { ascending: true })
+      let query = supabase.from('tags').select('id,name').order('name', { ascending: true })
       if (ownerId) query = query.eq('user_id', ownerId)
       const { data, error } = await query
       if (error) throw error
