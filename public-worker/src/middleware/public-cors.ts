@@ -1,6 +1,6 @@
 import type { Hono } from 'hono'
 
-function computePublicCorsHeaders(origin: string | null, env: any) {
+export function computePublicCorsHeaders(origin: string | null, env: any) {
   const allowedEnv = ((env && env.PUBLIC_ALLOWED_ORIGINS) || '').split(',').map((s: string) => s.trim()).filter(Boolean)
   const defaults = ['https://www.shirasame.com', 'https://shirasame.com']
   let acOrigin = '*'

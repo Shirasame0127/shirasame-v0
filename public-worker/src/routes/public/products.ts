@@ -1,4 +1,5 @@
 import { fetchPublicProducts } from '../../services/public/products'
+import { computePublicCorsHeaders } from '../../middleware/public-cors'
 
 export async function productsHandler(c: any) {
   try {
@@ -8,8 +9,10 @@ export async function productsHandler(c: any) {
     const shallow = url.searchParams.get('shallow') === 'true' || url.searchParams.get('list') === 'true'
     const wantCount = url.searchParams.get('count') === 'true'
     const out = await fetchPublicProducts(c.env, { limit, offset, shallow, count: wantCount })
-    return new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify(out), { headers })
   } catch (e) {
-    return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: [] }), { headers })
   }
 }

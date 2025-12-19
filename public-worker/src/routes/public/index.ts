@@ -1,4 +1,5 @@
 import type { Hono } from 'hono'
+import { computePublicCorsHeaders } from '../../middleware/public-cors'
 import { siteSettingsHandler } from './site-settings'
 import { profileHandler } from './profile'
 import { productsHandler } from './products'
@@ -22,7 +23,8 @@ export function registerPublicRoutes(app: any) {
     const { fetchPublicProducts } = await import('../../services/public/products')
     const res = await fetchPublicProducts(c.env, { limit: null, offset: 0, shallow: false })
     const item = Array.isArray(res.data) ? res.data.find((p: any) => String(p.id) === String(id)) : null
-    return new Response(JSON.stringify({ data: item }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: item }), { headers })
   })
 
   app.get('/api/public/collections/*', async (c: any) => {
@@ -31,7 +33,8 @@ export function registerPublicRoutes(app: any) {
     const { fetchPublicCollections } = await import('../../services/public/collections')
     const res = await fetchPublicCollections(c.env)
     const item = Array.isArray(res.data) ? res.data.find((col: any) => String(col.id) === String(id)) : null
-    return new Response(JSON.stringify({ data: item }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: item }), { headers })
   })
 
   app.get('/api/public/recipes/*', async (c: any) => {
@@ -40,7 +43,8 @@ export function registerPublicRoutes(app: any) {
     const { fetchPublicRecipes } = await import('../../services/public/recipes')
     const res = await fetchPublicRecipes(c.env, { limit: null, offset: 0, shallow: false })
     const item = Array.isArray(res.data) ? res.data.find((r: any) => String(r.id) === String(id)) : null
-    return new Response(JSON.stringify({ data: item }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: item }), { headers })
   })
 
   // Simple CORS test endpoint to validate middleware behavior
@@ -53,6 +57,7 @@ export function registerPublicRoutes(app: any) {
         WORKER_PUBLIC_HOST: (c.env && (c.env as any).WORKER_PUBLIC_HOST) || null
       }
     }
-    return new Response(JSON.stringify(info), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify(info), { headers })
   })
 }

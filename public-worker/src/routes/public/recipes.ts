@@ -1,5 +1,5 @@
 import { fetchPublicRecipes } from '../../services/public/recipes'
-
+import { computePublicCorsHeaders } from '../../middleware/public-cors'
 
 export async function recipesHandler(c: any) {
   try {
@@ -8,8 +8,10 @@ export async function recipesHandler(c: any) {
     const offset = url.searchParams.get('offset') ? Math.max(0, parseInt(url.searchParams.get('offset') || '0')) : 0
     const shallow = url.searchParams.get('shallow') === 'true'
     const out = await fetchPublicRecipes(c.env, { limit, offset, shallow })
-    return new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify(out), { headers })
   } catch (e) {
-    return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ data: [] }), { headers })
   }
 }
