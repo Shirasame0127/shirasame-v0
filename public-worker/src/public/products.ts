@@ -16,8 +16,8 @@ export function registerProducts(app: Hono<any>) {
       const selectCols = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
       const ownerId = await resolvePublicOwnerUser(c)
       let query = supabase.from('products').select(selectCols, { count: 'exact' })
-      if (ownerId) query = query.or(`user_id.eq.${ownerId},visibility.eq.public`)
-      else query = query.eq('visibility', 'public')
+      if (ownerId) query = query.eq('user_id', ownerId)
+      else query = query.eq('published', true)
       const { data, error, count } = await query.range(offset, offset + per_page - 1)
       if (error) throw error
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
@@ -45,8 +45,8 @@ export function registerProducts(app: Hono<any>) {
       const selectCols = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
       const ownerId = await resolvePublicOwnerUser(c)
       let prodQuery = supabase.from('products').select(selectCols).or(`id.eq.${id},slug.eq.${id}`)
-      if (ownerId) prodQuery = prodQuery.or(`user_id.eq.${ownerId},visibility.eq.public`)
-      else prodQuery = prodQuery.eq('visibility', 'public')
+      if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
+      else prodQuery = prodQuery.eq('published', true)
       const { data, error } = await prodQuery.limit(1).maybeSingle()
       if (error) throw error
       if (!data) {

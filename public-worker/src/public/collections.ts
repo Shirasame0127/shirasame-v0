@@ -39,8 +39,8 @@ export function registerCollections(app: Hono<any>) {
       if (productIds.length > 0) {
         const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
         let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds)
-        if (ownerId) prodQuery = prodQuery.or(`user_id.eq.${ownerId},visibility.eq.public`)
-        else prodQuery = prodQuery.eq('visibility', 'public')
+        if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
+        else prodQuery = prodQuery.eq('published', true)
         const { data: prods = [] } = await prodQuery
         products = prods || []
       }
