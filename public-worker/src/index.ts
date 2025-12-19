@@ -1264,6 +1264,38 @@ app.get('/site-settings', async (c) => {
           if (Object.keys(out).length === 0) out['notice'] = 'no_site_settings'
         }
       } catch {}
+      // Normalize some image keys into usable public URLs so frontend doesn't
+      // need to parse JSON strings or construct URLs itself.
+      try {
+        const imagesDomain = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || out.images_domain || null
+        // profile image key could be stored as `profileImageKey` or `profile_image_key`
+        const profileKey = out.profileImageKey || out.profile_image_key || out.profileImageKey || null
+        if (profileKey) {
+          try {
+            const url = getPublicImageUrl(profileKey, imagesDomain)
+            if (url) {
+              out.profileImageUrl = url
+              out.profile_image_url = url
+            }
+          } catch {}
+        }
+
+        // header image keys are often stored as a JSON string; parse and build URLs
+        const headerRaw = out.headerImageKeys || out.header_image_keys || null
+        let headerArr: any[] = []
+        if (typeof headerRaw === 'string') {
+          try { headerArr = JSON.parse(headerRaw) } catch { headerArr = [] }
+        } else if (Array.isArray(headerRaw)) {
+          headerArr = headerRaw
+        }
+        if (Array.isArray(headerArr) && headerArr.length > 0) {
+          try {
+            const headerUrls = headerArr.map((k: any) => getPublicImageUrl(k, imagesDomain)).filter(Boolean)
+            out.headerImageUrls = headerUrls
+            out.header_image_urls = headerUrls
+          } catch {}
+        }
+      } catch {}
       return { data: out }
     } catch (e: any) {
       return { data: {} }
