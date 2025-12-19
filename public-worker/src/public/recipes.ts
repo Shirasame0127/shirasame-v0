@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { getSupabase } from '../supabase'
 import { computeCorsHeaders } from '../middleware'
-import { responsiveImageForUsage } from '../../../shared/lib/image-usecases'
+import { responsiveImageForUsage, getPublicImageUrl } from '../../../shared/lib/image-usecases'
 import resolvePublicOwnerUser from '../helpers/getPublicOwnerUser'
 
 export function registerRecipes(app: Hono<any>) {
@@ -59,7 +59,7 @@ export function registerRecipes(app: Hono<any>) {
       }
       const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
       const imgs = Array.isArray((data as any).images) ? (data as any).images : []
-      const images_public = imgs.map((img: any) => ({ id: img.id || null, recipeId: img.recipe_id || null, url: responsiveImageForUsage(img.key || img, 'recipe', domainOverride), key: img.key ?? null, width: img.width ?? null, height: img.height ?? null, role: img.role ?? null, caption: img.caption || null }))
+      const images_public = imgs.map((img: any) => ({ id: img.id || null, recipeId: img.recipe_id || null, url: getPublicImageUrl(img.key || img, domainOverride), key: img.key ?? null, width: img.width ?? null, height: img.height ?? null, role: img.role ?? null, caption: img.caption || null }))
       const out = Object.assign({}, data, { images_public })
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ data: out }), { status: 200, headers })

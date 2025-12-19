@@ -9,6 +9,21 @@ export function computeCorsHeaders(origin: string | null, env: any) {
       allowOrigin = '*'
     } else if (origin && allowedList.includes(origin)) {
       allowOrigin = origin
+    } else if (origin) {
+      // Support simple wildcard entries like '*.pages.dev' or 'https://*.pages.dev'
+      const matches = allowedList.some((entry: string) => {
+        if (!entry) return false
+        if (entry.indexOf('*') === -1) return entry === origin || entry === (new URL(origin)).hostname
+        // convert wildcard to regex
+        const pattern = entry.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&').replace(/\\\*/g, '.*')
+        try {
+          const re = new RegExp('^' + pattern + '$')
+          return re.test(origin) || re.test((new URL(origin)).hostname)
+        } catch {
+          return false
+        }
+      })
+      if (matches) allowOrigin = origin
     } else if (allowedList.length === 1) {
       allowOrigin = allowedList[0]
     } else {
@@ -49,7 +64,17 @@ export async function cacheJson(arg1: any, arg2?: any, arg3?: any) {
     const body = arg1
     const opts = typeof arg2 === 'object' && arg2 && arg2.maxAge ? arg2 : { maxAge: 60 }
     const maxAge = typeof opts.maxAge === 'number' ? opts.maxAge : 60
-    const headers: Record<string,string> = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${maxAge}, stale-while-revalidate=300` }
+    // When no context is provided, still return safe permissive CORS headers so
+    // browser requests are not blocked. Consumers should prefer calling cacheJson(c, key, fn).
+    const headers: Record<string,string> = {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': `public, max-age=${maxAge}, stale-while-revalidate=300`,
+      'Access-Control-Allow-Origin': '*',
+      'Vary': 'Origin',
+      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, X-User-Id',
+      'Access-Control-Allow-Credentials': 'false'
+    }
     return new Response(JSON.stringify(body), { status: 200, headers })
   } catch (e) {
     // On error, return safe JSON with CORS when possible
