@@ -17,7 +17,7 @@ export function registerCollections(app: Hono<any>) {
       const ownerId = await resolvePublicOwnerUser(c)
       // mirror admin collection logic but scoped to public owner or visibility
       let query: any = supabase.from('collections').select(selectCols, { count: 'exact' }).order('order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
-      if (ownerId) query = query.eq('user_id', ownerId)
+      if (ownerId) query = query.or(`user_id.eq.${ownerId},visibility.eq.public`)
       else query = query.eq('visibility', 'public')
       const { data, error, count } = await query.range(offset, offset + per_page - 1)
       if (error) throw error
@@ -38,8 +38,9 @@ export function registerCollections(app: Hono<any>) {
       let products: any[] = []
       if (productIds.length > 0) {
         const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
-        let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('published', true)
-        if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
+        let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds)
+        if (ownerId) prodQuery = prodQuery.or(`user_id.eq.${ownerId},visibility.eq.public`)
+        else prodQuery = prodQuery.eq('visibility', 'public')
         const { data: prods = [] } = await prodQuery
         products = prods || []
       }

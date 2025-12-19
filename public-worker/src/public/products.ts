@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { getSupabase } from '../supabase'
 import { computeCorsHeaders } from '../middleware'
-import { responsiveImageForUsage } from '../../../shared/lib/image-usecases'
+import { responsiveImageForUsage, getPublicImageUrl } from '../../../shared/lib/image-usecases'
 import resolvePublicOwnerUser from '../helpers/getPublicOwnerUser'
 
 export function registerProducts(app: Hono<any>) {
@@ -15,8 +15,9 @@ export function registerProducts(app: Hono<any>) {
       const supabase = getSupabase(c.env)
       const selectCols = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
       const ownerId = await resolvePublicOwnerUser(c)
-      let query = supabase.from('products').select(selectCols, { count: 'exact' }).eq('published', true)
-      if (ownerId) query = query.eq('user_id', ownerId)
+      let query = supabase.from('products').select(selectCols, { count: 'exact' })
+      if (ownerId) query = query.or(`user_id.eq.${ownerId},visibility.eq.public`)
+      else query = query.eq('visibility', 'public')
       const { data, error, count } = await query.range(offset, offset + per_page - 1)
       if (error) throw error
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
@@ -25,7 +26,7 @@ export function registerProducts(app: Hono<any>) {
       // Map images to public URLs / srcset using shared helpers
       const mapped = (data || []).map((it: any) => {
         const imgs = Array.isArray(it.images) ? it.images : []
-        const images_public = imgs.map((k: any) => responsiveImageForUsage(k, 'list', domainOverride))
+        const images_public = imgs.map((img: any) => getPublicImageUrl(img.key || img, domainOverride))
         return Object.assign({}, it, { images_public })
       })
       return new Response(JSON.stringify({ data: mapped, meta: { page, per_page, total } }), { status: 200, headers })
@@ -43,8 +44,9 @@ export function registerProducts(app: Hono<any>) {
       const supabase = getSupabase(c.env)
       const selectCols = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
       const ownerId = await resolvePublicOwnerUser(c)
-      let prodQuery = supabase.from('products').select(selectCols).or(`id.eq.${id},slug.eq.${id}`).eq('published', true)
-      if (ownerId) prodQuery = prodQuery.eq('user_id', ownerId)
+      let prodQuery = supabase.from('products').select(selectCols).or(`id.eq.${id},slug.eq.${id}`)
+      if (ownerId) prodQuery = prodQuery.or(`user_id.eq.${ownerId},visibility.eq.public`)
+      else prodQuery = prodQuery.eq('visibility', 'public')
       const { data, error } = await prodQuery.limit(1).maybeSingle()
       if (error) throw error
       if (!data) {
@@ -53,7 +55,7 @@ export function registerProducts(app: Hono<any>) {
       }
       const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
       const imgs = Array.isArray((data as any).images) ? (data as any).images : []
-      const images_public = imgs.map((img: any) => ({ id: img.id || null, productId: img.product_id || null, url: responsiveImageForUsage(img.key || img, 'detail', domainOverride), key: img.key ?? null, width: img.width ?? null, height: img.height ?? null, role: img.role ?? null }))
+      const images_public = imgs.map((img: any) => ({ id: img.id || null, productId: img.product_id || null, url: getPublicImageUrl(img.key || img, domainOverride), key: img.key ?? null, width: img.width ?? null, height: img.height ?? null, role: img.role ?? null }))
       const out = Object.assign({}, data, { images_public, short_description: (data as any).short_description || null })
       return new Response(JSON.stringify({ data: out }), { status: 200, headers })
     } catch (e: any) {
