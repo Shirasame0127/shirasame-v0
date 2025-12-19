@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { getSupabase } from '../supabase'
 import { computeCorsHeaders } from '../middleware'
+import { responsiveImageForUsage } from '../../shared/lib/image-usecases'
 
 export function registerProducts(app: Hono<any>) {
   app.get('/api/public/products', async (c) => {
@@ -16,7 +17,14 @@ export function registerProducts(app: Hono<any>) {
       if (error) throw error
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       const total = typeof count === 'number' ? count : (data ? data.length : 0)
-      return new Response(JSON.stringify({ data: data || [], meta: { page, per_page, total } }), { status: 200, headers })
+      const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
+      // Map images to public URLs / srcset using shared helpers
+      const mapped = (data || []).map((it: any) => {
+        const imgs = Array.isArray(it.images) ? it.images : []
+        const images_public = imgs.map((k: any) => responsiveImageForUsage(k, 'list', domainOverride))
+        return Object.assign({}, it, { images_public })
+      })
+      return new Response(JSON.stringify({ data: mapped, meta: { page, per_page, total } }), { status: 200, headers })
     } catch (e: any) {
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ code: 'server_error', message: '商品一覧取得に失敗しました', details: String(e) }), { status: 500, headers })
@@ -34,8 +42,11 @@ export function registerProducts(app: Hono<any>) {
         const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
         return new Response(JSON.stringify({ code: 'not_found', message: '商品が見つかりません' }), { status: 404, headers })
       }
-      const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-      return new Response(JSON.stringify({ data }), { status: 200, headers })
+      const domainOverride = (c.env as any).R2_PUBLIC_URL || (c.env as any).IMAGES_DOMAIN || null
+      const imgs = Array.isArray((data as any).images) ? (data as any).images : []
+      const images_public = imgs.map((k: any) => responsiveImageForUsage(k, 'detail', domainOverride))
+      const out = Object.assign({}, data, { images_public })
+      return new Response(JSON.stringify({ data: out }), { status: 200, headers })
     } catch (e: any) {
       const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ code: 'server_error', message: '商品取得に失敗しました', details: String(e) }), { status: 500, headers })
