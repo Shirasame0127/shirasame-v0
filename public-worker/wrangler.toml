@@ -64,7 +64,7 @@ WORKER_PUBLIC_HOST = "https://public-worker.shirasame-official.workers.dev"
 SUPABASE_URL = "https://zikwelnhcpnnpurlomrf.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppa3dlbG5oY3BubnB1cmxvbXJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MjU3MjksImV4cCI6MjA3OTMwMTcyOX0.jpXt88FpfYpfni8eHAh2zAXl22biBruWHA-MPnu4F1A"
 # 公開サイトのオーナー（単一サイト運用前提）。RLSで不要なら空でも可
-PUBLIC_OWNER_USER_ID = ""
+PUBLIC_OWNER_USER_ID = "7b9743e9-fb19-4fb7-9512-c6c24e1d5ef4"
 # R2 公開URLとバケット名（basePath導出の補助）
 R2_PUBLIC_URL = "https://images.shirasame.com"
 # Prefer proxied images domain for runtime URL generation when available
@@ -91,7 +91,7 @@ PUBLIC_ALLOWED_ORIGINS = "https://www.shirasame.com"
 INTERNAL_API_BASE = ""
 SUPABASE_URL = "https://zikwelnhcpnnpurlomrf.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppa3dlbG5oY3BubnB1cmxvbXJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM3MjU3MjksImV4cCI6MjA3OTMwMTcyOX0.jpXt88FpfYpfni8eHAh2zAXl22biBruWHA-MPnu4F1A"
-PUBLIC_OWNER_USER_ID = ""
+PUBLIC_OWNER_USER_ID = "7b9743e9-fb19-4fb7-9512-c6c24e1d5ef4"
 R2_PUBLIC_URL = "https://images.shirasame.com"
 R2_BUCKET = "images"
 PUBLIC_PROFILE_EMAIL = "shirasame.official@gmail.com"

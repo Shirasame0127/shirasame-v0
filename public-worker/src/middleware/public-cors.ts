@@ -63,6 +63,9 @@ export function registerPublicCors(app: any) {
         for (const k of Object.keys(cors)) {
           try { merged.set(k, (cors as any)[k]) } catch {}
         }
+        // Ensure API responses are not cached by intermediate CDN (helps
+        // replace stale cached responses that lack CORS headers).
+        try { merged.set('Cache-Control', 'no-store') } catch {}
 
         // Create a new Response preserving status and body
         const body = res && typeof res.arrayBuffer === 'function' ? await res.arrayBuffer() : null
