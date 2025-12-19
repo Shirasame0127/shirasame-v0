@@ -96,7 +96,16 @@ export default function AdminSettingsPage() {
   function sanitizeServerUserForCache(srv: any) {
     if (!srv) return {}
     // Only accept canonical key-based fields from server. Do not read legacy full-URL fields.
-    const headerKeysRaw = srv.header_image_keys || srv.headerImageKeys || []
+    let headerKeysRaw = srv.header_image_keys || srv.headerImageKeys || []
+    // header_image_keys may be stored as JSON string; parse if needed
+    try {
+      if (typeof headerKeysRaw === 'string') {
+        const parsed = JSON.parse(headerKeysRaw)
+        if (Array.isArray(parsed)) headerKeysRaw = parsed
+      }
+    } catch (e) {
+      // leave as-is
+    }
     function extractKeyFromUrl(u: any) {
       if (!u || typeof u !== 'string') return null
       try {
@@ -132,6 +141,18 @@ export default function AdminSettingsPage() {
         null,
       avatarUrl: null,
       headerImageKeys: headerKeys,
+      // socialLinks may be stored as JSON string in DB; parse when possible
+      socialLinks: (() => {
+        const raw = srv.social_links || srv.socialLinks || srv.socialLinksRaw || null
+        if (!raw) return []
+        try {
+          if (typeof raw === 'string') return JSON.parse(raw)
+          if (Array.isArray(raw)) return raw
+        } catch (e) {
+          return []
+        }
+        return []
+      })(),
       amazonAccessKey: srv.access_key || srv.amazon_access_key || srv.amazonAccessKey || null,
       amazonSecretKey: srv.secret_key || srv.amazon_secret_key || srv.amazonSecretKey || null,
       amazonAssociateId: srv.associate_id || srv.amazon_associate_id || srv.amazonAssociateId || null,
@@ -152,7 +173,14 @@ export default function AdminSettingsPage() {
           setEmail(serverUser.email || "")
           setBackgroundType(serverUser.backgroundType || "color")
           setBackgroundColor(serverUser.backgroundValue || "#ffffff")
-          setSocialLinks(serverUser.socialLinks || [])
+          // socialLinks may be stored as JSON string; normalize to array
+          try {
+            if (typeof serverUser.socialLinks === 'string') setSocialLinks(JSON.parse(serverUser.socialLinks) || [])
+            else if (typeof serverUser.social_links === 'string') setSocialLinks(JSON.parse(serverUser.social_links) || [])
+            else setSocialLinks(serverUser.socialLinks || serverUser.social_links || [])
+          } catch (e) {
+            setSocialLinks([])
+          }
           setAmazonAccessKey(serverUser.amazonAccessKey || "")
           setAmazonSecretKey(serverUser.amazonSecretKey || "")
           setAmazonAssociateId(serverUser.amazonAssociateId || "")
@@ -169,8 +197,20 @@ export default function AdminSettingsPage() {
             }
           }
 
-          const headerKeysFromServer = serverUser.headerImageKeys || serverUser.header_image_keys || []
-          setHeaderImageKeys(headerKeysFromServer)
+          // headerImageKeys may be JSON string or array — normalize
+          try {
+            const rawHeader = serverUser.headerImageKeys || serverUser.header_image_keys || []
+            if (typeof rawHeader === 'string') {
+              const parsed = JSON.parse(rawHeader)
+              setHeaderImageKeys(Array.isArray(parsed) ? parsed : [])
+            } else if (Array.isArray(rawHeader)) {
+              setHeaderImageKeys(rawHeader)
+            } else {
+              setHeaderImageKeys([])
+            }
+          } catch (e) {
+            setHeaderImageKeys([])
+          }
 
           // Prefer profile image key over legacy full URL
           const profileKey = serverUser.profile_image_key || serverUser.profileImageKey || null
