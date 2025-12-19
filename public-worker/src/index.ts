@@ -1259,6 +1259,16 @@ app.get('/site-settings', async (c) => {
           if (r && typeof r.key === 'string') out[r.key] = r.value
         } catch {}
       }
+      // If no settings found, provide safe fallbacks from environment to avoid empty {}
+      try {
+        if (Object.keys(out).length === 0) {
+          const envAny: any = c.env
+          if (envAny.PUBLIC_PROFILE_EMAIL) out['owner_email'] = envAny.PUBLIC_PROFILE_EMAIL
+          if (envAny.IMAGES_DOMAIN) out['images_domain'] = envAny.IMAGES_DOMAIN
+          if (envAny.WORKER_PUBLIC_HOST) out['public_host'] = envAny.WORKER_PUBLIC_HOST
+          if (Object.keys(out).length === 0) out['notice'] = 'no_site_settings'
+        }
+      } catch {}
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ data: out }), { headers: merged })
     } catch (e: any) {
@@ -1301,6 +1311,16 @@ app.get('/api/site-settings', async (c) => {
         if (r && typeof r.key === 'string') out[r.key] = r.value
       } catch {}
     }
+    // Provide safe fallbacks from environment when no rows found
+    try {
+      if (Object.keys(out).length === 0) {
+        const envAny: any = c.env
+        if (envAny.PUBLIC_PROFILE_EMAIL) out['owner_email'] = envAny.PUBLIC_PROFILE_EMAIL
+        if (envAny.IMAGES_DOMAIN) out['images_domain'] = envAny.IMAGES_DOMAIN
+        if (envAny.WORKER_PUBLIC_HOST) out['public_host'] = envAny.WORKER_PUBLIC_HOST
+        if (Object.keys(out).length === 0) out['notice'] = 'no_site_settings'
+      }
+    } catch {}
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
     return new Response(JSON.stringify({ data: out }), { headers: merged })
