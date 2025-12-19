@@ -1235,22 +1235,17 @@ app.get('/site-settings', async (c) => {
       if (upstreamUrl) {
         const res = await fetch(upstreamUrl, { method: 'GET', headers: makeUpstreamHeaders(c) })
         if (!res.ok) {
-          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-          return new Response(JSON.stringify({ data: {} }), { headers: merged })
+          return { data: {} }
         }
         const json = await res.json().catch(() => ({ data: {} }))
-        {
-          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-          return new Response(JSON.stringify(json), { headers: merged })
-        }
+        return json
       }
 
       // Otherwise, try to read from Supabase (anon). Return key/value map like admin API.
       const supabase = getSupabase(c.env)
       const { data, error } = await supabase.from('site_settings').select('key, value').limit(100)
       if (error) {
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-        return new Response(JSON.stringify({ data: {} }), { headers: merged })
+        return { data: {} }
       }
       const rows = Array.isArray(data) ? data : []
       const out: Record<string, any> = {}
@@ -1269,11 +1264,9 @@ app.get('/site-settings', async (c) => {
           if (Object.keys(out).length === 0) out['notice'] = 'no_site_settings'
         }
       } catch {}
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-      return new Response(JSON.stringify({ data: out }), { headers: merged })
+      return { data: out }
     } catch (e: any) {
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-      return new Response(JSON.stringify({ data: {} }), { headers: merged })
+      return { data: {} }
     }
   })
 })
