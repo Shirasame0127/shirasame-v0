@@ -5,6 +5,8 @@ import { profileHandler } from './profile'
 import { productsHandler } from './products'
 import { collectionsHandler } from './collections'
 import { recipesHandler } from './recipes'
+import { tagGroupsHandler } from './tag-groups'
+import { tagsHandler } from './tags'
 
 export function registerPublicRoutes(app: any) {
   // All routes under /api/public/* per spec
@@ -13,6 +15,8 @@ export function registerPublicRoutes(app: any) {
   app.get('/api/public/products', productsHandler)
   app.get('/api/public/collections', collectionsHandler)
   app.get('/api/public/recipes', recipesHandler)
+  app.get('/api/public/tag-groups', tagGroupsHandler)
+  app.get('/api/public/tags', tagsHandler)
 
   // Single-resource detail routes (by id)
   app.get('/api/public/products/*', async (c: any) => {
