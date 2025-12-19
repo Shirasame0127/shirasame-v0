@@ -86,6 +86,41 @@
 - 返却する `images[]` は公開アクセス可能な URL を返す。
 - 必要に応じてサムネイルや変換用のクエリ（`?w=400&fit=cover`）をサポート。
 
+### 完成版: 環境変数と公開運用について（必須）
+- `IMAGES_DOMAIN`: https://images.shirasame.com
+- `IMAGES_TRANSFORM_BASE`: https://shirasame-box.pages.dev/cdn-cgi/image
+- `R2_PUBLIC_URL` / `NEXT_PUBLIC_R2_PUBLIC_URL`: https://images.shirasame.com
+- `NEXT_PUBLIC_API_BASE_URL`: https://public-worker.shirasame-official.workers.dev
+- `NEXT_PUBLIC_SITE_URL`: https://shirasame.com
+- `PUBLIC_OWNER_EMAIL`: shirasame.official@gmail.com  ← **必須**（public-worker と public-site 両方で設定）
+
+注意: `PUBLIC_OWNER_EMAIL` が未設定の場合、public-worker は起動・応答を失敗させる設計です（500 を返します）。指定されたメールに該当するユーザーが DB に無い場合は 404 を返します。メール値はレスポンスやログに平文で出力しません（必要時はマスクしてログ出力）。
+
+## 画像配信（完成版の挙動）
+- フロントは `shared/lib/image-usecases.ts` の `getPublicImageUrl` / `responsiveImageForUsage` を必ず使って `src`/`srcset` を生成します。
+- public-worker の `/images/:key` は次のルールに従います:
+  1. クライアントからのリクエストで `w,h,fit,format` 等の変換パラメータがあれば、`buildResizedImageUrl` を使って Cloudflare 形式の変換 URL（`/cdn-cgi/image/...`）を生成し、`302` リダイレクトで配信先へ誘導します。
+  2. 変換パラメータが無ければ、`getPublicImageUrl` で生成した公開 URL へ `302` リダイレクトします。
+  3. すべてのレスポンスに `Cache-Control` を付与し、Cloudflare 側でキャッシュさせる（例: `public, max-age=86400, immutable`）。
+
+## サービス構成（推奨実装）
+- public-site (Next): ブラウザで `responsiveImageForUsage` を使って `srcset` を生成し、画像 URL は `NEXT_PUBLIC_IMAGES_DOMAIN` / `NEXT_PUBLIC_R2_PUBLIC_URL` を利用する。
+- public-worker: `getPublicImageUrl` と `buildResizedImageUrl` を参照して `images` エンドポイントを実装する。
+- Cloudflare Images または Pages + `IMAGES_TRANSFORM_BASE` を使って変換された画像を配信する。
+
+## 公開 API のオペレーションルール（完成版）
+- 認証: 公開 API は「完全に認証不要」。Authorization/Cookieは一切利用しない。
+- 公開対象制限: `PUBLIC_OWNER_EMAIL` に紐づくユーザーのデータのみ返す（owner_user_id によるフィルタ）。
+- 失敗条件: `PUBLIC_OWNER_EMAIL` 未設定 → 500。該当ユーザーなし → 404。
+- レスポンス: 機密情報（内部ID、仕入れ情報、内部メモ等）は除外する。
+
+## テストとローカル実行
+- `createApp(mockEnv)` パターンを使い、`PUBLIC_OWNER_EMAIL` を差し替えて owner 解決の動作をテストしてください。モックSupabaseクライアントで別ユーザーのデータが返らないことを確認するユニットテストを必須とします。
+
+---
+ファイル: `public-worker/公開参照API仕様.md` （完成版）
+
+
 ## 画像配信フローの統一（キー取得 → 変換 → エッジキャッシュ）
 1. ストレージには画像の「キー」のみを保存（key-only）。DB は URL ではなくキーを保持する。
 2. 表示側は `getPublicImageUrl(key)` で公開 URL を生成する。開発は相対 `/images/<key>`、本番は `IMAGES_DOMAIN` を使った絶対 URL を想定する。
