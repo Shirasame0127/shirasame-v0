@@ -70,44 +70,6 @@ app.use('*', async (c, next) => {
   return await next()
 })
 
-// Global CORS guard: respond to OPTIONS preflight and ensure every
-// Response contains Access-Control-Allow-* headers so browsers are not
-// blocked when a handler returns directly or an error occurs.
-app.use('*', async (c, next) => {
-  try {
-    const method = ((c.req.method || '') as string).toUpperCase()
-    // Handle preflight early
-    if (method === 'OPTIONS') {
-      const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-      return new Response(null, { status: 204, headers })
-    }
-
-    const res = await next()
-
-    // If downstream returned a Response, ensure CORS headers are present.
-    if (res && typeof (res as Response).headers === 'object') {
-      try {
-        const originHeaders = computeCorsHeaders(c.req.header('Origin') || null, c.env)
-        const newHeaders = new Headers((res as Response).headers)
-        for (const k of Object.keys(originHeaders)) {
-          if (!newHeaders.has(k)) newHeaders.set(k, originHeaders[k])
-        }
-        // Preserve status and body (clone to avoid consuming original)
-        const clone = (res as Response).clone()
-        const buf = await clone.arrayBuffer().catch(() => null)
-        return new Response(buf, { status: (res as Response).status || 200, headers: newHeaders })
-      } catch (e) {
-        const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers })
-      }
-    }
-    return res
-  } catch (e) {
-    const headers = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
-    return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers })
-  }
-})
-
 // (ハンドラ自動ラップは危険な互換性リスクがあるため差し替え済み)
 
 // Short-circuit GET /api/* requests to accept user_id from header/query.

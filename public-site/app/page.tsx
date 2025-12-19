@@ -23,13 +23,8 @@ import InitialLoading from '@/components/initial-loading'
 import { ProfileHeader } from "@/components/profile-header"
 import type { Product, Collection, User, AmazonSaleSchedule } from "@shared/types"
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "")
-const api = (p: string) => {
-  if (!p.startsWith('/')) p = '/' + p
-  // If caller already targets /api, pass through. Otherwise route to public API namespace.
-  if (p.startsWith('/api/')) return `${API_BASE}${p}`
-  return `${API_BASE}/api/public${p}`
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || ""
+const api = (p: string) => `${API_BASE}${p}`
 
 // Types are now provided by @shared/types
 
