@@ -6,5 +6,3 @@ export function getPublicOwnerUserId(env: any): string | null {
     return null
   }
 }
-
-export function getPublicOwnerUserId(env: any): string | null {
