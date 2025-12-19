@@ -10,9 +10,8 @@ type Collection = { id: string; title: string; visibility?: string }
 
 type Recipe = { id: string; title: string }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || ""
+import apiFetch from "@/lib/api-client"
 const ADMIN_BASE = process.env.NEXT_PUBLIC_ADMIN_URL || 'https://admin.shirasame.com'
-const api = (p: string) => `${API_BASE}${p}`
 
 interface PublicNavProps {
   logoUrl?: string
@@ -30,8 +29,8 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
     ;(async () => {
       try {
         const [colRes, recRes] = await Promise.all([
-          fetch(api('/collections')),
-          fetch(api('/recipes')),
+          apiFetch('/collections'),
+          apiFetch('/recipes'),
         ])
         const colJson = await colRes.json().catch(() => ({ data: [] }))
         const recJson = await recRes.json().catch(() => ({ data: [] }))
