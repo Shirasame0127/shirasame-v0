@@ -8,6 +8,7 @@ import { openapi } from './openapi'
 import { isAdmin, makeErrorResponse } from './helpers'
 import { getPublicImageUrl, buildResizedImageUrl, responsiveImageForUsage } from '../../shared/lib/image-usecases'
 import { registerPublicRoutes } from './routes/public/index'
+import { registerPublicCors } from './middleware/public-cors'
 
 export type Env = {
   PUBLIC_ALLOWED_ORIGINS?: string
@@ -37,6 +38,8 @@ export type Env = {
 const app = new Hono<{ Bindings: Env }>()
 
 // Register public (read-only) API routes implemented in separate files
+// Attach a public-only CORS middleware first so /api/public/* is handled
+registerPublicCors(app)
 registerPublicRoutes(app)
 
 // Early docs/openapi bypass: some proxies rewrite or prefix paths so the later
@@ -82,6 +85,9 @@ app.use('/api/*', async (c, next) => {
     if (!crudMethods.includes(method)) return await next()
     try {
       const reqPath = (new URL(c.req.url)).pathname || ''
+      // Skip public routes: public API must be unauthenticated and handled
+      // by the public CORS middleware only.
+      if (reqPath.startsWith('/api/public')) return await next()
       // Allow unauthenticated access to auth endpoints and docs/openapi JSON
       // Accept variants like trailing slash or sub-paths to be robust behind proxies
       if (reqPath.startsWith('/api/auth') || reqPath.startsWith('/api/docs') || reqPath.startsWith('/api/debug') || reqPath.includes('/api/openapi.json')) {
@@ -368,6 +374,11 @@ function computeCorsHeaders(origin: string | null, env: any) {
 }
 
 app.use('*', async (c, next) => {
+  // Skip global middleware for public API: handled by public CORS middleware.
+  try {
+    const _reqPath = (new URL(c.req.url)).pathname || ''
+    if (_reqPath.startsWith('/api/public')) return await next()
+  } catch {}
   // Handle preflight immediately
   if (c.req.method === 'OPTIONS') {
     const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
