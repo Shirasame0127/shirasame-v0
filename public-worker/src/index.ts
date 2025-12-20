@@ -77,19 +77,18 @@ app.use('*', async (c, next) => {
 // Short-circuit GET /api/* requests to accept user_id from header/query.
 // For GET requests we will trust the provided `user_id` (query or X-User-Id)
 // and set it on the context so downstream handlers can filter by user.
-                    if (Array.isArray(rec) && rec.length > 0) {
-                    await tryAssignProfile(key)
-                    const base = { 'Content-Type': 'application/json; charset=utf-8' }
-                    const merged = Object.assign({}, completeCorsBase, base)
-                    return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
-                  }
+app.use('/api/*', async (c, next) => {
+  try {
+    const method = ((c.req.method || '') as string).toUpperCase()
+    const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
+    if (!crudMethods.includes(method)) return await next()
+
     try {
       const reqPath = (new URL(c.req.url)).pathname || ''
       // Skip public routes: public API must be unauthenticated and handled
       // by the public CORS middleware only.
       if (reqPath.startsWith('/api/public')) return await next()
       // Allow unauthenticated access to auth endpoints and docs/openapi JSON
-      // Accept variants like trailing slash or sub-paths to be robust behind proxies
       if (reqPath.startsWith('/api/auth') || reqPath.startsWith('/api/docs') || reqPath.startsWith('/api/debug') || reqPath.includes('/api/openapi.json')) {
         return await next()
       }
@@ -212,80 +211,63 @@ app.use('/api/admin/*', async (c, next) => {
     const method = ((c.req.method || '') as string).toUpperCase()
     const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
 
-    // For CRUD methods, prefer user_id via header or query, but FALLBACK to
-    // verified token (cookie/Authorization) when header/query is absent so
-    // browser sessions that rely on HttpOnly cookies still work.
-    if (crudMethods.includes(method)) {
+    if (!crudMethods.includes(method)) return await next()
+
+    // Prefer explicit user_id (query) or X-User-Id header; otherwise try token
+    const reqUrl = new URL(c.req.url)
+    const qUser = reqUrl.searchParams.get('user_id')
+    const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
+    let userId = (qUser && qUser.length > 0) ? qUser : (headerUser && headerUser.length > 0 ? headerUser : null)
+
+    // If no userId from query/header, try resolving from token (cookie/Authorization)
+    if (!userId) {
       try {
-        const reqUrl = new URL(c.req.url)
-        const qUser = reqUrl.searchParams.get('user_id')
-        const hUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString() || null
-        let userId = (qUser && qUser.length > 0) ? qUser : (hUser && hUser.length > 0 ? hUser : null)
+        const ctx = await resolveRequestUserContext(c)
+        if (ctx && ctx.trusted && ctx.userId) userId = ctx.userId
+      } catch {}
+    }
 
-        // If no header/query user id, try resolving from token (cookie or Authorization)
-        if (!userId) {
-          try {
-            const ctx = await resolveRequestUserContext(c)
-            if (ctx && ctx.trusted && ctx.userId) {
-              userId = ctx.userId
-            }
-          } catch {}
-        }
+    if (!userId) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      return new Response(JSON.stringify({ error: 'missing_user_id' }), { status: 400, headers: merged })
+    }
 
-        if (!userId) {
+    // If an X-User-Id header was provided, require that the token verifies and matches it
+    if (headerUser && headerUser.length > 0) {
+      try {
+        const ctx = await resolveRequestUserContext(c)
+        const verified = ctx && ctx.trusted && ctx.userId ? ctx.userId : null
+        if (!verified) {
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return new Response(JSON.stringify({ error: 'missing_user_id' }), { status: 400, headers: merged })
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
         }
-        try { c.set && c.set('userId', userId) } catch {}
+        if (verified !== headerUser) {
+          if (debug) try { console.log('admin-auth middleware: token user mismatch header=', headerUser, 'tokenUser=', verified) } catch {}
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
+        }
+        try { c.set && c.set('userId', verified) } catch {}
         return await next()
       } catch (e) {
-          // After retries, return error
-          const base = { 'Content-Type': 'application/json; charset=utf-8' }
-          const merged = Object.assign({}, completeCorsBase, base)
-          return new Response(JSON.stringify({ error: 'failed to persist image metadata after retries' }), { status: 500, headers: merged })
-    }
-          const base = { 'Content-Type': 'application/json; charset=utf-8' }
-          const merged = Object.assign({}, completeCorsBase, base)
-          return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
-    const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
-    // Extract token from Authorization or cookie
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, completeCorsBase, base)
-        return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
-    }
-    // If headerUser is present, require token and ensure match.
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, completeCorsBase, base)
-      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
         return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
       }
-      if (!verified) {
-        if (debug) try { console.log('admin-auth middleware: token verification failed') } catch {}
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
-      }
-      if (verified !== headerUser) {
-        if (debug) try { console.log('admin-auth middleware: token user mismatch header=', headerUser, 'tokenUser=', verified) } catch {}
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
-      }
-      // matched
-      try { c.set && c.set('userId', verified) } catch {}
-      return await next()
     }
 
     // No headerUser: allow cookie/token-only flows if token verifies
-    if (verified) {
-      try { c.set && c.set('userId', verified) } catch {}
-      return await next()
-    }
+    try {
+      const ctx = await resolveRequestUserContext(c)
+      if (ctx && ctx.trusted && ctx.userId) {
+        try { c.set && c.set('userId', ctx.userId) } catch {}
+        return await next()
+      }
+    } catch {}
 
-    // No headerUser and no valid token -> unauthorized
+    // Fallback: unauthorized
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
     const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
