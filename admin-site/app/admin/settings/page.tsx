@@ -10,7 +10,7 @@ import { ImageUpload } from "@/components/image-upload"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { db } from "@/lib/db/storage"
-import { getPublicImageUrl, buildResizedImageUrl, responsiveImageForUsage } from "@/lib/image-url"
+import { getPublicImageUrl, buildResizedImageUrl } from "@/lib/image-url"
 import type { SocialLink } from "@/lib/db/schema"
 import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2, ArrowLeft, ArrowRight, Star } from "lucide-react"
 import {
@@ -153,10 +153,11 @@ export default function AdminSettingsPage() {
       try {
         const res = await apiFetch('/api/site-settings')
         const json = await res.json().catch(() => null)
-        const serverUser = json?.data
+        // Support responses like { data: {...} } or { data: { data: {...} } }
+        let serverUser = json?.data ?? json
+        if (serverUser && typeof serverUser === 'object' && 'data' in serverUser) serverUser = (serverUser as any).data
         if (serverUser && mounted) {
-          // Use site-settings as baseline for site-level values
-          setUser((u) => ({ ...(u || {}), ...serverUser }))
+          setUser(serverUser)
           setDisplayName(serverUser.displayName || "")
           setBio(serverUser.bio || "")
           setEmail(serverUser.email || "")
@@ -201,44 +202,12 @@ export default function AdminSettingsPage() {
           }
           setHeaderImageKeys(headerKeysFromServer)
 
-          // profile image may be provided as key or full URL
-          if (serverUser.profileImage) setAvatarUploadedKey(extractKey(serverUser.profileImage))
-          else if (serverUser.profileImageKey || serverUser.profile_image_key) setAvatarUploadedKey(extractKey(serverUser.profileImageKey || serverUser.profile_image_key))
+          // profile image may be provided as key or full URL. If it's a key (no '/'), keep as-is.
+          if (serverUser.profileImage) setAvatarUploadedKey(extractKey(serverUser.profileImage) || serverUser.profileImage)
+          else if (serverUser.profileImageKey || serverUser.profile_image_key) setAvatarUploadedKey((serverUser.profileImageKey || serverUser.profile_image_key) as string)
           try {
             await db.siteSettings.refresh()
             if (mounted) setSiteSettingsTick((t) => t + 1)
-          } catch (e) {}
-
-          // Additionally fetch the authenticated profile (server-side) so
-          // profileImage/profileImageKey and canonical user fields are available
-          try {
-            const profRes = await apiFetch('/api/profile')
-            if (profRes && profRes.ok) {
-              const profJson = await profRes.json().catch(() => null)
-              const prof = profJson?.data
-              if (prof) {
-                // merge profile fields into user state
-                setUser((u) => ({ ...(u || {}), ...prof }))
-                // prefer profile-backed values for display fields
-                setDisplayName(prof.displayName || prof.name || prof.display_name || (serverUser.displayName || ""))
-                setBio(prof.bio || serverUser.bio || "")
-                setEmail(prof.email || serverUser.email || "")
-                // normalize avatar key
-                if (prof.profile_image_key || prof.profileImageKey || prof.profile_image || prof.profileImage) {
-                  const pk = prof.profileImageKey || prof.profile_image_key || prof.profileImage || prof.profile_image
-                  if (pk) setAvatarUploadedKey(extractKey(pk))
-                }
-                // ensure header image keys from profile are respected if present
-                try {
-                  const ph = prof.header_image_keys || prof.headerImageKeys || prof.header_images || prof.headerImages
-                  if (ph) {
-                    if (typeof ph === 'string') {
-                      try { const p = JSON.parse(ph); setHeaderImageKeys(Array.isArray(p) ? p.map(extractKey).filter(Boolean) : [extractKey(ph)].filter(Boolean)) } catch { setHeaderImageKeys([extractKey(ph)].filter(Boolean)) }
-                    } else if (Array.isArray(ph)) setHeaderImageKeys(ph.map(extractKey).filter(Boolean))
-                  }
-                } catch (e) {}
-              }
-            }
           } catch (e) {}
           return
         }
@@ -840,28 +809,10 @@ export default function AdminSettingsPage() {
       return getPublicImageUrl(candidate)
     })
     .filter(Boolean) as string[]
-  // Build responsive profile image (match admin-nav behavior)
-  let profileImageUrl = ''
-  let profileImageResponsive: { src: string | null; srcSet: string | null; sizes?: string } | null = null
-  try {
-    const candidate = (avatarUploadedKey ? (db.images.getUpload(avatarUploadedKey) || avatarUploadedKey) : (user?.profileImageKey ? db.images.getUpload(user.profileImageKey) : user?.avatarUrl || user?.profileImage)) || null
-    if (candidate) {
-      const baseInput = (typeof candidate === 'string' && (candidate.startsWith('http') || candidate.startsWith('/'))) ? candidate : String(candidate)
-      const publicBase = getPublicImageUrl(baseInput) || (baseInput && baseInput.length ? baseInput : null)
-      if (publicBase) {
-        try {
-          profileImageResponsive = responsiveImageForUsage(publicBase, 'avatar')
-          profileImageUrl = profileImageResponsive?.src || publicBase
-        } catch (e) {
-          profileImageUrl = publicBase
-          profileImageResponsive = { src: publicBase, srcSet: null }
-        }
-      }
-    }
-  } catch (e) {
-    profileImageUrl = ''
-    profileImageResponsive = null
-  }
+  const profileImageUrl = getPublicImageUrl(
+    // prefer client-side uploaded KEY when available
+    (avatarUploadedKey ? (db.images.getUpload(avatarUploadedKey) || avatarUploadedKey) : (user?.profileImageKey ? (db.images.getUpload(user.profileImageKey) || user.profileImageKey) : user?.avatarUrl || user?.profileImage)) || null,
+  )
 
   // Normalize loading_animation value which may be stored as string or object
   const loadingAnimationRaw = db.siteSettings.getValue('loading_animation')
@@ -899,7 +850,7 @@ export default function AdminSettingsPage() {
             <div className="space-y-2">
               <Label>プロフィール画像</Label>
               <div className="max-w-[200px]">
-                <ImageUpload value={(user?.avatarUrl || user?.profileImage || profileImageUrl) || ""} onChange={setAvatarFile} aspectRatioType="profile" onUploadComplete={(key) => setAvatarUploadedKey(key)} />
+                <ImageUpload value={profileImageUrl || ""} onChange={setAvatarFile} aspectRatioType="profile" onUploadComplete={(key) => setAvatarUploadedKey(key)} />
               </div>
             </div>
 
