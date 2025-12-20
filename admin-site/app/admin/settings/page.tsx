@@ -161,14 +161,48 @@ export default function AdminSettingsPage() {
           setEmail(serverUser.email || "")
           setBackgroundType(serverUser.backgroundType || "color")
           setBackgroundColor(serverUser.backgroundValue || "#ffffff")
-          setSocialLinks(serverUser.socialLinks || [])
+          // socialLinks may be stored as a JSON string; parse when necessary
+          try {
+            const sl = serverUser.socialLinks
+            if (typeof sl === 'string') {
+              setSocialLinks(JSON.parse(sl))
+            } else {
+              setSocialLinks(sl || [])
+            }
+          } catch (e) {
+            setSocialLinks([])
+          }
           setAmazonAccessKey(serverUser.amazonAccessKey || "")
           setAmazonSecretKey(serverUser.amazonSecretKey || "")
           setAmazonAssociateId(serverUser.amazonAssociateId || "")
-          const headerKeysFromServer = serverUser.headerImageKeys || (Array.isArray(serverUser.headerImages) ? serverUser.headerImages.map(extractKey).filter(Boolean) : serverUser.headerImageKey ? [serverUser.headerImageKey] : serverUser.headerImage ? [extractKey(serverUser.headerImage)].filter(Boolean) : [])
+          // headerImageKeys may be a JSON string or array; normalize to string[] of keys
+          let headerKeysFromServer: string[] = []
+          try {
+            const hk = serverUser.headerImageKeys || serverUser.header_image_keys || serverUser.headerImageKey || serverUser.header_image_key || serverUser.headerImages || serverUser.header_images || serverUser.headerImage || serverUser.header_image
+            if (typeof hk === 'string') {
+              try {
+                const parsed = JSON.parse(hk)
+                if (Array.isArray(parsed)) headerKeysFromServer = parsed.map(extractKey).filter(Boolean)
+                else headerKeysFromServer = [String(extractKey(hk))].filter(Boolean)
+              } catch {
+                // treat as single key string
+                const k = extractKey(hk)
+                if (k) headerKeysFromServer = [k]
+              }
+            } else if (Array.isArray(hk)) {
+              headerKeysFromServer = hk.map(extractKey).filter(Boolean)
+            } else if (hk) {
+              const k = extractKey(hk)
+              if (k) headerKeysFromServer = [k]
+            }
+          } catch (e) {
+            headerKeysFromServer = []
+          }
           setHeaderImageKeys(headerKeysFromServer)
-          // If server provides direct profile image URL, extract key when possible and store key-only
+
+          // profile image may be provided as key or full URL
           if (serverUser.profileImage) setAvatarUploadedKey(extractKey(serverUser.profileImage))
+          else if (serverUser.profileImageKey || serverUser.profile_image_key) setAvatarUploadedKey(extractKey(serverUser.profileImageKey || serverUser.profile_image_key))
           try {
             await db.siteSettings.refresh()
             if (mounted) setSiteSettingsTick((t) => t + 1)
@@ -185,12 +219,38 @@ export default function AdminSettingsPage() {
           setEmail(currentUser.email || "")
           setBackgroundType(currentUser.backgroundType || "color")
           setBackgroundColor(currentUser.backgroundValue || "#ffffff")
-          setSocialLinks(currentUser.socialLinks || [])
+          // normalize socialLinks stored as JSON string
+          try {
+            const csl = currentUser.socialLinks || currentUser.social_links
+            if (typeof csl === 'string') setSocialLinks(JSON.parse(csl))
+            else setSocialLinks(csl || [])
+          } catch (e) {
+            setSocialLinks([])
+          }
           setAmazonAccessKey(currentUser.amazonAccessKey || "")
           setAmazonSecretKey(currentUser.amazonSecretKey || "")
           setAmazonAssociateId(currentUser.amazonAssociateId || "")
-          setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
+          // normalize headerImageKeys for cached user
+          try {
+            const chk = currentUser.headerImageKeys || currentUser.header_image_keys || currentUser.headerImageKey || currentUser.header_image_key || currentUser.headerImages || currentUser.header_images
+            if (typeof chk === 'string') {
+              try {
+                const parsed = JSON.parse(chk)
+                setHeaderImageKeys(Array.isArray(parsed) ? parsed.map(extractKey).filter(Boolean) : [extractKey(chk)].filter(Boolean))
+              } catch {
+                setHeaderImageKeys(chk ? [extractKey(chk)].filter(Boolean) : [])
+              }
+            } else if (Array.isArray(chk)) {
+              setHeaderImageKeys(chk.map(extractKey).filter(Boolean))
+            } else {
+              setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
+            }
+          } catch (e) {
+            setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
+          }
+
           if (currentUser.profileImage) setAvatarUploadedKey(extractKey(currentUser.profileImage))
+          else if (currentUser.profileImageKey || currentUser.profile_image_key) setAvatarUploadedKey(extractKey(currentUser.profileImageKey || currentUser.profile_image_key))
         }
       } catch (e) {
         const currentUser = db.user.get()
@@ -201,13 +261,28 @@ export default function AdminSettingsPage() {
           setEmail(currentUser.email || "")
           setBackgroundType(currentUser.backgroundType || "color")
           setBackgroundColor(currentUser.backgroundValue || "#ffffff")
-          setSocialLinks(currentUser.socialLinks || [])
+            try {
+              const csl = currentUser.socialLinks || currentUser.social_links
+              if (typeof csl === 'string') setSocialLinks(JSON.parse(csl))
+              else setSocialLinks(csl || [])
+            } catch (e) {
+              setSocialLinks([])
+            }
           setAmazonAccessKey(currentUser.amazonAccessKey || "")
           setAmazonSecretKey(currentUser.amazonSecretKey || "")
           setAmazonAssociateId(currentUser.amazonAssociateId || "")
-          setHeaderImageKeys(
-            currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []),
-          )
+          try {
+            const chk = currentUser.headerImageKeys || currentUser.header_image_keys || currentUser.headerImageKey || currentUser.header_image_key
+            if (typeof chk === 'string') {
+              try { const parsed = JSON.parse(chk); setHeaderImageKeys(Array.isArray(parsed) ? parsed.map(extractKey).filter(Boolean) : [extractKey(chk)].filter(Boolean)) } catch { setHeaderImageKeys(chk ? [extractKey(chk)].filter(Boolean) : []) }
+            } else if (Array.isArray(chk)) {
+              setHeaderImageKeys(chk.map(extractKey).filter(Boolean))
+            } else {
+              setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
+            }
+          } catch (e) {
+            setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
+          }
         }
       }
     }
