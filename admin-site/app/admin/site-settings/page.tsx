@@ -830,7 +830,7 @@ export default function AdminSettingsPage() {
                   await apiFetch('/api/site-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'loading_animation', value: { key: null } }) })
                   try { db.siteSettings.refresh().catch(() => {}) } catch (e) {}
                   toast({ title: 'クリアしました' })
-                } catch (e) {
+                } catch (e) {　
                   toast({ variant: 'destructive', title: 'クリアに失敗しました' })
                 }
               }}>クリア</Button>

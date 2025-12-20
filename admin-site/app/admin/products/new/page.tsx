@@ -284,15 +284,18 @@ export default function ProductNewPage() {
     // Ensure we have canonical keys for main image and attachments.
     let finalMainKey = mainImageKey
     if (!finalMainKey && imageFile) {
-      // upload via local cache helper which will call /api/images/complete and return a key
-      const base64 = await fileToBase64(imageFile)
-      const genKey = `prod-${generatedProductId}-main-${Date.now()}`
       try {
-        const returned = await db.images.saveUpload(genKey, base64)
-        finalMainKey = returned || genKey
-        setMainImageKey(finalMainKey)
+        const fd = new FormData()
+        fd.append('file', imageFile)
+        const res = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
+        const j = await res.json().catch(() => ({}))
+        const returnedKey = j?.result?.key || j?.key || null
+        if (returnedKey) {
+          finalMainKey = returnedKey
+          setMainImageKey(finalMainKey)
+        }
       } catch (e) {
-        console.error('main image save failed', e)
+        console.error('main image upload failed', e)
       }
     }
     if (!finalMainKey) {
@@ -308,7 +311,15 @@ export default function ProductNewPage() {
           id: `img-attachment-${Date.now()}-${idx}`,
             productId: generatedProductId,
             // persist attachment as key-only; if only file present, upload to obtain key
-            key: slot.key || (slot.file ? await db.images.saveUpload(`prod-${generatedProductId}-att-${idx}-${Date.now()}`, await fileToBase64(slot.file)) : ""),
+            key: slot.key || (slot.file ? await (async () => {
+              try {
+                const fd = new FormData()
+                fd.append('file', slot.file as File)
+                const r = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
+                const jj = await r.json().catch(() => ({}))
+                return jj?.result?.key || jj?.key || ''
+              } catch (e) { return '' }
+            })() : ""),
             aspect: "1:1",
             role: "attachment" as const,
         })),

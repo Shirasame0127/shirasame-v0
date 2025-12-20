@@ -20,11 +20,16 @@ export function apiPath(path: string) {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname || ''
       // If this is an image-related path and a runtime API_BASE is present,
-      // allow calling the external API even from the admin origin.
+      // allow calling the external API from the admin origin only when the
+      // runtime explicitly requests it (runtime.FORCE_API_BASE=true).
+      // This avoids unintentionally making image requests cross-origin in
+      // local/dev where HttpOnly cookies (used for auth) should remain
+      // same-origin and be forwarded by the admin proxy.
       const isImagePath = path.startsWith('/api/images') || path.startsWith('/images')
       const runtime = (window as any).__env__ || {}
       const runtimeApiBase = (runtime.API_BASE || runtime.NEXT_PUBLIC_API_BASE_URL || '').toString().replace(/\/$/, '')
-      if (isImagePath && runtimeApiBase) {
+      const runtimeForce = String(runtime.FORCE_API_BASE || runtime.NEXT_PUBLIC_FORCE_API_BASE || '').toLowerCase() === 'true'
+      if (isImagePath && runtimeApiBase && runtimeForce) {
         const p = path.startsWith('/api/') ? path.replace(/^\/api/, '') : path
         return `${runtimeApiBase}${p}`
       }

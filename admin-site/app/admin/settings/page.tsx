@@ -173,10 +173,30 @@ export default function AdminSettingsPage() {
     let mounted = true
     async function load() {
       try {
-        const res = await apiFetch('/api/site-settings')
-        const json = await res.json().catch(() => null)
-        // Support responses like { data: {...} } or { data: { data: {...} } }
-        let serverUser = json?.data ?? json
+        // Prefer fetching from `users` table: use cached user id to request /api/admin/users/:id
+        let serverUser: any = null
+        try {
+          const cached = db.user.get()
+          if (cached && cached.id) {
+            const res = await apiFetch(`/api/admin/users/${encodeURIComponent(String(cached.id))}`)
+            const json = await res.json().catch(() => null)
+            // Possible shapes: { data: {...} }  OR  [{...}]  OR {...}
+            if (json && typeof json === 'object') {
+              if (json.data) serverUser = json.data
+              else if (Array.isArray(json)) serverUser = json[0]
+              else serverUser = json
+            }
+          }
+        } catch (e) {
+          // ignore and fallback to site-settings below
+        }
+
+        // Fallback: if we didn't get a user, try legacy site-settings endpoint for compatibility
+        if (!serverUser) {
+          const res2 = await apiFetch('/api/site-settings')
+          const json2 = await res2.json().catch(() => null)
+          serverUser = json2?.data ?? json2
+        }
         if (serverUser && typeof serverUser === 'object' && 'data' in serverUser) serverUser = (serverUser as any).data
         if (serverUser && mounted) {
           try { console.log('[settings] serverUser loaded:', serverUser) } catch (e) {}

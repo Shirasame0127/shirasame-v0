@@ -77,12 +77,12 @@ app.use('*', async (c, next) => {
 // Short-circuit GET /api/* requests to accept user_id from header/query.
 // For GET requests we will trust the provided `user_id` (query or X-User-Id)
 // and set it on the context so downstream handlers can filter by user.
-app.use('/api/*', async (c, next) => {
-  try {
-    const method = ((c.req.method || '') as string).toUpperCase()
-    // Only enforce user_id requirement for CRUD methods; allow auth endpoints to handle tokens
-    const crudMethods = ['GET', 'POST', 'PUT', 'DELETE']
-    if (!crudMethods.includes(method)) return await next()
+                    if (Array.isArray(rec) && rec.length > 0) {
+                    await tryAssignProfile(key)
+                    const base = { 'Content-Type': 'application/json; charset=utf-8' }
+                    const merged = Object.assign({}, completeCorsBase, base)
+                    return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
+                  }
     try {
       const reqPath = (new URL(c.req.url)).pathname || ''
       // Skip public routes: public API must be unauthenticated and handled
@@ -150,12 +150,12 @@ app.put('/api/admin/products/*/published', async (c) => {
       const maybeToken = await getTokenFromRequest(c)
       if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
         try { supabase.auth.setAuth(maybeToken) } catch (e) {}
-      }
-    } catch (e) {}
-    try {
-      const maybeToken = await getTokenFromRequest(c)
-      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
-        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+                          if (Array.isArray(existing) && existing.length > 0) {
+                          await tryAssignProfile(key)
+                          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+                          const merged = Object.assign({}, completeCorsBase, base)
+                          return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
+                        }
       }
     } catch (e) {}
     // If a SERVICE_ROLE key is NOT configured, the client runs with anon key
@@ -240,24 +240,24 @@ app.use('/api/admin/*', async (c, next) => {
         try { c.set && c.set('userId', userId) } catch {}
         return await next()
       } catch (e) {
-        const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
-      }
+          // After retries, return error
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, completeCorsBase, base)
+          return new Response(JSON.stringify({ error: 'failed to persist image metadata after retries' }), { status: 500, headers: merged })
     }
-
-    // Non-CRUD methods: keep existing token-based behavior
-    // Extract header user id
+          const base = { 'Content-Type': 'application/json; charset=utf-8' }
+          const merged = Object.assign({}, completeCorsBase, base)
+          return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
     const headerUser = (c.req.header('x-user-id') || c.req.header('X-User-Id') || '').toString()
     // Extract token from Authorization or cookie
-    const token = await getTokenFromRequest(c)
-    if (debug) {
-      try { console.log('admin-auth middleware (non-CRUD): headerUser=', headerUser, 'tokenPresent=', !!token) } catch {}
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, completeCorsBase, base)
+        return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
     }
     // If headerUser is present, require token and ensure match.
-    const verified = token ? await verifyTokenWithSupabase(token, c) : null
-    if (headerUser) {
-      if (!token) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, completeCorsBase, base)
+      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
         return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: merged })
@@ -4743,7 +4743,7 @@ async function handleUploadImage(c: any) {
     let key: string
     if (clientKeyRaw && typeof clientKeyRaw === 'string') {
       // Strip any leading/trailing slashes and disallow .. segments
-      let cleaned = clientKeyRaw.replace(/^\/+/, '').replace(/\/+$|\.\./g, '')
+      let cleaned = clientKeyRaw.replace(/^\/+/, '').replace(/\/+$/g, '').replace(/\.\./g, '')
       // If cleaned looks like a filename (no directories), prepend date path
       if (!/\//.test(cleaned)) cleaned = `${yyyy}/${mm}/${dd}/${cleaned}`
       // Ensure filename portion is safe
@@ -4752,14 +4752,15 @@ async function handleUploadImage(c: any) {
       const cleanedLast = last.replace(/[^a-zA-Z0-9._-]/g, '_')
       parts.push(cleanedLast)
       const joined = parts.join('/')
-      key = `${bucket}/${joined}`.replace(/\/+/g, '/')
+      // Store canonical key as a raw object key (no bucket or images/ prefix)
+      key = joined.replace(/\/+/, '/')
     } else {
-      // Store objects under `images/YYYY/MM/DD/...` within the R2 bucket.
-      key = `images/${yyyy}/${mm}/${dd}/${rand}-${safeName}`
+      // Store objects under `YYYY/MM/DD/...` (raw key inside R2 bucket).
+      key = `${yyyy}/${mm}/${dd}/${rand}-${safeName}`
     }
 
     // Save to R2
-    // Use key path relative to the R2 bucket (strip any leading bucket prefix)
+    // Use key path relative to the R2 bucket (strip any leading bucket prefix if present)
     const putKey = key.replace(new RegExp(`^${bucket}\/`), '')
     // @ts-ignore IMAGES binding from wrangler.toml
     const putRes = await c.env.IMAGES.put(putKey, buf, { httpMetadata: { contentType: file.type || 'application/octet-stream', cacheControl: 'public, max-age=2592000' } })
@@ -4819,7 +4820,8 @@ async function handleUploadImage(c: any) {
         const metadataObj: any = {}
         if (aspect) metadataObj.aspect = aspect
         if (caption) metadataObj.caption = caption
-        const insertBody = [{ key, filename: safeName, metadata: Object.keys(metadataObj).length ? metadataObj : null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
+        // Persist the canonical raw key (putKey) so DB stores object keys without bucket/images prefixes.
+        const insertBody = [{ key: putKey, filename: safeName, metadata: Object.keys(metadataObj).length ? metadataObj : null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
         const upsertUrl = `${supabaseUrl}/rest/v1/images?on_conflict=key`
         // Fire-and-forget but await so we can log failures
         const upsertRes = await fetch(upsertUrl, {
@@ -4984,12 +4986,64 @@ async function handleImagesComplete(c: any) {
     let payload: any = {}
     try { payload = text ? JSON.parse(text) : {} } catch { payload = {} }
 
-    const key = (payload?.key || payload?.imageKey || payload?.id || '').toString()
+    // Normalize incoming key/value so DB stores canonical raw object keys
+    const rawKey = (payload?.key || payload?.imageKey || payload?.id || '').toString()
+    const bucket = (c.env.R2_BUCKET || 'images').replace(/^\/+|\/+$/g, '')
+    let key = (rawKey || '').toString().trim()
+    try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('[images/complete] rawKey=', rawKey) } catch {}
+
+    // If client provided a Cloudflare Image Resizing URL, extract the path after the resizing prefix
+    key = key.replace(/^https?:\/\/[^\/]+\/cdn-cgi\/image\/[^\/]+\/(.+)$/i, '$1')
+    // If full URL to worker or R2 was provided, strip hostname and keep path
+    key = key.replace(/^https?:\/\/[^\/]+\/(.+)$/i, '$1')
+    // Strip leading slashes
+    key = key.replace(/^\/+/, '')
+    // Remove common bucket or images/ prefixes if present
+    if (key.startsWith(`${bucket}/`)) key = key.slice(bucket.length + 1)
+    if (key.startsWith('images/')) key = key.slice('images/'.length)
+    // Normalize duplicated uploads prefix (collapse uploads/uploads)
+    key = key.replace(/(^|\/)uploads\/+uploads\//g, '$1uploads/')
+    // Remove any uploads/ segments introduced by older clients
+    key = key.replace(/(^|\/)uploads\//g, '$1')
+    // Final trim of leading slashes
+    key = key.replace(/^\/+/, '')
+
+    try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('[images/complete] normalizedCandidate=', key) } catch {}
+
     if (!key) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      const merged = Object.assign({}, completeCorsBase, base)
       return new Response(JSON.stringify({ error: 'key is required' }), { status: 400, headers: merged })
     }
+
+    // Enforce yyyy/MM/dd/filename.ext format for canonical object keys
+    const isCanonical = /^\d{4}\/\d{2}\/\d{2}\/[^\/]+$/.test(key)
+    if (!isCanonical) {
+      try { console.warn('[images/complete] normalized key does not match yyyy/MM/dd/<name>:', key, 'rawKey=', rawKey) } catch {}
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, completeCorsBase, base)
+      return new Response(JSON.stringify({ error: 'invalid_key_format' }), { status: 400, headers: merged })
+    }
+
+    // Build publicUrl via shared image-usecases - do not handcraft URLs here
+    const publicUrlForKey = (() => {
+      try { return getPublicImageUrl(key, (c.env as any).IMAGES_DOMAIN) } catch (e) { return null }
+    })()
+    try { if ((c.env as any).DEBUG_WORKER === 'true') console.log('[images/complete] final key=', key, 'publicUrl=', publicUrlForKey) } catch {}
+
+    // --- Endpoint-specific CORS / allowed-origin policy ---
+    const reqOrigin = (c.req.header('Origin') || c.req.header('origin') || '') as string || ''
+    const allowedOrigins = [ 'https://admin.shirasame.com', 'http://localhost:3000' ]
+    // If an Origin is provided and it's not in the allowlist, reject
+    if (reqOrigin && !allowedOrigins.includes(reqOrigin)) {
+      const base = { 'Content-Type': 'application/json; charset=utf-8' }
+      const merged = Object.assign({}, computeCorsHeaders(null, c.env), base)
+      return new Response(JSON.stringify({ error: 'forbidden_origin' }), { status: 403, headers: merged })
+    }
+    // Build a handler-local CORS base that forces Access-Control-Allow-Origin
+    const completeCorsBase: Record<string, string> = Object.assign({}, computeCorsHeaders(reqOrigin || null, c.env))
+    if (reqOrigin) completeCorsBase['Access-Control-Allow-Origin'] = reqOrigin
+    completeCorsBase['Access-Control-Allow-Credentials'] = 'true'
 
     // Build record to insert into `images` table. We store key only (no full URL).
     const filename = payload?.filename || key.split('/').pop() || null
@@ -5003,7 +5057,7 @@ async function handleImagesComplete(c: any) {
     const tokenUserId = await getRequestUserId(c)
     if (!tokenUserId) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      const merged = Object.assign({}, completeCorsBase, base)
       return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: merged })
     }
     // effectiveUserId: token-authenticated user id
@@ -5016,17 +5070,19 @@ async function handleImagesComplete(c: any) {
     const assignTargetUserId = payload?.userId || effectiveUserId || null
     const wantsAssignToRecipe = (payload?.assign === 'recipe') || (payload?.target === 'recipe')
     const assignTargetRecipeId = payload?.recipeId || payload?.recipe_id || null
+    // Resolve request context for ownership/trust checks
+    const ctx = await resolveRequestUserContext(c)
     // Enforce owner check for explicit profile assignment: only token owner or site owner may assign
     try {
       const ownerIdGlobal = (c.env.PUBLIC_OWNER_USER_ID || '').toString() || null
       if (wantsAssignToProfile && assignTargetUserId && ctx.userId !== assignTargetUserId && ctx.userId !== ownerIdGlobal) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        const merged = Object.assign({}, completeCorsBase, base)
         return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
       }
     } catch (e) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      const merged = Object.assign({}, completeCorsBase, base)
       return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: merged })
     }
 
@@ -5081,7 +5137,7 @@ async function handleImagesComplete(c: any) {
     if (!supabaseUrl || !serviceKey) {
       // If service role key not configured, do not fail hard; return success but log.
       try { console.warn('SUPABASE_SERVICE_ROLE_KEY not configured; images/complete did not persist to DB') } catch {}
-      return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+      return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: Object.assign({}, completeCorsBase, { 'Content-Type': 'application/json; charset=utf-8' }) })
     }
 
     // Atomic upsert using Postgres ON CONFLICT DO NOTHING pattern via Supabase REST.
@@ -5108,8 +5164,8 @@ async function handleImagesComplete(c: any) {
         if (Array.isArray(inserted) && inserted.length > 0) {
           await tryAssignProfile(key)
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
-          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+          const merged = Object.assign({}, completeCorsBase, base)
+          return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
         }
 
         // Insert was ignored due to conflict — fetch the existing record
@@ -5121,18 +5177,18 @@ async function handleImagesComplete(c: any) {
             // Return key-only on success per key-only policy
             await tryAssignProfile(key)
             const base = { 'Content-Type': 'application/json; charset=utf-8' }
-            const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-            return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+            const merged = Object.assign({}, completeCorsBase, base)
+            return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
           }
         } catch (e) {
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
-          const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-          return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+          const merged = Object.assign({}, completeCorsBase, base)
+          return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
         }
         await tryAssignProfile(key)
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-        return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+        const merged = Object.assign({}, completeCorsBase, base)
+        return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
       }
 
       // If upsert failed, inspect the response for Postgres-on-conflict support error (42P10)
@@ -5152,8 +5208,8 @@ async function handleImagesComplete(c: any) {
             // RPC succeeded; still return key-only to keep API strict.
             await tryAssignProfile(key)
             const base = { 'Content-Type': 'application/json; charset=utf-8' }
-            const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-            return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+            const merged = Object.assign({}, completeCorsBase, base)
+            return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
           }
         } catch (e) {
           // ignore and fallback to SELECT/INSERT loop below
@@ -5174,7 +5230,7 @@ async function handleImagesComplete(c: any) {
             const existing = await qRes.json().catch(() => null)
             if (Array.isArray(existing) && existing.length > 0) {
               await tryAssignProfile(key)
-              return new Response(JSON.stringify({ key }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+              return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
             }
           }
 
@@ -5187,8 +5243,8 @@ async function handleImagesComplete(c: any) {
                 if (Array.isArray(rec) && rec.length > 0) {
                 await tryAssignProfile(key)
                 const base = { 'Content-Type': 'application/json; charset=utf-8' }
-                const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-                return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+                const merged = Object.assign({}, completeCorsBase, base)
+                return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
               }
             } else {
             const txt = await insRes.text().catch(() => '')
@@ -5201,8 +5257,8 @@ async function handleImagesComplete(c: any) {
                   if (Array.isArray(existing) && existing.length > 0) {
                   await tryAssignProfile(key)
                   const base = { 'Content-Type': 'application/json; charset=utf-8' }
-                  const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-                  return new Response(JSON.stringify({ key }), { status: 200, headers: merged })
+                  const merged = Object.assign({}, completeCorsBase, base)
+                  return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
                 }
               }
             }
@@ -5213,21 +5269,21 @@ async function handleImagesComplete(c: any) {
         }
         // After retries, return error
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        const merged = Object.assign({}, completeCorsBase, base)
         return new Response(JSON.stringify({ error: 'failed to persist image metadata after retries' }), { status: 500, headers: merged })
       } catch (e: any) {
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
-        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        const merged = Object.assign({}, completeCorsBase, base)
         return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
       }
     } catch (e: any) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+      const merged = Object.assign({}, completeCorsBase, base)
       return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
     }
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
-    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+    const merged = Object.assign({}, completeCorsBase, base)
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: merged })
   }
 }
