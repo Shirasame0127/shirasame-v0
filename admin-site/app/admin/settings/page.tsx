@@ -91,6 +91,7 @@ export default function AdminSettingsPage() {
   const [amazonSecretKey, setAmazonSecretKey] = useState("")
   const [amazonAssociateId, setAmazonAssociateId] = useState("")
   const { toast } = useToast()
+  const [, setSiteSettingsTick] = useState(0)
 
   // Sanitize server-provided user row into a client-friendly updates object
   function sanitizeServerUserForCache(srv: any) {
@@ -168,6 +169,10 @@ export default function AdminSettingsPage() {
           setHeaderImageKeys(headerKeysFromServer)
           // If server provides direct profile image URL, extract key when possible and store key-only
           if (serverUser.profileImage) setAvatarUploadedKey(extractKey(serverUser.profileImage))
+          try {
+            await db.siteSettings.refresh()
+            if (mounted) setSiteSettingsTick((t) => t + 1)
+          } catch (e) {}
           return
         }
 
