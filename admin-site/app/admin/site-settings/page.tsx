@@ -144,24 +144,37 @@ export default function AdminSettingsPage() {
       try {
         const res = await apiFetch('/api/admin/settings')
         const json = await res.json().catch(() => null)
-        const serverUserRaw = json?.data
-        if (serverUserRaw && mounted) {
-          // Normalize server-provided row into canonical client fields
-          const norm = sanitizeServerUserForCache(serverUserRaw)
-          setUser(serverUserRaw)
-          setDisplayName(norm.displayName || "")
-          setBio(norm.bio || "")
-          setEmail(norm.email || "")
-          setBackgroundType(norm.backgroundType || "color")
-          setBackgroundColor(norm.backgroundValue || "#ffffff")
-          setSocialLinks(norm.socialLinks || [])
-          setAmazonAccessKey(norm.amazonAccessKey || "")
-          setAmazonSecretKey(norm.amazonSecretKey || "")
-          setAmazonAssociateId(norm.amazonAssociateId || "")
-          // headerImageKeys is normalized to an array of keys
-          setHeaderImageKeys(norm.headerImageKeys || [])
-          // profileImageKey is normalized to key-only value
-          if (norm.profileImageKey) setAvatarUploadedKey(norm.profileImageKey)
+        const serverUser = json?.data
+        if (serverUser && mounted) {
+          setUser(serverUser)
+          setDisplayName(serverUser.displayName || "")
+          setBio(serverUser.bio || "")
+          setEmail(serverUser.email || "")
+          setBackgroundType(serverUser.backgroundType || "color")
+          setBackgroundColor(serverUser.backgroundValue || "#ffffff")
+          setSocialLinks(serverUser.socialLinks || [])
+          setAmazonAccessKey(serverUser.amazonAccessKey || "")
+          setAmazonSecretKey(serverUser.amazonSecretKey || "")
+          setAmazonAssociateId(serverUser.amazonAssociateId || "")
+          // Prefer explicit key array; if only full URLs are provided, extract keys
+          const extractKey = (u: any) => {
+            if (!u) return null
+            try {
+              const url = new URL(u)
+              let p = url.pathname.replace(/^\/+/, '')
+              p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
+              return p || null
+            } catch (e) {
+              return typeof u === 'string' && u.includes('/') ? u : null
+            }
+          }
+
+          const headerKeysFromServer = serverUser.headerImageKeys || serverUser.header_image_keys || []
+          setHeaderImageKeys(headerKeysFromServer)
+
+          // Prefer profile image key over legacy full URL
+          const profileKey = serverUser.profile_image_key || serverUser.profileImageKey || null
+          if (profileKey) setAvatarUploadedKey(profileKey)
           return
         }
 

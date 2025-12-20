@@ -157,6 +157,7 @@ export default function AdminSettingsPage() {
         let serverUser = json?.data ?? json
         if (serverUser && typeof serverUser === 'object' && 'data' in serverUser) serverUser = (serverUser as any).data
         if (serverUser && mounted) {
+          try { console.log('[settings] serverUser loaded:', serverUser) } catch (e) {}
           setUser(serverUser)
           setDisplayName(serverUser.displayName || "")
           setBio(serverUser.bio || "")
@@ -203,6 +204,7 @@ export default function AdminSettingsPage() {
           setHeaderImageKeys(headerKeysFromServer)
 
           // profile image may be provided as key or full URL. If it's a key (no '/'), keep as-is.
+          try { console.log('[settings] profileImage/profileImageKey:', serverUser.profileImage, serverUser.profileImageKey, serverUser.profile_image_key) } catch (e) {}
           if (serverUser.profileImage) setAvatarUploadedKey(extractKey(serverUser.profileImage) || serverUser.profileImage)
           else if (serverUser.profileImageKey || serverUser.profile_image_key) setAvatarUploadedKey((serverUser.profileImageKey || serverUser.profile_image_key) as string)
           try {

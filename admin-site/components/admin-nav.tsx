@@ -194,20 +194,6 @@ export function AdminNav() {
         if (!res.ok) return
         const json = await res.json().catch(() => null)
         const data = json?.data || null
-        // If profile endpoint doesn't include image info, fall back to site-settings
-        if (data && !(data.profile_image_key || data.profileImageKey || data.profileImage || data.profile_image)) {
-          try {
-            const ss = await apiFetch('/api/site-settings')
-            if (ss && ss.ok) {
-              const ssj = await ss.json().catch(() => null)
-              const sdata = ssj?.data || null
-              if (sdata) {
-                // merge possible profileImageKey from site-settings
-                data.profileImageKey = data.profileImageKey || data.profile_image_key || sdata.profileImageKey || sdata.profile_image_key || sdata.profileImage || sdata.profile_image || sdata.profileImageKey
-              }
-            }
-          } catch (e) {}
-        }
         // Prefer profile image key => build public URL; fallback to avatarUrl or legacy profileImage
         function extractKeyFromUrl(u: any): string | null {
           if (!u || typeof u !== 'string') return null

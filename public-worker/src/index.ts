@@ -43,7 +43,7 @@ registerPublicCors(app)
 registerPublicRoutes(app)
 
 // Early docs/openapi bypass: some proxies rewrite or prefix paths so the later
-// middleware checks may not match. Serve docs and OpenAPI JSON early when the
+// middleware checks may not math. Serve docs and OpenAPI JSON early when the
 // incoming path contains the docs/openapi segments to ensure the page is
 // reachable without requiring authentication or a user_id.
 app.use('*', async (c, next) => {
