@@ -151,7 +151,7 @@ export default function AdminSettingsPage() {
     let mounted = true
     async function load() {
       try {
-        const res = await apiFetch('/api/admin/settings')
+        const res = await apiFetch('/api/site-settings')
         const json = await res.json().catch(() => null)
         const serverUser = json?.data
         if (serverUser && mounted) {
