@@ -10,7 +10,7 @@ import { ImageUpload } from "@/components/image-upload"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { db } from "@/lib/db/storage"
-import { getPublicImageUrl, buildResizedImageUrl } from "@/lib/image-url"
+import { getPublicImageUrl, buildResizedImageUrl, responsiveImageForUsage } from "@/lib/image-url"
 import type { SocialLink } from "@/lib/db/schema"
 import { Save, Plus, Trash2, CheckCircle2, XCircle, Loader2, ArrowLeft, ArrowRight, Star } from "lucide-react"
 import {
@@ -876,10 +876,29 @@ export default function AdminSettingsPage() {
       return getPublicImageUrl(candidate)
     })
     .filter(Boolean) as string[]
-  const profileImageUrl = avatarPreviewUrl || getPublicImageUrl(
-    // prefer client-side uploaded KEY when available
-    (avatarUploadedKey ? (db.images.getUpload(avatarUploadedKey) || avatarUploadedKey) : (user?.profileImageKey ? (db.images.getUpload(user.profileImageKey) || user.profileImageKey) : user?.avatarUrl || user?.profileImage)) || null,
-  )
+  // Prefer resolved preview, otherwise derive like HeaderProfile: publicUrl -> responsiveImageForUsage('avatar')
+  let profileImageUrl: string | null = null
+  if (avatarPreviewUrl) {
+    profileImageUrl = avatarPreviewUrl
+  } else {
+    try {
+      const rawKey = avatarUploadedKey ? (db.images.getUpload(avatarUploadedKey) || avatarUploadedKey) : (user?.profileImageKey ? (db.images.getUpload(user.profileImageKey) || user.profileImageKey) : user?.avatarUrl || user?.profileImage)
+      const publicBase = rawKey ? String(rawKey) : null
+      if (publicBase) {
+        const publicUrl = getPublicImageUrl(publicBase) || (publicBase && String(publicBase).startsWith('http') ? String(publicBase) : null)
+        if (publicUrl) {
+          try {
+            const resp = responsiveImageForUsage(publicUrl, 'avatar')
+            profileImageUrl = resp?.src || publicUrl
+          } catch {
+            profileImageUrl = publicUrl
+          }
+        }
+      }
+    } catch (e) {
+      profileImageUrl = null
+    }
+  }
 
   // Normalize loading_animation value which may be stored as string or object
   const loadingAnimationRaw = db.siteSettings.getValue('loading_animation')
