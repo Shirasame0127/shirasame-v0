@@ -92,6 +92,7 @@ export default function AdminSettingsPage() {
   const [amazonAssociateId, setAmazonAssociateId] = useState("")
   const { toast } = useToast()
   const [, setSiteSettingsTick] = useState(0)
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null)
 
   // Sanitize server-provided user row into a client-friendly updates object
   function sanitizeServerUserForCache(srv: any) {
@@ -145,6 +146,20 @@ export default function AdminSettingsPage() {
     } catch (e) {
       return typeof u === 'string' && u.includes('/') ? u : null
     }
+  }
+
+  // Test if an image URL actually loads in the browser
+  function testImageUrl(url: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      try {
+        const img = new Image()
+        img.onload = () => resolve(true)
+        img.onerror = () => resolve(false)
+        img.src = url
+      } catch (e) {
+        resolve(false)
+      }
+    })
   }
 
   useEffect(() => {
@@ -206,7 +221,11 @@ export default function AdminSettingsPage() {
           // profile image may be provided as key or full URL. If it's a key (no '/'), keep as-is.
           try { console.log('[settings] profileImage/profileImageKey:', serverUser.profileImage, serverUser.profileImageKey, serverUser.profile_image_key) } catch (e) {}
           if (serverUser.profileImage) setAvatarUploadedKey(extractKey(serverUser.profileImage) || serverUser.profileImage)
-          else if (serverUser.profileImageKey || serverUser.profile_image_key) setAvatarUploadedKey((serverUser.profileImageKey || serverUser.profile_image_key) as string)
+          else if (serverUser.profileImageKey || serverUser.profile_image_key) {
+            const rawKey = String(serverUser.profileImageKey || serverUser.profile_image_key)
+            const normalized = rawKey.includes('/') ? rawKey : `uploads/${rawKey}`
+            setAvatarUploadedKey(normalized)
+          }
           try {
             await db.siteSettings.refresh()
             if (mounted) setSiteSettingsTick((t) => t + 1)
@@ -254,7 +273,11 @@ export default function AdminSettingsPage() {
           }
 
           if (currentUser.profileImage) setAvatarUploadedKey(extractKey(currentUser.profileImage))
-          else if (currentUser.profileImageKey || currentUser.profile_image_key) setAvatarUploadedKey(extractKey(currentUser.profileImageKey || currentUser.profile_image_key))
+          else if (currentUser.profileImageKey || currentUser.profile_image_key) {
+            const rawKey = String(currentUser.profileImageKey || currentUser.profile_image_key)
+            const normalized = rawKey.includes('/') ? rawKey : `uploads/${rawKey}`
+            setAvatarUploadedKey(normalized)
+          }
         }
       } catch (e) {
         const currentUser = db.user.get()
@@ -296,6 +319,48 @@ export default function AdminSettingsPage() {
       mounted = false
     }
   }, [])
+
+  // Resolve a working avatar preview URL by testing common candidate paths.
+  useEffect(() => {
+    let mounted = true
+    async function resolveAvatar() {
+      const key = avatarUploadedKey || user?.profileImageKey || user?.profile_image_key || null
+      if (!key) {
+        if (mounted) setAvatarPreviewUrl(null)
+        return
+      }
+
+      const raw = (db.images.getUpload(String(key)) as string) || String(key)
+      const candidates = [
+        raw,
+        String(key),
+        `uploads/${String(key)}`,
+        `images/uploads/${String(key)}`,
+      ]
+
+      for (const c of candidates) {
+        if (!c) continue
+        const full = getPublicImageUrl(c) || c
+        try {
+          // test if this URL actually loads
+          // eslint-disable-next-line no-await-in-loop
+          const ok = await testImageUrl(full)
+          if (ok && mounted) {
+            setAvatarPreviewUrl(full)
+            return
+          }
+        } catch (e) {
+          // ignore and try next
+        }
+      }
+
+      // fallback to the normalized raw path
+      if (mounted) setAvatarPreviewUrl(getPublicImageUrl(raw) || raw)
+    }
+
+    resolveAvatar()
+    return () => { mounted = false }
+  }, [avatarUploadedKey, user?.profileImageKey, user?.profile_image_key])
 
   const addSocialLink = () => {
     setSocialLinks([...socialLinks, { platform: "x", url: "", username: "" }])
@@ -811,7 +876,7 @@ export default function AdminSettingsPage() {
       return getPublicImageUrl(candidate)
     })
     .filter(Boolean) as string[]
-  const profileImageUrl = getPublicImageUrl(
+  const profileImageUrl = avatarPreviewUrl || getPublicImageUrl(
     // prefer client-side uploaded KEY when available
     (avatarUploadedKey ? (db.images.getUpload(avatarUploadedKey) || avatarUploadedKey) : (user?.profileImageKey ? (db.images.getUpload(user.profileImageKey) || user.profileImageKey) : user?.avatarUrl || user?.profileImage)) || null,
   )
