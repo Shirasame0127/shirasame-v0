@@ -138,14 +138,21 @@ export default function AdminSettingsPage() {
   // Helper used elsewhere in this module to convert CDN/full URLs into R2 keys when possible
   function extractKey(u: any) {
     if (!u) return null
-    try {
-      const url = new URL(u)
-      let p = url.pathname.replace(/^\/+/, '')
-      p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
-      return p || null
-    } catch (e) {
-      return typeof u === 'string' && u.includes('/') ? u : null
+    // If it's a full URL, extract the path and normalize; otherwise return the raw string as key
+    if (typeof u === 'string') {
+      try {
+        const url = new URL(u)
+        let p = url.pathname.replace(/^\/+/, '')
+        p = p.replace(/^cdn-cgi\/image\/[^\/]+\//, '')
+        // strip leading images/ if present
+        if (p.startsWith('images/')) p = p.slice('images/'.length)
+        return p || null
+      } catch (e) {
+        // not a URL — treat as key (may be 'uploads/...' or simple key like 'avatar-...')
+        return String(u)
+      }
     }
+    return null
   }
 
   // Test if an image URL actually loads in the browser
@@ -220,11 +227,9 @@ export default function AdminSettingsPage() {
 
           // profile image may be provided as key or full URL. If it's a key (no '/'), keep as-is.
           try { console.log('[settings] profileImage/profileImageKey:', serverUser.profileImage, serverUser.profileImageKey, serverUser.profile_image_key) } catch (e) {}
-          if (serverUser.profileImage) setAvatarUploadedKey(extractKey(serverUser.profileImage) || serverUser.profileImage)
-          else if (serverUser.profileImageKey || serverUser.profile_image_key) {
-            const rawKey = String(serverUser.profileImageKey || serverUser.profile_image_key)
-            const normalized = rawKey.includes('/') ? rawKey : `uploads/${rawKey}`
-            setAvatarUploadedKey(normalized)
+          // Use canonical key-only field for profile image
+          if (serverUser.profileImageKey || serverUser.profile_image_key) {
+            setAvatarUploadedKey(String(serverUser.profileImageKey || serverUser.profile_image_key))
           }
           try {
             await db.siteSettings.refresh()
@@ -272,11 +277,9 @@ export default function AdminSettingsPage() {
             setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
           }
 
-          if (currentUser.profileImage) setAvatarUploadedKey(extractKey(currentUser.profileImage))
-          else if (currentUser.profileImageKey || currentUser.profile_image_key) {
-            const rawKey = String(currentUser.profileImageKey || currentUser.profile_image_key)
-            const normalized = rawKey.includes('/') ? rawKey : `uploads/${rawKey}`
-            setAvatarUploadedKey(normalized)
+          // Use canonical key-only field for profile image from cache
+          if (currentUser.profileImageKey || currentUser.profile_image_key) {
+            setAvatarUploadedKey(String(currentUser.profileImageKey || currentUser.profile_image_key))
           }
         }
       } catch (e) {
