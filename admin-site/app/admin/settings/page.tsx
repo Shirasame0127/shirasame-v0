@@ -340,13 +340,23 @@ export default function AdminSettingsPage() {
 
       for (const c of candidates) {
         if (!c) continue
-        const full = getPublicImageUrl(c) || c
+        // Always run through shared image-usecases: derive public base URL
+        const publicBase = getPublicImageUrl(c) || String(c)
+        // Then request a responsive avatar variant via image-usecases
+        let candidateUrl: string | null = null
+        try {
+          const resp = responsiveImageForUsage(publicBase, 'avatar')
+          candidateUrl = resp?.src || publicBase
+        } catch {
+          candidateUrl = publicBase
+        }
+
         try {
           // test if this URL actually loads
           // eslint-disable-next-line no-await-in-loop
-          const ok = await testImageUrl(full)
+          const ok = await testImageUrl(candidateUrl as string)
           if (ok && mounted) {
-            setAvatarPreviewUrl(full)
+            setAvatarPreviewUrl(candidateUrl)
             return
           }
         } catch (e) {
@@ -354,8 +364,14 @@ export default function AdminSettingsPage() {
         }
       }
 
-      // fallback to the normalized raw path
-      if (mounted) setAvatarPreviewUrl(getPublicImageUrl(raw) || raw)
+      // fallback: ensure we return a URL produced by image-usecases
+      try {
+        const fb = getPublicImageUrl(raw)
+        const resp = responsiveImageForUsage(fb || String(raw), 'avatar')
+        if (mounted) setAvatarPreviewUrl(resp?.src || fb || String(raw))
+      } catch {
+        if (mounted) setAvatarPreviewUrl(getPublicImageUrl(raw) || String(raw))
+      }
     }
 
     resolveAvatar()
