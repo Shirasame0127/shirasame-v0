@@ -438,6 +438,15 @@ export const db = {
       caches.users = (caches.users || []).map((u: any) => (u.id === userId ? { ...u, ...updates } : u))
       apiFetch("PUT", `/api/admin/users/${encodeURIComponent(userId)}`, updates)
     },
+    // Update local cache only (do NOT call server). Use when caller already
+    // persisted changes server-side and only needs to refresh the client cache.
+    updateLocal: (userId: string, updates: Partial<User>) => {
+      try {
+        caches.users = (caches.users || []).map((u: any) => (u.id === userId ? { ...u, ...updates } : u))
+      } catch (e) {
+        // ignore
+      }
+    },
     addFavoriteFont: (userId: string, fontFamily: string) => {
       caches.users = (caches.users || []).map((u: any) => (u.id === userId ? { ...u, favoriteFonts: Array.from(new Set([...(u.favoriteFonts || []), fontFamily])) } : u))
       apiFetch("POST", `/api/admin/users/${encodeURIComponent(userId)}/favorite-fonts`, { fontFamily })

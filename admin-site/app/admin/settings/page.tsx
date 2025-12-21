@@ -106,7 +106,7 @@ export default function AdminSettingsPage() {
         const saved = await saveRes.json().catch(() => null)
         if (saved?.data) {
           setUser(saved.data)
-          try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){}
+          try { db.user.updateLocal(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){}
           setHeaderImageKeys(newKeys)
           return true
         }
@@ -127,7 +127,7 @@ export default function AdminSettingsPage() {
       const headerKeysFromServer = Array.isArray(hk) ? hk : (typeof hk === 'string' ? JSON.parse(hk || '[]') : [])
       if (canonicalKey && headerKeysFromServer.indexOf(canonicalKey) !== -1) {
         setUser(serverUser)
-        try { db.user.update(serverUser.id || maybeId || 'local', sanitizeServerUserForCache(serverUser)) } catch(e){}
+        try { db.user.updateLocal(serverUser.id || maybeId || 'local', sanitizeServerUserForCache(serverUser)) } catch(e){}
         setHeaderImageKeys(headerKeysFromServer)
         return true
       }
@@ -299,7 +299,7 @@ export default function AdminSettingsPage() {
         if (serverUser.profileImageKey || serverUser.profile_image_key) setAvatarUploadedKey(String(serverUser.profileImageKey || serverUser.profile_image_key))
 
         // Also update local cache so other UI that reads db.user gets the same authoritative data
-        try { db.user.update(serverUser.id || resolvedUserId, sanitizeServerUserForCache(serverUser)) } catch (e) {}
+        try { db.user.updateLocal(serverUser.id || resolvedUserId, sanitizeServerUserForCache(serverUser)) } catch (e) {}
       } catch (e) {
         console.error('[settings] unexpected exception while fetching user', String(e))
         setLoadError('ユーザー情報の取得中に例外が発生しました')
@@ -514,7 +514,7 @@ export default function AdminSettingsPage() {
             const saved = await saveRes.json().catch(() => null)
             if (saved?.data) {
               setUser(saved.data)
-              try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch (e) {}
+              try { db.user.updateLocal(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch (e) {}
               setHeaderImageKeys(newKeys)
             }
           } else {
@@ -555,7 +555,7 @@ export default function AdminSettingsPage() {
           const json = await res.json().catch(() => null)
           if (json?.data) {
             setUser(json.data)
-            try { db.user.update(json.data.id || user?.id || 'local', sanitizeServerUserForCache(json.data)) } catch (e) {}
+            try { db.user.updateLocal(json.data.id || user?.id || 'local', sanitizeServerUserForCache(json.data)) } catch (e) {}
             setHeaderImageKeys(keys)
           }
         } else {
@@ -728,7 +728,7 @@ export default function AdminSettingsPage() {
           const json = await res.json().catch(() => null)
           if (json?.data) {
             setUser(json.data)
-            try { db.user.update(json.data.id || user?.id || 'local', sanitizeServerUserForCache(json.data)) } catch (e) {}
+            try { db.user.updateLocal(json.data.id || user?.id || 'local', sanitizeServerUserForCache(json.data)) } catch (e) {}
             setHeaderImageKeys(newKeys)
           }
         } else {
@@ -805,7 +805,7 @@ export default function AdminSettingsPage() {
 
       if (!res.ok) {
         // fallback to local cache if server write fails
-        db.user.update(user?.id || 'local', updates)
+        db.user.updateLocal(user?.id || 'local', updates)
         console.warn('[v0] server save failed, saved to local cache instead')
       } else {
         const json = await res.json().catch(() => null)
@@ -814,7 +814,7 @@ export default function AdminSettingsPage() {
           setUser(saved)
           // also update local cache so UI that still reads db.user stays in sync
           try {
-              db.user.update(saved.id || user?.id || 'local', sanitizeServerUserForCache(saved))
+              db.user.updateLocal(saved.id || user?.id || 'local', sanitizeServerUserForCache(saved))
           } catch (e) {
             // ignore local cache update errors
           }
@@ -823,7 +823,7 @@ export default function AdminSettingsPage() {
       }
     } catch (e) {
       console.error('Error saving settings to server', e)
-      db.user.update(user?.id || 'local', updates)
+      db.user.updateLocal(user?.id || 'local', updates)
     }
 
     // Save Amazon credentials securely via server-side API (do not store secret in client-accessible user record)
@@ -1018,7 +1018,7 @@ export default function AdminSettingsPage() {
                         const js = await res.json().catch(() => null)
                         const saved = js?.data || js
                         if (saved) {
-                          try { db.user.update(saved.id || user?.id || 'local', sanitizeServerUserForCache(saved)) } catch (e) {}
+                          try { db.user.updateLocal(saved.id || user?.id || 'local', sanitizeServerUserForCache(saved)) } catch (e) {}
                         }
                         toast({ title: '保存しました' })
                       } else {
@@ -1050,7 +1050,7 @@ export default function AdminSettingsPage() {
                     const js = await res.json().catch(() => null)
                     const saved = js?.data || js
                     if (saved) {
-                      try { db.user.update(saved.id || user?.id || 'local', sanitizeServerUserForCache(saved)) } catch (e) {}
+                      try { db.user.updateLocal(saved.id || user?.id || 'local', sanitizeServerUserForCache(saved)) } catch (e) {}
                     }
                     toast({ title: 'クリアしました' })
                   } else {
