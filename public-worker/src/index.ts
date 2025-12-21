@@ -151,6 +151,7 @@ app.put('/api/admin/products/*/published', async (c) => {
         try { supabase.auth.setAuth(maybeToken) } catch (e) {}
                           if (Array.isArray(existing) && existing.length > 0) {
                           await tryAssignProfile(key)
+                          await tryAppendHeaderKey(key)
                           const base = { 'Content-Type': 'application/json; charset=utf-8' }
                           const merged = Object.assign({}, completeCorsBase, base)
                           return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
@@ -5234,6 +5235,46 @@ async function handleImagesComplete(c: any) {
       }
     }
 
+    async function tryAppendHeaderKey(keyToAssign: string) {
+      try {
+        // Determine if we should auto-append header key.
+        // Conditions: token-authenticated user present AND either payload explicitly
+        // requested header append (assign==='users.header_append' or target==='header')
+        // OR the request originates from the admin UI (admin origin) and no explicit assign provided.
+        const reqOriginLocal = (c.req.header('Origin') || c.req.header('origin') || '') as string || ''
+        const adminOrigin = (reqOriginLocal && (reqOriginLocal.includes('localhost') || reqOriginLocal.endsWith('.admin.shirasame.com') || reqOriginLocal === 'https://admin.shirasame.com'))
+        const explicitHeader = (payload?.assign === 'users.header_append') || (payload?.target === 'header')
+        const noAssignProvided = !payload?.assign && !payload?.target
+        const shouldAppend = (!!assignTargetUserId) && (explicitHeader || (adminOrigin && noAssignProvided))
+        if (!shouldAppend) return
+        if (!supabaseUrl || !serviceKey) return
+        const targetId = assignTargetUserId
+        const getUrl = `${supabaseUrl}/rest/v1/users?select=header_image_keys&id=eq.${targetId}`
+        const getRes = await fetch(getUrl, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+        if (!getRes.ok) return
+        const rows = await getRes.json().catch(() => null)
+        let arr: any[] = []
+        if (Array.isArray(rows) && rows.length > 0) {
+          const cur = rows[0].header_image_keys
+          if (Array.isArray(cur)) arr = cur.slice()
+          else if (cur) arr = [cur]
+        }
+        // avoid duplicates
+        if (!arr.includes(keyToAssign)) arr.push(keyToAssign)
+        const patchUrl = `${supabaseUrl}/rest/v1/users?id=eq.${targetId}`
+        const patchRes = await fetch(patchUrl, {
+          method: 'PATCH',
+          headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+          body: JSON.stringify({ header_image_keys: arr })
+        })
+        if (!patchRes.ok) {
+          try { console.warn('[images/complete] failed to append header image key', await patchRes.text().catch(() => '')) } catch(e){}
+        }
+      } catch (e) {
+        try { console.warn('[images/complete] exception during header append', String(e)) } catch(e){}
+      }
+    }
+
     async function tryAssignRecipeKey(keyToAssign: string) {
       try {
         if (!wantsAssignToRecipe) return
@@ -5290,8 +5331,9 @@ async function handleImagesComplete(c: any) {
       // Successful atomic upsert path (requires DB unique constraint on images.key)
       if (upsertRes.ok) {
         const inserted = await upsertRes.json().catch(() => [])
-        if (Array.isArray(inserted) && inserted.length > 0) {
+          if (Array.isArray(inserted) && inserted.length > 0) {
           await tryAssignProfile(key)
+          await tryAppendHeaderKey(key)
           const base = { 'Content-Type': 'application/json; charset=utf-8' }
           const merged = Object.assign({}, completeCorsBase, base)
           return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
@@ -5305,6 +5347,7 @@ async function handleImagesComplete(c: any) {
             if (qRes.ok) {
             // Return key-only on success per key-only policy
             await tryAssignProfile(key)
+            await tryAppendHeaderKey(key)
             const base = { 'Content-Type': 'application/json; charset=utf-8' }
             const merged = Object.assign({}, completeCorsBase, base)
             return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
@@ -5315,6 +5358,7 @@ async function handleImagesComplete(c: any) {
           return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
         }
         await tryAssignProfile(key)
+        await tryAppendHeaderKey(key)
         const base = { 'Content-Type': 'application/json; charset=utf-8' }
         const merged = Object.assign({}, completeCorsBase, base)
         return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
@@ -5336,6 +5380,7 @@ async function handleImagesComplete(c: any) {
             if (rpcRes.ok) {
             // RPC succeeded; still return key-only to keep API strict.
             await tryAssignProfile(key)
+            await tryAppendHeaderKey(key)
             const base = { 'Content-Type': 'application/json; charset=utf-8' }
             const merged = Object.assign({}, completeCorsBase, base)
             return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
@@ -5359,6 +5404,7 @@ async function handleImagesComplete(c: any) {
             const existing = await qRes.json().catch(() => null)
             if (Array.isArray(existing) && existing.length > 0) {
               await tryAssignProfile(key)
+              await tryAppendHeaderKey(key)
               return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
             }
           }
@@ -5371,6 +5417,7 @@ async function handleImagesComplete(c: any) {
               const rec = await insRes.json().catch(() => [])
                 if (Array.isArray(rec) && rec.length > 0) {
                 await tryAssignProfile(key)
+                await tryAppendHeaderKey(key)
                 const base = { 'Content-Type': 'application/json; charset=utf-8' }
                 const merged = Object.assign({}, completeCorsBase, base)
                 return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
@@ -5385,6 +5432,7 @@ async function handleImagesComplete(c: any) {
                 const existing = await reQ.json().catch(() => null)
                   if (Array.isArray(existing) && existing.length > 0) {
                   await tryAssignProfile(key)
+                  await tryAppendHeaderKey(key)
                   const base = { 'Content-Type': 'application/json; charset=utf-8' }
                   const merged = Object.assign({}, completeCorsBase, base)
                   return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
