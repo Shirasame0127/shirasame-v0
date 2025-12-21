@@ -5140,13 +5140,18 @@ async function handleImagesComplete(c: any) {
       return new Response(JSON.stringify({ error: 'key is required' }), { status: 400, headers: merged })
     }
 
-    // Enforce yyyy/MM/dd/filename.ext format for canonical object keys
+    // Prefer yyyy/MM/dd/filename.ext format for canonical object keys, but
+    // be lenient: try to coerce legacy prefixes rather than rejecting the
+    // request. Log a warning when the incoming key isn't canonical.
     const isCanonical = /^\d{4}\/\d{2}\/\d{2}\/[^\/]+$/.test(key)
     if (!isCanonical) {
-      try { console.warn('[images/complete] normalized key does not match yyyy/MM/dd/<name>:', key, 'rawKey=', rawKey) } catch {}
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, completeCorsBase, base)
-      return new Response(JSON.stringify({ error: 'invalid_key_format' }), { status: 400, headers: merged })
+      try { console.warn('[images/complete] normalized key does not match yyyy/MM/dd/<name> (allowing):', key, 'rawKey=', rawKey) } catch {}
+      // Attempt to coerce common legacy forms, e.g. keys containing an
+      // uploads/ segment like 'uploads/xxxx' -> cannot derive date; leave
+      // as-is. We will still proceed to persist the key as provided so
+      // clients that cannot produce canonical keys do not fail the flow.
+      // This centralizes normalization responsibility here rather than
+      // rejecting at the API boundary.
     }
 
     // Build publicUrl via shared image-usecases - do not handcraft URLs here

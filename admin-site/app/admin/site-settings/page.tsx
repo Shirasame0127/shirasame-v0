@@ -297,11 +297,26 @@ export default function AdminSettingsPage() {
         const json = await res.json().catch(() => null)
         const uploadedKey = json?.result?.key || json?.key || null
         if (uploadedKey) {
-          const newKeys = [...headerImageKeys, uploadedKey]
+          // Ensure canonical key by calling images/complete
+          let canonicalKey = uploadedKey
+          try {
+            const compRes = await apiFetch('/api/images/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: uploadedKey, filename: newHeaderImageFile?.name || undefined }) })
+            if (compRes && compRes.ok) {
+              const compJson = await compRes.json().catch(() => null)
+              canonicalKey = compJson?.key || canonicalKey
+            }
+          } catch (e) {
+            // if complete fails, fall back to uploadedKey but log
+            console.warn('[images] complete failed', e)
+          }
+
+          const newKeys = [...headerImageKeys, canonicalKey]
           setHeaderImageKeys(newKeys)
           setNewHeaderImageFile(null)
           try {
             const payload: any = { headerImageKeys: newKeys }
+            const maybeId = user?.id
+            if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
             const saveRes = await apiFetch('/api/admin/settings', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
@@ -334,11 +349,25 @@ export default function AdminSettingsPage() {
       // prefer returned key
       const uploadedKey = json?.result?.key || null
       if (uploadedKey) {
-        const newKeys = [...headerImageKeys, uploadedKey]
+        // finalize to canonical key
+        let canonicalKey = uploadedKey
+        try {
+          const compRes = await apiFetch('/api/images/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: uploadedKey, filename: file?.name || undefined }) })
+          if (compRes && compRes.ok) {
+            const compJson = await compRes.json().catch(() => null)
+            canonicalKey = compJson?.key || canonicalKey
+          }
+        } catch (e) {
+          console.warn('[images] complete failed', e)
+        }
+
+        const newKeys = [...headerImageKeys, canonicalKey]
         setHeaderImageKeys(newKeys)
 
         try {
           const payload: any = { headerImageKeys: newKeys }
+          const maybeId = user?.id
+          if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
           const saveRes = await apiFetch('/api/admin/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -378,6 +407,8 @@ export default function AdminSettingsPage() {
     ;(async () => {
       try {
         const payload: any = { headerImageKeys: keys }
+        const maybeId = user?.id
+        if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
         const res = await apiFetch('/api/admin/settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -462,11 +493,25 @@ export default function AdminSettingsPage() {
                       const json = await res.json().catch(() => null)
                       const uploadedKey = json?.result?.key || json?.key || null
                       if (uploadedKey) {
+                        // finalize to canonical key before persisting
+                        let canonicalKey = uploadedKey
+                        try {
+                          const compRes = await apiFetch('/api/images/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: uploadedKey, filename: file?.name || undefined }) })
+                          if (compRes && compRes.ok) {
+                            const compJson = await compRes.json().catch(() => null)
+                            canonicalKey = compJson?.key || canonicalKey
+                          }
+                        } catch (e) {
+                          console.warn('[images] complete failed', e)
+                        }
+
                         const newArr = [...headerImageKeys]
-                        newArr[index] = uploadedKey
+                        newArr[index] = canonicalKey
                         setHeaderImageKeys(newArr)
                         try {
                           const payload: any = { headerImageKeys: newArr }
+                          const maybeId = user?.id
+                          if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
                           const saveRes = await apiFetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
                           if (saveRes.ok) { const saved = await saveRes.json().catch(() => null); if (saved?.data) { setUser(saved.data); try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){} } }
                         } catch (e) {}
@@ -533,8 +578,10 @@ export default function AdminSettingsPage() {
 
     // Persist deletion immediately
     ;(async () => {
-      try {
+        try {
         const payload: any = { headerImageKeys: newKeys }
+        const maybeId = user?.id
+        if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
         const res = await apiFetch('/api/admin/settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -1013,6 +1060,8 @@ export default function AdminSettingsPage() {
                               setHeaderImageKeys(newArr)
                               try {
                                 const payload: any = { headerImageKeys: newArr }
+                                const maybeId = user?.id
+                                if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
                                 const saveRes = await apiFetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
                                 if (saveRes.ok) { const saved = await saveRes.json().catch(() => null); if (saved?.data) { setUser(saved.data); try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){} } }
                               } catch (e) {}

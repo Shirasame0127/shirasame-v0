@@ -399,12 +399,26 @@ export default function AdminSettingsPage() {
         const json = await res.json().catch(() => null)
         const uploadedKey = json?.result?.key || json?.key || null
         if (uploadedKey) {
-          const newKeys = [...headerImageKeys, uploadedKey]
+          // finalize via images/complete to obtain canonical key
+          let canonicalKey = uploadedKey
+          try {
+            const compRes = await apiFetch('/api/images/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: uploadedKey, filename: newHeaderImageFile?.name || undefined }) })
+            if (compRes && compRes.ok) {
+              const compJson = await compRes.json().catch(() => null)
+              canonicalKey = compJson?.key || canonicalKey
+            }
+          } catch (e) {
+            console.warn('[images] complete failed', e)
+          }
+
+          const newKeys = [...headerImageKeys, canonicalKey]
           setHeaderImageKeys(newKeys)
           setNewHeaderImageFile(null)
           // Persist keys immediately
           try {
             const payload: any = { headerImageKeys: newKeys }
+            const maybeId = user?.id
+            if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
             const saveRes = await apiFetch('/api/admin/settings', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
@@ -441,13 +455,26 @@ export default function AdminSettingsPage() {
       // prefer a returned key from the upload API
       const uploadedKey = json?.result?.key || null
       if (uploadedKey) {
+        // finalize canonical key
+        let canonicalKey = uploadedKey
+        try {
+          const compRes = await apiFetch('/api/images/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: uploadedKey, filename: file?.name || undefined }) })
+          if (compRes && compRes.ok) {
+            const compJson = await compRes.json().catch(() => null)
+            canonicalKey = compJson?.key || canonicalKey
+          }
+        } catch (e) {
+          console.warn('[images] complete failed', e)
+        }
         // Store the key in headerImageKeys
-        const newKeys = [...headerImageKeys, uploadedKey]
+        const newKeys = [...headerImageKeys, canonicalKey]
         setHeaderImageKeys(newKeys)
 
         // Persist immediately to server so refresh retains images
         try {
           const payload: any = { headerImageKeys: newKeys }
+          const maybeId = user?.id
+          if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
           const saveRes = await apiFetch('/api/admin/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -487,6 +514,8 @@ export default function AdminSettingsPage() {
     ;(async () => {
       try {
         const payload: any = { headerImageKeys: keys }
+        const maybeId = user?.id
+        if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
         const res = await apiFetch('/api/admin/settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -566,8 +595,19 @@ export default function AdminSettingsPage() {
                             const json = await res.json().catch(() => null)
                             const uploadedKey = json?.result?.key || json?.key || null
                             if (uploadedKey) {
+                              // finalize to canonical key before persisting
+                              let canonicalKey = uploadedKey
+                              try {
+                                const compRes = await apiFetch('/api/images/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: uploadedKey, filename: file?.name || undefined }) })
+                                if (compRes && compRes.ok) {
+                                  const compJson = await compRes.json().catch(() => null)
+                                  canonicalKey = compJson?.key || canonicalKey
+                                }
+                              } catch (e) {
+                                console.warn('[images] complete failed', e)
+                              }
                               const newArr = [...headerImageKeys]
-                              newArr[index] = uploadedKey
+                              newArr[index] = canonicalKey
                               setHeaderImageKeys(newArr)
 
                               // Persist updated keys
