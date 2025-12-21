@@ -448,8 +448,8 @@ export default function AdminSettingsPage() {
     const from = Number(String(active.id))
     const to = Number(String(over.id))
     if (Number.isNaN(from) || Number.isNaN(to)) return
-    const newKeys = arrayMove(headerImageKeys, from, to)
-    setHeaderImageKeys(newKeys)
+    // Delegate to handleReorder which persists changes server-side
+    try { handleReorder(from, to) } catch (e) { console.error('[settings] drag reorder failed', e) }
   }
 
   function SortableItem({ id, index, imageUrl }: { id: string; index: number; imageUrl: string }) {
@@ -1081,14 +1081,14 @@ export default function AdminSettingsPage() {
                             if (uploadedKey) {
                               const newArr = [...headerImageKeys]
                               newArr[editingIndex] = uploadedKey
-                              setHeaderImageKeys(newArr)
+                              // Persist updated array first
                               try {
                                 const payload: any = { headerImageKeys: newArr }
                                 const maybeId = user?.id
                                 if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
                                 const saveRes = await apiFetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-                                if (saveRes.ok) { const saved = await saveRes.json().catch(() => null); if (saved?.data) { setUser(saved.data); try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){} } }
-                              } catch (e) {}
+                                if (saveRes.ok) { const saved = await saveRes.json().catch(() => null); if (saved?.data) { setUser(saved.data); try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){}; setHeaderImageKeys(newArr) } }
+                              } catch (e) { console.error('[settings] error persisting edited header image', e) }
                               if (oldKey) { try { await apiFetch(`/api/images/${encodeURIComponent(String(oldKey))}`, { method: 'DELETE' }) } catch (e) { console.warn('failed to delete old image', e) } }
                               toast({ title: "更新完了", description: `ヘッダー画像 ${editingIndex + 1} を更新しました` })
                             } else {

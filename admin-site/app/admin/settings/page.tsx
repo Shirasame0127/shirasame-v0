@@ -549,8 +549,8 @@ export default function AdminSettingsPage() {
     const from = Number(String(active.id))
     const to = Number(String(over.id))
     if (Number.isNaN(from) || Number.isNaN(to)) return
-    const newKeys = arrayMove(headerImageKeys, from, to)
-    setHeaderImageKeys(newKeys)
+    // Delegate to handleReorder which persists server-side then updates state
+    try { handleReorder(from, to) } catch (e) { console.error('[settings] drag reorder failed', e) }
   }
 
   function SortableItem({ id, index, imageUrl }: { id: string; index: number; imageUrl: string }) {
