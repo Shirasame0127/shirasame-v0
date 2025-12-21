@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import apiFetch from '@/lib/api-client'
 import { getPublicImageUrl } from '@/lib/image-url'
+import { db } from '@/lib/db/storage'
 
 export default function InitialLoading() {
   const [mountedVisible, setMountedVisible] = useState(true) // DOM present
@@ -34,29 +35,48 @@ export default function InitialLoading() {
           throw new Error('skip-site-settings-on-login')
         }
 
-        const res = await apiFetch('/api/site-settings')
-        if (!res.ok) throw new Error('failed')
-        const json = await res.json()
-        const raw = json?.data?.loading_animation
-        let url: string | null = null
-        if (!raw) url = null
-        else if (typeof raw === 'string') url = raw
-        else if (typeof raw === 'object') url = raw?.url || null
-
-        // Normalize to public URL when possible
+        // Try to read loading animation from the user's row when available.
         try {
-          let normalized = getPublicImageUrl(url) || url
-          // If we still don't have an absolute/usable URL, try env fallback
-          const looksAbsolute = typeof normalized === 'string' && /^(https?:)?\//.test(normalized)
-          if (!looksAbsolute) {
+          let raw: any = null
+          // If running on admin pages, prefer cached user -> remote users API
+          try {
+            const cached = db.user.get()
+            const uid = cached?.id || null
+            if (cached && (cached.loadingAnimation || cached.loading_animation)) raw = cached.loadingAnimation || cached.loading_animation
+            else if (uid) {
+              const r = await apiFetch(`/api/admin/users/${encodeURIComponent(String(uid))}`)
+              if (r.ok) {
+                const j = await r.json().catch(() => null)
+                const u = j?.data || (Array.isArray(j) ? j[0] : j)
+                raw = u?.loadingAnimation || u?.loading_animation || null
+              }
+            }
+          } catch (e) {}
+
+          let url: string | null = null
+          if (!raw) url = null
+          else if (typeof raw === 'string') url = raw
+          else if (typeof raw === 'object') url = raw?.url || raw?.key || null
+
+          // Normalize to public URL when possible
+          try {
+            let normalized = getPublicImageUrl(url) || url
+            const looksAbsolute = typeof normalized === 'string' && /^(https?:)?\//.test(normalized)
+            if (!looksAbsolute) {
+              const envUrl = (process.env.NEXT_PUBLIC_LOADING_GIF_URL || process.env.LOADING_GIF_URL || '').trim()
+              if (envUrl) normalized = envUrl
+            }
+            if (mounted) setGifUrl(normalized || null)
+          } catch (e) {
             const envUrl = (process.env.NEXT_PUBLIC_LOADING_GIF_URL || process.env.LOADING_GIF_URL || '').trim()
-            if (envUrl) normalized = envUrl
+            if (mounted) setGifUrl(envUrl || url)
           }
-          if (mounted) setGifUrl(normalized || null)
         } catch (e) {
-          // final fallback: env var or null
-          const envUrl = (process.env.NEXT_PUBLIC_LOADING_GIF_URL || process.env.LOADING_GIF_URL || '').trim()
-          if (mounted) setGifUrl(envUrl || url)
+          // ignore — will fallback to env var below
+          try {
+            const envUrl = (process.env.NEXT_PUBLIC_LOADING_GIF_URL || process.env.LOADING_GIF_URL || '').trim()
+            if (envUrl && mounted) setGifUrl(envUrl)
+          } catch {}
         }
       } catch (e) {
         // ignore — no gif available

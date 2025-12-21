@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { getPublicImageUrl } from '@/lib/image-url'
 import apiFetch from '@/lib/api-client'
+import { db } from '@/lib/db/storage'
 
 export default function AdminLoading() {
   const [gifUrl, setGifUrl] = useState<string | null>(null)
@@ -24,20 +25,31 @@ export default function AdminLoading() {
           return
         }
 
-        const res = await apiFetch('/api/site-settings')
-        if (!res.ok) return
-        const json = await res.json()
-        const raw = json?.data?.loading_animation
-        let url: string | null = null
-        if (!raw) url = null
-        else if (typeof raw === 'string') url = raw
-        else if (typeof raw === 'object') url = raw?.url || null
-
+        // Prefer loading animation stored on the user's row. If not
+        // available, skip and leave gifUrl null (fallback UI will handle it).
         try {
+          const cached = db.user.get()
+          const uid = cached?.id || null
+          let raw: any = null
+          if (cached && (cached.loadingAnimation || cached.loading_animation)) raw = cached.loadingAnimation || cached.loading_animation
+          else if (uid) {
+            const r = await apiFetch(`/api/admin/users/${encodeURIComponent(String(uid))}`)
+            if (r.ok) {
+              const j = await r.json().catch(() => null)
+              const u = j?.data || (Array.isArray(j) ? j[0] : j)
+              raw = u?.loadingAnimation || u?.loading_animation || null
+            }
+          }
+
+          let url: string | null = null
+          if (!raw) url = null
+          else if (typeof raw === 'string') url = raw
+          else if (typeof raw === 'object') url = raw?.url || raw?.key || null
+
           const normalized = getPublicImageUrl(url) || url
           if (mounted) setGifUrl(normalized)
         } catch (e) {
-          if (mounted) setGifUrl(url)
+          // ignore
         }
       } catch (e) {
         // ignore

@@ -93,6 +93,8 @@ export default function AdminSettingsPage() {
   const { toast } = useToast()
   const [, setSiteSettingsTick] = useState(0)
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null)
+  // Error message when fetching user info fails (displayed in UI)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Sanitize server-provided user row into a client-friendly updates object
   function sanitizeServerUserForCache(srv: any) {
@@ -170,177 +172,97 @@ export default function AdminSettingsPage() {
   }
 
   useEffect(() => {
+    // On mount: always resolve the logged-in Supabase session and then
+    // unconditionally fetch the authoritative user row via the admin API.
+    // Reason: avoid silent cache-based behavior; ensure Network activity and
+    // explicit error reporting so admins can diagnose auth or backend issues.
     let mounted = true
-    async function load() {
+
+    async function fetchUserFromSession() {
       try {
-        // Prefer fetching from `users` table: use cached user id to request /api/admin/users/:id
-        let serverUser: any = null
-        try {
-          const cached = db.user.get()
-          if (cached && cached.id) {
-            const res = await apiFetch(`/api/admin/users/${encodeURIComponent(String(cached.id))}`)
-            const json = await res.json().catch(() => null)
-            // Possible shapes: { data: {...} }  OR  [{...}]  OR {...}
-            if (json && typeof json === 'object') {
-              if (json.data) serverUser = json.data
-              else if (Array.isArray(json)) serverUser = json[0]
-              else serverUser = json
-            }
-          }
-        } catch (e) {
-          // ignore and fallback to site-settings below
+        // 1) Resolve session via /api/auth/whoami to obtain userId from Supabase auth.
+        //    We do NOT use /api/auth/me in this project; /api/auth/whoami is the
+        //    canonical endpoint that returns { ok: true, user: { id, ... } }.
+        const whoRes = await apiFetch('/api/auth/whoami')
+        if (!whoRes.ok) {
+          const txt = await whoRes.text().catch(() => '')
+          console.error('[settings] /api/auth/whoami failed', { status: whoRes.status, body: txt })
+          setLoadError(`セッション情報の取得に失敗しました (HTTP ${whoRes.status})`)
+          return
         }
+        const whoJson = await whoRes.json().catch(() => null)
+        const resolvedUserId = whoJson?.user?.id || whoJson?.id || whoJson?.data?.id || null
 
-        // Fallback: if we didn't get a user, try legacy site-settings endpoint for compatibility
-        if (!serverUser) {
-          const res2 = await apiFetch('/api/site-settings')
-          const json2 = await res2.json().catch(() => null)
-          serverUser = json2?.data ?? json2
-        }
-        if (serverUser && typeof serverUser === 'object' && 'data' in serverUser) serverUser = (serverUser as any).data
-        if (serverUser && mounted) {
-          try { console.log('[settings] serverUser loaded:', serverUser) } catch (e) {}
-          setUser(serverUser)
-          setDisplayName(serverUser.displayName || "")
-          setBio(serverUser.bio || "")
-          setEmail(serverUser.email || "")
-          setBackgroundType(serverUser.backgroundType || "color")
-          setBackgroundColor(serverUser.backgroundValue || "#ffffff")
-          // socialLinks may be stored as a JSON string; parse when necessary
-          try {
-            const sl = serverUser.socialLinks
-            if (typeof sl === 'string') {
-              setSocialLinks(JSON.parse(sl))
-            } else {
-              setSocialLinks(sl || [])
-            }
-          } catch (e) {
-            setSocialLinks([])
-          }
-          setAmazonAccessKey(serverUser.amazonAccessKey || "")
-          setAmazonSecretKey(serverUser.amazonSecretKey || "")
-          setAmazonAssociateId(serverUser.amazonAssociateId || "")
-          // headerImageKeys may be a JSON string or array; normalize to string[] of keys
-          let headerKeysFromServer: string[] = []
-          try {
-            const hk = serverUser.headerImageKeys || serverUser.header_image_keys || serverUser.headerImageKey || serverUser.header_image_key || serverUser.headerImages || serverUser.header_images || serverUser.headerImage || serverUser.header_image
-            if (typeof hk === 'string') {
-              try {
-                const parsed = JSON.parse(hk)
-                if (Array.isArray(parsed)) headerKeysFromServer = parsed.map(extractKey).filter(Boolean)
-                else headerKeysFromServer = [String(extractKey(hk))].filter(Boolean)
-              } catch {
-                // treat as single key string
-                const k = extractKey(hk)
-                if (k) headerKeysFromServer = [k]
-              }
-            } else if (Array.isArray(hk)) {
-              headerKeysFromServer = hk.map(extractKey).filter(Boolean)
-            } else if (hk) {
-              const k = extractKey(hk)
-              if (k) headerKeysFromServer = [k]
-            }
-          } catch (e) {
-            headerKeysFromServer = []
-          }
-          setHeaderImageKeys(headerKeysFromServer)
-
-          // profile image may be provided as key or full URL. If it's a key (no '/'), keep as-is.
-          try { console.log('[settings] profileImage/profileImageKey:', serverUser.profileImage, serverUser.profileImageKey, serverUser.profile_image_key) } catch (e) {}
-          // Use canonical key-only field for profile image
-          if (serverUser.profileImageKey || serverUser.profile_image_key) {
-            setAvatarUploadedKey(String(serverUser.profileImageKey || serverUser.profile_image_key))
-          }
-          try {
-            await db.siteSettings.refresh()
-            if (mounted) setSiteSettingsTick((t) => t + 1)
-          } catch (e) {}
+        if (!resolvedUserId) {
+          console.error('[settings] no userId in /api/auth/whoami response', { body: whoJson })
+          setLoadError('ログイン済みユーザーが見つかりません')
           return
         }
 
-        // fallback to local cache if server has no data or call failed
-        const currentUser = db.user.get()
-        if (currentUser && mounted) {
-          setUser(currentUser)
-          setDisplayName(currentUser.displayName)
-          setBio(currentUser.bio || "")
-          setEmail(currentUser.email || "")
-          setBackgroundType(currentUser.backgroundType || "color")
-          setBackgroundColor(currentUser.backgroundValue || "#ffffff")
-          // normalize socialLinks stored as JSON string
-          try {
-            const csl = currentUser.socialLinks || currentUser.social_links
-            if (typeof csl === 'string') setSocialLinks(JSON.parse(csl))
-            else setSocialLinks(csl || [])
-          } catch (e) {
-            setSocialLinks([])
-          }
-          setAmazonAccessKey(currentUser.amazonAccessKey || "")
-          setAmazonSecretKey(currentUser.amazonSecretKey || "")
-          setAmazonAssociateId(currentUser.amazonAssociateId || "")
-          // normalize headerImageKeys for cached user
-          try {
-            const chk = currentUser.headerImageKeys || currentUser.header_image_keys || currentUser.headerImageKey || currentUser.header_image_key || currentUser.headerImages || currentUser.header_images
-            if (typeof chk === 'string') {
-              try {
-                const parsed = JSON.parse(chk)
-                setHeaderImageKeys(Array.isArray(parsed) ? parsed.map(extractKey).filter(Boolean) : [extractKey(chk)].filter(Boolean))
-              } catch {
-                setHeaderImageKeys(chk ? [extractKey(chk)].filter(Boolean) : [])
-              }
-            } else if (Array.isArray(chk)) {
-              setHeaderImageKeys(chk.map(extractKey).filter(Boolean))
-            } else {
-              setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
-            }
-          } catch (e) {
-            setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
-          }
+        // 2) Always fetch the authoritative user row from admin API.
+        const res = await apiFetch(`/api/admin/users/${encodeURIComponent(String(resolvedUserId))}`)
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '')
+          console.error('[settings] /api/admin/users failed', { userId: resolvedUserId, status: res.status, body: txt })
+          setLoadError(`ユーザー情報の取得に失敗しました (HTTP ${res.status})`)
+          return
+        }
 
-          // Use canonical key-only field for profile image from cache
-          if (currentUser.profileImageKey || currentUser.profile_image_key) {
-            setAvatarUploadedKey(String(currentUser.profileImageKey || currentUser.profile_image_key))
-          }
+        const json = await res.json().catch(() => null)
+        const serverUser = json?.data ?? (Array.isArray(json) ? json[0] : json)
+
+        if (!serverUser) {
+          console.error('[settings] /api/admin/users returned empty body', { userId: resolvedUserId, body: json })
+          setLoadError('ユーザー情報が取得できませんでした')
+          return
         }
+
+        if (!mounted) return
+
+        // Populate UI state from authoritative user row only.
+        setUser(serverUser)
+        setDisplayName(serverUser.displayName || serverUser.display_name || "")
+        setBio(serverUser.bio || "")
+        setEmail(serverUser.email || "")
+        setBackgroundType(serverUser.backgroundType || serverUser.background_type || "color")
+        setBackgroundColor(serverUser.backgroundValue || serverUser.background_value || "#ffffff")
+        try {
+          const sl = serverUser.socialLinks || serverUser.social_links
+          setSocialLinks(typeof sl === 'string' ? JSON.parse(sl) : (sl || []))
+        } catch (e) {
+          setSocialLinks([])
+        }
+        setAmazonAccessKey(serverUser.amazonAccessKey || serverUser.amazon_access_key || "")
+        setAmazonSecretKey(serverUser.amazonSecretKey || serverUser.amazon_secret_key || "")
+        setAmazonAssociateId(serverUser.amazonAssociateId || serverUser.amazon_associate_id || "")
+
+        // Normalize headerImageKeys into canonical key array
+        try {
+          const hk = serverUser.headerImageKeys || serverUser.header_image_keys || serverUser.headerImages || serverUser.header_images || serverUser.headerImage || serverUser.header_image
+          let headerKeysFromServer: string[] = []
+          if (typeof hk === 'string') {
+            try { const parsed = JSON.parse(hk); headerKeysFromServer = Array.isArray(parsed) ? parsed.map(extractKey).filter(Boolean) : [extractKey(hk)].filter(Boolean) } catch { headerKeysFromServer = hk ? [extractKey(hk)].filter(Boolean) : [] }
+          } else if (Array.isArray(hk)) {
+            headerKeysFromServer = hk.map(extractKey).filter(Boolean)
+          }
+          setHeaderImageKeys(headerKeysFromServer)
+        } catch (e) {
+          setHeaderImageKeys([])
+        }
+
+        // Profile image canonical key
+        if (serverUser.profileImageKey || serverUser.profile_image_key) setAvatarUploadedKey(String(serverUser.profileImageKey || serverUser.profile_image_key))
+
+        // Also update local cache so other UI that reads db.user gets the same authoritative data
+        try { db.user.update(serverUser.id || resolvedUserId, sanitizeServerUserForCache(serverUser)) } catch (e) {}
       } catch (e) {
-        const currentUser = db.user.get()
-        if (currentUser && mounted) {
-          setUser(currentUser)
-          setDisplayName(currentUser.displayName)
-          setBio(currentUser.bio || "")
-          setEmail(currentUser.email || "")
-          setBackgroundType(currentUser.backgroundType || "color")
-          setBackgroundColor(currentUser.backgroundValue || "#ffffff")
-            try {
-              const csl = currentUser.socialLinks || currentUser.social_links
-              if (typeof csl === 'string') setSocialLinks(JSON.parse(csl))
-              else setSocialLinks(csl || [])
-            } catch (e) {
-              setSocialLinks([])
-            }
-          setAmazonAccessKey(currentUser.amazonAccessKey || "")
-          setAmazonSecretKey(currentUser.amazonSecretKey || "")
-          setAmazonAssociateId(currentUser.amazonAssociateId || "")
-          try {
-            const chk = currentUser.headerImageKeys || currentUser.header_image_keys || currentUser.headerImageKey || currentUser.header_image_key
-            if (typeof chk === 'string') {
-              try { const parsed = JSON.parse(chk); setHeaderImageKeys(Array.isArray(parsed) ? parsed.map(extractKey).filter(Boolean) : [extractKey(chk)].filter(Boolean)) } catch { setHeaderImageKeys(chk ? [extractKey(chk)].filter(Boolean) : []) }
-            } else if (Array.isArray(chk)) {
-              setHeaderImageKeys(chk.map(extractKey).filter(Boolean))
-            } else {
-              setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
-            }
-          } catch (e) {
-            setHeaderImageKeys(currentUser.headerImageKeys || (currentUser.headerImageKey ? [currentUser.headerImageKey] : []))
-          }
-        }
+        console.error('[settings] unexpected exception while fetching user', String(e))
+        setLoadError('ユーザー情報の取得中に例外が発生しました')
       }
     }
 
-    load()
-    return () => {
-      mounted = false
-    }
+    fetchUserFromSession()
+    return () => { mounted = false }
   }, [])
 
   // Resolve a working avatar preview URL by testing common candidate paths.
@@ -939,8 +861,8 @@ export default function AdminSettingsPage() {
     }
   }
 
-  // Normalize loading_animation value which may be stored as string or object
-  const loadingAnimationRaw = db.siteSettings.getValue('loading_animation')
+  // Normalize loading_animation value which is now stored on the `user` row
+  const loadingAnimationRaw = (user && (user.loadingAnimation || user.loading_animation)) || (db.user.get() && (db.user.get().loadingAnimation || db.user.get().loading_animation)) || null
   const loadingAnimationUrl = (() => {
     if (!loadingAnimationRaw) return ''
     if (typeof loadingAnimationRaw === 'string') return getPublicImageUrl(loadingAnimationRaw) || loadingAnimationRaw
@@ -954,6 +876,13 @@ export default function AdminSettingsPage() {
 
   return (
     <div className="w-full px-4 py-8">
+      {/* Display a visible error banner when users API fails so admins notice problems */}
+      {loadError && (
+        <div className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-red-800">
+          <strong>ユーザー情報の取得に失敗しました:</strong>
+          <div>{loadError}</div>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold mb-2">設定</h1>
@@ -1010,17 +939,24 @@ export default function AdminSettingsPage() {
                   onChange={() => {}}
                   aspectRatioType={'product'}
                   onUploadComplete={async (key) => {
-                    // ImageUpload now returns canonical key; persist key-only
+                    // ImageUpload returns canonical key; persist on users table
                     if (!key) return
                     try {
-                      await apiFetch('/api/site-settings', {
-                        method: 'POST',
+                      const res = await apiFetch('/api/admin/settings', {
+                        method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ key: 'loading_animation', value: { key } }),
+                        body: JSON.stringify({ loadingAnimation: { key } }),
                       })
-                      // refresh local cache
-                      try { db.siteSettings.refresh().catch(() => {}) } catch (e) {}
-                      toast({ title: '保存しました' })
+                      if (res.ok) {
+                        const js = await res.json().catch(() => null)
+                        const saved = js?.data || js
+                        if (saved) {
+                          try { db.user.update(saved.id || user?.id || 'local', sanitizeServerUserForCache(saved)) } catch (e) {}
+                        }
+                        toast({ title: '保存しました' })
+                      } else {
+                        toast({ variant: 'destructive', title: '保存に失敗しました' })
+                      }
                     } catch (e) {
                       toast({ variant: 'destructive', title: '保存に失敗しました' })
                     }
@@ -1042,9 +978,17 @@ export default function AdminSettingsPage() {
             <div>
               <Button variant="ghost" onClick={async () => {
                 try {
-                  await apiFetch('/api/site-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'loading_animation', value: { key: null } }) })
-                  try { db.siteSettings.refresh().catch(() => {}) } catch (e) {}
-                  toast({ title: 'クリアしました' })
+                  const res = await apiFetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ loadingAnimation: { key: null } }) })
+                  if (res.ok) {
+                    const js = await res.json().catch(() => null)
+                    const saved = js?.data || js
+                    if (saved) {
+                      try { db.user.update(saved.id || user?.id || 'local', sanitizeServerUserForCache(saved)) } catch (e) {}
+                    }
+                    toast({ title: 'クリアしました' })
+                  } else {
+                    toast({ variant: 'destructive', title: 'クリアに失敗しました' })
+                  }
                 } catch (e) {
                   toast({ variant: 'destructive', title: 'クリアに失敗しました' })
                 }
