@@ -4593,18 +4593,19 @@ app.get('/api/admin/users/:id', async (c) => {
 
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
     const serviceKey = (c.env.SUPABASE_SERVICE_ROLE_KEY || '').toString()
-    if (!supabaseUrl || !serviceKey) return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
-
     const id = c.req.param('id')
-    const url = `${supabaseUrl}/rest/v1/users?id=eq.${encodeURIComponent(id)}&select=*`
-    const resp = await fetch(url, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
-    if (!resp.ok) {
-      const base = { 'Content-Type': 'application/json; charset=utf-8' }
-      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
-      return new Response(JSON.stringify({ error: 'not_found' }), { status: resp.status, headers: merged })
-    }
 
-    const rows = await resp.json().catch(() => [])
+    // If we have a configured service role key, use it (server-side safe)
+    if (supabaseUrl && serviceKey) {
+      const url = `${supabaseUrl}/rest/v1/users?id=eq.${encodeURIComponent(id)}&select=*`
+      const resp = await fetch(url, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+      if (!resp.ok) {
+        const base = { 'Content-Type': 'application/json; charset=utf-8' }
+        const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
+        return new Response(JSON.stringify({ error: 'not_found' }), { status: resp.status, headers: merged })
+      }
+
+      const rows = await resp.json().catch(() => [])
     if (!Array.isArray(rows) || rows.length === 0) {
       const base = { 'Content-Type': 'application/json; charset=utf-8' }
       const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), base)
@@ -4651,7 +4652,71 @@ app.get('/api/admin/users/:id', async (c) => {
     }
 
     return new Response(JSON.stringify({ data: normalized }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
+
+    // If we don't have a service role key, try an anon Supabase client
+    // but only allow returning the row when the request is authenticated
+    // and the token user matches the requested id (self-read).
+    try {
+      if (!(supabaseUrl && serviceKey)) {
+        const ctx = await resolveRequestUserContext(c)
+        if (ctx && ctx.trusted && ctx.userId && ctx.userId === id) {
+          try {
+            const supabase = getSupabase(c.env)
+            const { data: userRow, error } = await supabase.from('users').select('*').eq('id', id).limit(1).maybeSingle()
+            if (userRow) {
+              const u = userRow as any
+              const mapHeaderKeys = (v: any) => {
+                if (!v) return []
+                if (Array.isArray(v)) return v
+                if (typeof v === 'string') {
+                  try { return JSON.parse(v) } catch { return [String(v)] }
+                }
+                return []
+              }
+              const social = (u.social_links || u.socialLinks)
+              let socialLinksParsed: any = []
+              if (social) {
+                if (Array.isArray(social)) socialLinksParsed = social
+                else if (typeof social === 'string') {
+                  try { socialLinksParsed = JSON.parse(social) } catch { socialLinksParsed = [] }
+                }
+              }
+              const normalizedAnon: Record<string, any> = {
+                id: u.id || u.user_id || null,
+                displayName: u.display_name || u.displayName || u.name || null,
+                bio: u.bio || null,
+                email: u.email || null,
+                profileImage: (u.profile_image_key ? getPublicImageUrl(u.profile_image_key, c.env.IMAGES_DOMAIN) : (u.avatar_url || null)),
+                profileImageKey: u.profile_image_key || u.profileImageKey || null,
+                headerImageKeys: mapHeaderKeys(u.header_image_keys || u.headerImageKeys),
+                headerImages: (function(keys:any[]){ try { return (Array.isArray(keys) ? keys : []).map(k=> buildResizedImageUrl(k, { width: 800 }, c.env.IMAGES_DOMAIN)).filter(Boolean) } catch { return [] } })(mapHeaderKeys(u.header_image_keys || u.headerImageKeys)),
+                backgroundType: u.background_type || u.backgroundType || null,
+                backgroundValue: u.background_value || u.backgroundValue || null,
+                backgroundImageKey: u.background_image_key || u.backgroundImageKey || null,
+                amazonAccessKey: u.amazon_access_key || u.amazonAccessKey || null,
+                amazonSecretKey: u.amazon_secret_key || u.amazonSecretKey || null,
+                amazonAssociateId: u.amazon_associate_id || u.amazonAssociateId || null,
+                socialLinks: socialLinksParsed,
+                profile_image_key: u.profile_image_key || null,
+                header_image_keys: u.header_image_keys || null,
+              }
+              return new Response(JSON.stringify({ data: normalizedAnon }), { headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+            }
+          } catch (e) {
+            // ignore anon fallback errors and fall through to 502
+          }
+        }
+        return new Response(JSON.stringify({ error: 'internal api not configured' }), { status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+      }
+    } catch (e: any) {
+      return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+    }
   } catch (e: any) {
+    return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
+  }
+  }
+  catch (e: any) {
     return new Response(JSON.stringify({ error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } })
   }
 })
