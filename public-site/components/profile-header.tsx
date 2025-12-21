@@ -2,12 +2,11 @@
 
 import { useState, useEffect } from "react"
 import Image from "next/image"
-import { getPublicImageUrl, responsiveImageForUsage } from "@/lib/image-url"
+// profile header uses transformed URLs returned by the API; no client-side URL generation
 
 type User = {
   id: string
-  headerImageKeys?: string[]
-  headerImageKey?: string
+  header_images?: string[]
   headerImages?: string[]
   headerImage?: string
 }
@@ -23,17 +22,9 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
 
   useEffect(() => {
     const loadImages = () => {
-      const headerImageKeys = user.headerImageKeys || (user.headerImageKey ? [user.headerImageKey] : [])
-      const loadedImages = headerImageKeys
-        .map((key) => {
-          if (!key) return null
-          const candidate = typeof key === "string" && (key.startsWith("http") || key.startsWith("/")) ? key : String(key)
-          return getPublicImageUrl(candidate)
-        })
-        .filter((img): img is string => !!img)
-
-      const legacyImages = user.headerImages || (user.headerImage ? [user.headerImage] : [])
-      const finalImages = loadedImages.length > 0 ? loadedImages : legacyImages
+      // Use transformed header image URLs returned by public-worker
+      const candidates = (user as any).header_images || user.headerImages || (user.headerImage ? [user.headerImage] : []) || []
+      const finalImages = Array.isArray(candidates) ? candidates.filter(Boolean).map(String) : []
       setImages(finalImages)
       setIsLoaded(true)
     }
@@ -62,25 +53,18 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
         <div className="absolute inset-0">
           {images.map((image, index) => (
             <div key={index} className={`absolute inset-0 transition-opacity duration-1000 ${index === currentImageIndex ? "opacity-100" : "opacity-0"}`}>
-              {
-                (() => {
-                  const resp = responsiveImageForUsage(image, 'header-large')
-                  return <img
-                    src={resp.src || "/placeholder.svg"}
-                    srcSet={resp.srcSet || undefined}
-                    sizes={resp.sizes}
-                    alt={`ヘッダー画像 ${index + 1}`}
-                    className="w-full h-full object-cover"
-                    onError={(e: any) => {
-                      try {
-                        e.currentTarget.onerror = null
-                        e.currentTarget.src = '/placeholder.svg'
-                        e.currentTarget.srcset = ''
-                      } catch {}
-                    }}
-                  />
-                })()
-              }
+              <img
+                src={image || "/placeholder.svg"}
+                alt={`ヘッダー画像 ${index + 1}`}
+                className="w-full h-full object-cover"
+                onError={(e: any) => {
+                  try {
+                    e.currentTarget.onerror = null
+                    e.currentTarget.src = '/placeholder.svg'
+                    e.currentTarget.srcset = ''
+                  } catch {}
+                }}
+              />
             </div>
           ))}
           <div className="absolute inset-0 bg-black/10" />

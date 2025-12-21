@@ -1,6 +1,6 @@
 "use client"
 
-import { getPublicImageUrl, buildR2VariantFromBasePathWithFormat, responsiveImageForUsage } from "@/lib/image-url"
+// Use API-provided image URLs; no client-side URL generation
 
 import type { Product } from "@shared/types"
 
@@ -10,10 +10,9 @@ export function ProductCardSimple({ product, onClick, saleName }: ProductCardSim
   const images = Array.isArray(product.images) ? product.images : []
   const mainImage = images.find((img) => img?.role === "main") || images[0] || null
 
-  const raw = mainImage?.url || null
-  const resp = responsiveImageForUsage(raw, 'list')
-  const jpg = resp.src || (raw ?? '/placeholder.svg')
-  const webp = resp.src ? resp.src.replace(/\.(jpg|jpeg|png)$/i, '.webp') : null
+  const src = mainImage?.url || '/placeholder.svg'
+  const jpg = src
+  const webp = null
 
   return (
     <button onClick={onClick} className="group block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-lg">

@@ -4,14 +4,14 @@ import { useEffect, useState } from "react"
 import Image from "next/image"
 import { Card, CardContent } from "@/components/ui/card"
 import { SocialLinks } from "@/components/social-links"
-import { getPublicImageUrl } from "@/lib/image-url"
 
 type User = {
   displayName: string
   bio?: string
-  profileImage?: string
-  profileImageKey?: string
+  profileImage?: string // transformed URL from API
+  profile_image?: string // alternative snake_case from API
   avatarUrl?: string
+  avatar_url?: string
   socialLinks?: Record<string, string>
 }
 
@@ -20,8 +20,8 @@ interface ProfileCardProps { user: User }
 export function ProfileCard({ user }: ProfileCardProps) {
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null)
   useEffect(() => {
-    const raw = user.profileImage || user.avatarUrl || user.profileImageKey || null
-    const url = getPublicImageUrl(raw as string) || null
+    // Prefer transformed URL fields returned by public-worker
+    const url = (user.profileImage || (user as any).profile_image || user.avatarUrl || (user as any).avatar_url) || null
     setProfileImageUrl(url)
   }, [user])
 

@@ -2,7 +2,7 @@
 
 import React from "react"
 import Link from "next/link"
-import { getPublicImageUrl, buildR2VariantFromBasePathWithFormat, responsiveImageForUsage } from "@/lib/image-url"
+// Items provide `image` as a public URL; no client-side URL generation
 
 type Item = { id: string; image: string; aspect?: string; title?: string; href?: string }
 
@@ -34,13 +34,9 @@ export default function ProductMasonry({ items, className, columns = 7, fullWidt
               let webp: string | null = null
               let jpg: string | null = null
 
-              const resp = responsiveImageForUsage(raw, 'gallery')
-              const jpgUrl = resp.src || (raw ?? '/placeholder.svg')
+              const jpgUrl = raw || '/placeholder.svg'
               const imgEl = (
-                <picture>
-                  {resp.src && <source type="image/webp" srcSet={resp.srcSet || undefined} />}
-                  <img src={jpgUrl} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={it.title || ''} loading="lazy" className="w-full h-auto object-cover rounded-lg transition duration-300 ease-out group-hover:brightness-105" />
-                </picture>
+                <img src={jpgUrl} alt={it.title || ''} loading="lazy" className="w-full h-auto object-cover rounded-lg transition duration-300 ease-out group-hover:brightness-105" />
               )
 
               if (it.href && !onItemClick) {
