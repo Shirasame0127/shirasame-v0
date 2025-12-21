@@ -1,6 +1,14 @@
 import type { Hono } from 'hono'
 import { computeCorsHeaders } from '../utils/cors'
 
+// Backwards-compatible export: some modules import `computePublicCorsHeaders`
+// from this middleware. Provide a thin wrapper that delegates to the
+// centralized `computeCorsHeaders` util so existing imports continue
+// to work without changing all call sites at once.
+export function computePublicCorsHeaders(origin: string | null, env: any) {
+  return computeCorsHeaders(origin, env)
+}
+
 export function registerPublicCors(app: any) {
   // Register a global wrapper so any handler that returns a Response
   // (including early returns) for paths under /api/public will be
