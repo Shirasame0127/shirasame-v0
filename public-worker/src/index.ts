@@ -9,6 +9,7 @@ import { isAdmin, makeErrorResponse } from './helpers'
 import { getPublicImageUrl, buildResizedImageUrl, responsiveImageForUsage } from '../../shared/lib/image-usecases'
 import { registerPublicRoutes } from './routes/public/index'
 import { registerPublicCors } from './middleware/public-cors'
+import { computeCorsHeaders } from './utils/cors'
 
 export type Env = {
   PUBLIC_ALLOWED_ORIGINS?: string
@@ -332,29 +333,7 @@ app.use('*', async (c, next) => {
 })
 
 // Debug and global error middleware: キャッチされなかった例外を詳細に返す（DEBUG_WORKER=true の場合は stack を含める）
-// Centralized CORS header computation used across handlers and cache
-function computeCorsHeaders(origin: string | null, env: any) {
-  const allowed = ((env as any).PUBLIC_ALLOWED_ORIGINS || '').split(',').map((s: string) => s.trim()).filter(Boolean)
-  let acOrigin = '*'
-  if (origin) {
-    if (allowed.length === 0 || allowed.indexOf('*') !== -1 || allowed.indexOf(origin) !== -1) {
-      acOrigin = origin
-    } else if (allowed.length > 0) {
-      acOrigin = allowed[0]
-    }
-  } else if (allowed.length > 0) {
-    acOrigin = allowed[0]
-  }
-  return {
-    'Access-Control-Allow-Origin': acOrigin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Headers': 'Content-Type, If-None-Match, Authorization, X-User-Id',
-    'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS,POST,PUT,DELETE',
-    'Access-Control-Expose-Headers': 'ETag',
-    'Vary': 'Origin',
-    'X-Served-By': 'public-worker',
-  }
-}
+// `computeCorsHeaders` is provided from `src/utils/cors` for single-source-of-truth
 
 app.use('*', async (c, next) => {
   // Skip global middleware for public API: handled by public CORS middleware.
@@ -5984,24 +5963,10 @@ app.all('/api/*', async (c) => {
     const outHeaders: Record<string, string> = {}
     try { outHeaders['Content-Type'] = res.headers.get('content-type') || 'application/json; charset=utf-8' } catch {}
     try {
-      const origin = c.req.header('Origin') || ''
-      const allowed = ((c.env as any).PUBLIC_ALLOWED_ORIGINS || '').split(',').map((s: string) => s.trim()).filter(Boolean)
-      let acOrigin = '*'
-      if (origin) {
-        if (allowed.length === 0 || allowed.indexOf('*') !== -1 || allowed.indexOf(origin) !== -1) {
-          acOrigin = origin
-        } else if (allowed.length > 0) {
-          acOrigin = allowed[0]
-        }
-      } else if (allowed.length > 0) {
-        acOrigin = allowed[0]
+      const cors = computeCorsHeaders(c.req.header('Origin') || null, c.env)
+      for (const k of Object.keys(cors)) {
+        try { outHeaders[k] = cors[k] } catch {}
       }
-      outHeaders['Access-Control-Allow-Origin'] = acOrigin
-      outHeaders['Access-Control-Allow-Credentials'] = 'true'
-      outHeaders['Access-Control-Allow-Headers'] = 'Content-Type, If-None-Match, Authorization, X-User-Id'
-      outHeaders['Access-Control-Allow-Methods'] = 'GET,HEAD,OPTIONS,POST,PUT,DELETE'
-      outHeaders['Access-Control-Expose-Headers'] = 'ETag'
-      outHeaders['Vary'] = 'Origin'
     } catch {}
     return new Response(buf, { status: res.status, headers: outHeaders })
   } catch (e: any) {

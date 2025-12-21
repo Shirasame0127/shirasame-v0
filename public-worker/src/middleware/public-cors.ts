@@ -1,38 +1,5 @@
 import type { Hono } from 'hono'
-
-export function computePublicCorsHeaders(origin: string | null, env: any) {
-  const allowedEnv = ((env && env.PUBLIC_ALLOWED_ORIGINS) || '').split(',').map((s: string) => s.trim()).filter(Boolean)
-  const defaults = ['https://www.shirasame.com', 'https://shirasame.com', 'http://localhost:3000']
-  let acOrigin = '*'
-
-  if (allowedEnv.length > 0) {
-    if (allowedEnv.indexOf('*') !== -1) {
-      acOrigin = '*'
-    } else if (origin && allowedEnv.indexOf(origin) !== -1) {
-      acOrigin = origin
-    } else {
-      acOrigin = allowedEnv[0]
-    }
-  } else {
-    if (origin && defaults.indexOf(origin) !== -1) acOrigin = origin
-    else acOrigin = '*'
-  }
-
-  // Never allow admin origin on public API
-  if (typeof acOrigin === 'string' && acOrigin.includes('admin.shirasame.com')) {
-    acOrigin = '*'
-  }
-
-  return {
-    'Access-Control-Allow-Origin': acOrigin,
-    'Access-Control-Allow-Credentials': 'false',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
-    'Access-Control-Expose-Headers': 'ETag',
-    'Vary': 'Origin',
-    'X-Served-By': 'public-worker'
-  }
-}
+import { computeCorsHeaders } from '../utils/cors'
 
 export function registerPublicCors(app: any) {
   // Register a global wrapper so any handler that returns a Response
@@ -47,8 +14,8 @@ export function registerPublicCors(app: any) {
       }
 
       // Preflight
-      if ((c.req.method || '').toUpperCase() === 'OPTIONS') {
-        const headers = computePublicCorsHeaders(c.req.header('Origin') || null, c.env)
+        if ((c.req.method || '').toUpperCase() === 'OPTIONS') {
+          const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
         return new Response(null, { status: 204, headers })
       }
 
@@ -56,7 +23,7 @@ export function registerPublicCors(app: any) {
       // Ensure CORS headers are present on every returned Response by
       // creating a new Response that merges existing headers with CORS.
       try {
-        const cors = computePublicCorsHeaders(c.req.header('Origin') || null, c.env)
+          const cors = computeCorsHeaders(c.req.header('Origin') || null, c.env)
         // Build merged headers
         const merged = new Headers()
         try {
@@ -88,7 +55,7 @@ export function registerPublicCors(app: any) {
         try { return res } catch { return new Response(null, { status: 500 }) }
       }
     } catch (e: any) {
-      const headers = computePublicCorsHeaders(c.req.header('Origin') || null, c.env)
+      const headers = computeCorsHeaders(c.req.header('Origin') || null, c.env)
       headers['Content-Type'] = 'application/json; charset=utf-8'
       return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers })
     }
