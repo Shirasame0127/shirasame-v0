@@ -412,9 +412,8 @@ export default function AdminSettingsPage() {
           }
 
           const newKeys = [...headerImageKeys, canonicalKey]
-          setHeaderImageKeys(newKeys)
           setNewHeaderImageFile(null)
-          // Persist keys immediately
+          // Persist keys immediately; update client state only after server persist
           try {
             const payload: any = { headerImageKeys: newKeys }
             const maybeId = user?.id
@@ -429,9 +428,14 @@ export default function AdminSettingsPage() {
               if (saved?.data) {
                 setUser(saved.data)
                 try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch (e) {}
+                setHeaderImageKeys(newKeys)
               }
+            } else {
+              console.warn('[settings] failed to persist header images to server', saveRes.status)
             }
-          } catch (e) {}
+          } catch (e) {
+            console.error('[settings] error persisting header images', e)
+          }
 
           toast({ title: '追加完了', description: 'ヘッダー画像を追加しました' })
         } else {
@@ -468,9 +472,7 @@ export default function AdminSettingsPage() {
         }
         // Store the key in headerImageKeys
         const newKeys = [...headerImageKeys, canonicalKey]
-        setHeaderImageKeys(newKeys)
-
-        // Persist immediately to server so refresh retains images
+        // Persist immediately to server so refresh retains images. Update state after success.
         try {
           const payload: any = { headerImageKeys: newKeys }
           const maybeId = user?.id
@@ -485,6 +487,7 @@ export default function AdminSettingsPage() {
             if (saved?.data) {
               setUser(saved.data)
               try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch (e) {}
+              setHeaderImageKeys(newKeys)
             }
           } else {
             console.warn('[settings] failed to persist header images to server')
@@ -508,9 +511,8 @@ export default function AdminSettingsPage() {
     const keys = [...headerImageKeys]
     const [moved] = keys.splice(fromIndex, 1)
     keys.splice(toIndex, 0, moved)
-    setHeaderImageKeys(keys)
 
-    // Persist order immediately
+    // Persist order immediately; update state after server success
     ;(async () => {
       try {
         const payload: any = { headerImageKeys: keys }
@@ -526,7 +528,10 @@ export default function AdminSettingsPage() {
           if (json?.data) {
             setUser(json.data)
             try { db.user.update(json.data.id || user?.id || 'local', sanitizeServerUserForCache(json.data)) } catch (e) {}
+            setHeaderImageKeys(keys)
           }
+        } else {
+          console.warn('[settings] reorder persist failed', res.status)
         }
       } catch (e) {
         console.error('[settings] reorder persist failed', e)
@@ -608,17 +613,17 @@ export default function AdminSettingsPage() {
                               }
                               const newArr = [...headerImageKeys]
                               newArr[index] = canonicalKey
-                              setHeaderImageKeys(newArr)
-
-                              // Persist updated keys
-                              try {
-                                const payload: any = { headerImageKeys: newArr }
-                                const saveRes = await apiFetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-                                if (saveRes.ok) {
-                                  const saved = await saveRes.json().catch(() => null)
-                                  if (saved?.data) { setUser(saved.data); try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){} }
-                                }
-                              } catch (e) {}
+                                // Persist updated keys first, then update client state on success
+                                try {
+                                  const payload: any = { headerImageKeys: newArr }
+                                  const saveRes = await apiFetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+                                  if (saveRes.ok) {
+                                    const saved = await saveRes.json().catch(() => null)
+                                    if (saved?.data) { setUser(saved.data); try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){}; setHeaderImageKeys(newArr) }
+                                  } else {
+                                    console.warn('[settings] failed to persist updated header image', saveRes.status)
+                                  }
+                                } catch (e) { console.error('[settings] error persisting updated header image', e) }
 
                               // Delete old key asynchronously
                               if (oldKey) {
@@ -679,9 +684,8 @@ export default function AdminSettingsPage() {
   const removeHeaderImage = (index: number) => {
     const removedKey = headerImageKeys[index]
     const newKeys = headerImageKeys.filter((_, i) => i !== index)
-    setHeaderImageKeys(newKeys)
 
-    // Attempt to delete the object from R2 + DB, then persist updated keys
+    // Attempt to delete the object from R2 + DB, then persist updated keys; update state after success
     ;(async () => {
       try {
         // Best-effort: attempt to delete the key from server storage
@@ -705,7 +709,10 @@ export default function AdminSettingsPage() {
           if (json?.data) {
             setUser(json.data)
             try { db.user.update(json.data.id || user?.id || 'local', sanitizeServerUserForCache(json.data)) } catch (e) {}
+            setHeaderImageKeys(newKeys)
           }
+        } else {
+          console.warn('[settings] remove persist failed', res.status)
         }
       } catch (e) {
         console.error('[settings] remove persist failed', e)

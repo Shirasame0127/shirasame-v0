@@ -311,8 +311,8 @@ export default function AdminSettingsPage() {
           }
 
           const newKeys = [...headerImageKeys, canonicalKey]
-          setHeaderImageKeys(newKeys)
           setNewHeaderImageFile(null)
+          // Persist keys immediately using the freshly computed array.
           try {
             const payload: any = { headerImageKeys: newKeys }
             const maybeId = user?.id
@@ -324,9 +324,18 @@ export default function AdminSettingsPage() {
             })
             if (saveRes.ok) {
               const saved = await saveRes.json().catch(() => null)
-              if (saved?.data) { setUser(saved.data); try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){} }
+              if (saved?.data) {
+                setUser(saved.data)
+                try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){}
+                // only update client state after server persisted
+                setHeaderImageKeys(newKeys)
+              }
+            } else {
+              console.warn('[settings] failed to persist header images to server', saveRes.status)
             }
-          } catch (e) {}
+          } catch (e) {
+            console.error('[settings] error persisting header images', e)
+          }
           toast({ title: '追加完了', description: 'ヘッダー画像を追加しました' })
         } else {
           toast({ variant: 'destructive', title: 'アップロード失敗', description: '画像アップロードに失敗しました' })
@@ -362,8 +371,7 @@ export default function AdminSettingsPage() {
         }
 
         const newKeys = [...headerImageKeys, canonicalKey]
-        setHeaderImageKeys(newKeys)
-
+        // Persist immediately using computed keys; update local state only after success
         try {
           const payload: any = { headerImageKeys: newKeys }
           const maybeId = user?.id
@@ -378,6 +386,7 @@ export default function AdminSettingsPage() {
             if (saved?.data) {
               setUser(saved.data)
               try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch (e) {}
+              setHeaderImageKeys(newKeys)
             }
           } else {
             console.warn('[settings] failed to persist header images to server')
@@ -401,9 +410,8 @@ export default function AdminSettingsPage() {
     const keys = [...headerImageKeys]
     const [moved] = keys.splice(fromIndex, 1)
     keys.splice(toIndex, 0, moved)
-    setHeaderImageKeys(keys)
 
-    // Persist order immediately
+    // Persist order immediately; update state after successful persist
     ;(async () => {
       try {
         const payload: any = { headerImageKeys: keys }
@@ -419,7 +427,10 @@ export default function AdminSettingsPage() {
           if (json?.data) {
             setUser(json.data)
             try { db.user.update(json.data.id || user?.id || 'local', sanitizeServerUserForCache(json.data)) } catch (e) {}
+            setHeaderImageKeys(keys)
           }
+        } else {
+          console.warn('[settings] reorder persist failed', res.status)
         }
       } catch (e) {
         console.error('[settings] reorder persist failed', e)
@@ -507,14 +518,25 @@ export default function AdminSettingsPage() {
 
                         const newArr = [...headerImageKeys]
                         newArr[index] = canonicalKey
-                        setHeaderImageKeys(newArr)
+                        // Persist updated keys first, then update local state on success
                         try {
                           const payload: any = { headerImageKeys: newArr }
                           const maybeId = user?.id
                           if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
                           const saveRes = await apiFetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-                          if (saveRes.ok) { const saved = await saveRes.json().catch(() => null); if (saved?.data) { setUser(saved.data); try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){} } }
-                        } catch (e) {}
+                          if (saveRes.ok) {
+                            const saved = await saveRes.json().catch(() => null)
+                            if (saved?.data) {
+                              setUser(saved.data)
+                              try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){}
+                              setHeaderImageKeys(newArr)
+                            }
+                          } else {
+                            console.warn('[settings] failed to persist updated header image', saveRes.status)
+                          }
+                        } catch (e) {
+                          console.error('[settings] error persisting updated header image', e)
+                        }
                         if (oldKey) { try { await apiFetch(`/api/images/${encodeURIComponent(String(oldKey))}`, { method: 'DELETE' }) } catch (e) { console.warn('failed to delete old image', e) } }
                         toast({ title: "更新完了", description: `ヘッダー画像 ${index + 1} を更新しました` })
                       } else {
@@ -574,11 +596,10 @@ export default function AdminSettingsPage() {
 
   const removeHeaderImage = (index: number) => {
     const newKeys = headerImageKeys.filter((_, i) => i !== index)
-    setHeaderImageKeys(newKeys)
 
-    // Persist deletion immediately
+    // Persist deletion immediately; update state after success
     ;(async () => {
-        try {
+      try {
         const payload: any = { headerImageKeys: newKeys }
         const maybeId = user?.id
         if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
@@ -592,7 +613,10 @@ export default function AdminSettingsPage() {
           if (json?.data) {
             setUser(json.data)
             try { db.user.update(json.data.id || user?.id || 'local', sanitizeServerUserForCache(json.data)) } catch (e) {}
+            setHeaderImageKeys(newKeys)
           }
+        } else {
+          console.warn('[settings] remove persist failed', res.status)
         }
       } catch (e) {
         console.error('[settings] remove persist failed', e)
