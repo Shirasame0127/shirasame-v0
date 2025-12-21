@@ -5401,13 +5401,14 @@ async function handleImagesComplete(c: any) {
           const qUrl = `${supabaseUrl}/rest/v1/images?select=id,key,filename,metadata,user_id,created_at&key=eq.${encodedKey}&limit=1`
           const qRes = await fetch(qUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
           if (qRes.ok) {
-            const existing = await qRes.json().catch(() => null)
-            if (Array.isArray(existing) && existing.length > 0) {
-              await tryAssignProfile(key)
-              await tryAppendHeaderKey(key)
-              return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-            }
-          }
+                  const existing = await qRes.json().catch(() => null)
+                  if (Array.isArray(existing) && existing.length > 0) {
+                    await tryAssignProfile(key)
+                    await tryAppendHeaderKey(key)
+                    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+                    return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey }), { status: 200, headers: merged })
+                  }
+                }
 
           // Not found -> attempt insert
           const insBody = [{ key, filename, metadata: Object.keys(metadata).length ? metadata : null, user_id: effectiveUserId || null, created_at: new Date().toISOString() }]
@@ -5564,13 +5565,23 @@ app.post('/images/direct-upload', async (c) => {
 app.get('/api/auth/whoami', async (c) => {
   try {
     const supabaseUrl = (c.env.SUPABASE_URL || '').replace(/\/$/, '')
-    if (!supabaseUrl) return new Response(JSON.stringify({ ok: false }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    if (!supabaseUrl) {
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ ok: false }), { status: 200, headers: merged })
+    }
     // Use shared helper: extract token (Authorization or cookie) and fetch user
     const user = await getUserFromRequest(c)
-    if (!user) return new Response(JSON.stringify({ ok: false }), { status: 401, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
-    return new Response(JSON.stringify({ ok: true, user }), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    if (!user) {
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ ok: false }), { status: 401, headers: merged })
+    }
+    {
+      const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ ok: true, user }), { status: 200, headers: merged })
+    }
   } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' } })
+    const merged = Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message || e) }), { status: 500, headers: merged })
   }
 })
 
