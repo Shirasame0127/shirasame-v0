@@ -91,6 +91,51 @@ export default function AdminSettingsPage() {
   const [amazonSecretKey, setAmazonSecretKey] = useState("")
   const [amazonAssociateId, setAmazonAssociateId] = useState("")
   const { toast } = useToast()
+
+  async function persistHeaderKeysAndVerify(newKeys: string[], canonicalKey: string | null) {
+    try {
+      const payload: any = { headerImageKeys: newKeys }
+      const maybeId = user?.id
+      if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
+      const saveRes = await apiFetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (saveRes.ok) {
+        const saved = await saveRes.json().catch(() => null)
+        if (saved?.data) {
+          setUser(saved.data)
+          try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){}
+          setHeaderImageKeys(newKeys)
+          return true
+        }
+      }
+    } catch (e) {
+      console.error('[settings] error persisting header images', e)
+    }
+
+    try {
+      const maybeId = user?.id
+      if (!maybeId) return false
+      const res = await apiFetch(`/api/admin/users/${encodeURIComponent(String(maybeId))}`)
+      if (!res.ok) return false
+      const json = await res.json().catch(() => null)
+      const serverUser = json?.data ?? (Array.isArray(json) ? json[0] : json)
+      if (!serverUser) return false
+      const hk = serverUser.headerImageKeys || serverUser.header_image_keys || []
+      const headerKeysFromServer = Array.isArray(hk) ? hk : (typeof hk === 'string' ? JSON.parse(hk || '[]') : [])
+      if (canonicalKey && headerKeysFromServer.indexOf(canonicalKey) !== -1) {
+        setUser(serverUser)
+        try { db.user.update(serverUser.id || maybeId || 'local', sanitizeServerUserForCache(serverUser)) } catch(e){}
+        setHeaderImageKeys(headerKeysFromServer)
+        return true
+      }
+    } catch (e) {
+      console.error('[settings] verify after failed persist error', e)
+    }
+    return false
+  }
   const [, setSiteSettingsTick] = useState(0)
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null)
   // Error message when fetching user info fails (displayed in UI)
@@ -413,31 +458,14 @@ export default function AdminSettingsPage() {
 
           const newKeys = [...headerImageKeys, canonicalKey]
           setNewHeaderImageFile(null)
-          // Persist keys immediately; update client state only after server persist
           try {
-            const payload: any = { headerImageKeys: newKeys }
-            const maybeId = user?.id
-            if (maybeId && typeof maybeId === 'string' && !maybeId.startsWith('local')) payload.id = maybeId
-            const saveRes = await apiFetch('/api/admin/settings', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            })
-            if (saveRes.ok) {
-              const saved = await saveRes.json().catch(() => null)
-              if (saved?.data) {
-                setUser(saved.data)
-                try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch (e) {}
-                setHeaderImageKeys(newKeys)
-              }
-            } else {
-              console.warn('[settings] failed to persist header images to server', saveRes.status)
-            }
+            const ok = await persistHeaderKeysAndVerify(newKeys, canonicalKey)
+            if (ok) toast({ title: '追加完了', description: 'ヘッダー画像を追加しました' })
+            else toast({ variant: 'destructive', title: '保存失敗', description: 'ヘッダー画像の保存に失敗しました' })
           } catch (e) {
             console.error('[settings] error persisting header images', e)
+            toast({ variant: 'destructive', title: '保存失敗', description: 'ヘッダー画像の保存に失敗しました' })
           }
-
-          toast({ title: '追加完了', description: 'ヘッダー画像を追加しました' })
         } else {
           toast({ variant: 'destructive', title: 'アップロード失敗', description: '画像アップロードに失敗しました' })
         }
@@ -615,22 +643,14 @@ export default function AdminSettingsPage() {
                               newArr[index] = canonicalKey
                                 // Persist updated keys first, then update client state on success
                                 try {
-                                  const payload: any = { headerImageKeys: newArr }
-                                  const saveRes = await apiFetch('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-                                  if (saveRes.ok) {
-                                    const saved = await saveRes.json().catch(() => null)
-                                    if (saved?.data) { setUser(saved.data); try { db.user.update(saved.data.id || user?.id || 'local', sanitizeServerUserForCache(saved.data)) } catch(e){}; setHeaderImageKeys(newArr) }
+                                  const ok = await persistHeaderKeysAndVerify(newArr, canonicalKey)
+                                  if (ok) {
+                                    if (oldKey) { try { await apiFetch(`/api/images/${encodeURIComponent(String(oldKey))}`, { method: 'DELETE' }) } catch (e) { console.warn('failed to delete old image', e) } }
+                                    toast({ title: "更新完了", description: `ヘッダー画像 ${index + 1} を更新しました` })
                                   } else {
-                                    console.warn('[settings] failed to persist updated header image', saveRes.status)
+                                    toast({ variant: 'destructive', title: '保存失敗', description: 'ヘッダー画像の保存に失敗しました' })
                                   }
-                                } catch (e) { console.error('[settings] error persisting updated header image', e) }
-
-                              // Delete old key asynchronously
-                              if (oldKey) {
-                                try { await apiFetch(`/api/images/${encodeURIComponent(String(oldKey))}`, { method: 'DELETE' }) } catch (e) { console.warn('failed to delete old image', e) }
-                              }
-
-                              toast({ title: "更新完了", description: `ヘッダー画像 ${index + 1} を更新しました` })
+                                } catch (e) { console.error('[settings] error persisting updated header image', e); toast({ variant: 'destructive', title: '保存失敗', description: 'ヘッダー画像の保存に失敗しました' }) }
                             } else {
                               toast({ variant: 'destructive', title: 'アップロード失敗', description: '画像アップロードに失敗しました' })
                             }
