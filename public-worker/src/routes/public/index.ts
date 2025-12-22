@@ -25,6 +25,20 @@ export function registerPublicRoutes(app: any) {
       return new Response(JSON.stringify({ data: [] }), { status: 500, headers })
     }
   })
+
+  app.get('/api/public/owner-products/*', async (c: any) => {
+    try {
+      const path = (new URL(c.req.url)).pathname || ''
+      const slug = path.replace('/api/public/owner-products/', '').replace(/\/+$/, '')
+      const { fetchPublicOwnerProductBySlug } = await import('../../services/public/products')
+      const res = await fetchPublicOwnerProductBySlug(c.env, slug)
+      const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ data: res.data || null }), { headers })
+    } catch (e: any) {
+      const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ data: null }), { status: 500, headers })
+    }
+  })
   app.get('/api/public/collections', collectionsHandler)
   app.get('/api/public/recipes', recipesHandler)
   app.get('/api/public/tag-groups', tagGroupsHandler)

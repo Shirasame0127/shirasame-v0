@@ -197,3 +197,46 @@ export async function fetchPublicOwnerProducts(env: any) {
     return { data: [] }
   }
 }
+
+export async function fetchPublicOwnerProductBySlug(env: any, slug?: string | null) {
+  const ownerId = getPublicOwnerUserId(env)
+  if (!ownerId) return { data: null }
+  if (!slug) return { data: null }
+  const supabase = getSupabase(env)
+  try {
+    const select = 'id,slug,title,short_description,body,tags,price,show_price,related_links,notes,main_image_key,attachment_image_keys,created_at,updated_at'
+    const res = await supabase.from('products').select(select).eq('user_id', ownerId).eq('published', true).eq('slug', String(slug)).limit(1).single()
+    const p = res.data || null
+    if (!p) return { data: null }
+
+    const mainKey = normalizeRawKey(p.main_image_key || p.mainImageKey || null, env)
+    const mainResp = mainKey ? responsiveImageForUsage(mainKey, 'detail', env.IMAGES_DOMAIN) : null
+
+    const attachmentKeys = parseKeysField(p.attachment_image_keys || p.attachmentImageKeys || null)
+    const attachment_images = (attachmentKeys || []).map((kraw: any) => {
+      const k = normalizeRawKey(kraw, env)
+      const r = responsiveImageForUsage(k, 'detail', env.IMAGES_DOMAIN)
+      return r ? { src: r.src || null, srcSet: r.srcSet || null } : null
+    }).filter(Boolean)
+
+    const out = {
+      id: p.id || null,
+      slug: p.slug || null,
+      title: p.title || null,
+      short_description: p.short_description || null,
+      body: p.body || null,
+      tags: p.tags || null,
+      price: typeof p.price !== 'undefined' ? p.price : null,
+      show_price: typeof p.show_price !== 'undefined' ? p.show_price : null,
+      related_links: p.related_links || null,
+      notes: p.notes || null,
+      main_image: mainResp ? { src: mainResp.src || null, srcSet: mainResp.srcSet || null } : null,
+      attachment_images,
+      created_at: p.created_at || null,
+      updated_at: p.updated_at || null,
+    }
+    return { data: out }
+  } catch (e) {
+    return { data: null }
+  }
+}

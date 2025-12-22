@@ -694,7 +694,7 @@ export default function HomePage() {
       {/* All Items Overlay */}
       <div className={`fixed inset-0 z-40 pointer-events-none ${isAllOverlayOpen ? '' : ''}`} aria-hidden={!isAllOverlayOpen}>
           <div className={`absolute inset-0 bg-sky-50/95 transition-transform duration-300 ease-out ${isAllOverlayOpen ? 'translate-x-0' : 'translate-x-full'} pointer-events-auto`}>
-          <button aria-label="閉じる" className="absolute top-4 right-4 text-gray-800 hover:text-gray-900 text-2xl font-semibold bg-white/70 rounded-full w-10 h-10 flex items-center justify-center shadow" onClick={() => setIsAllOverlayOpen(false)}>
+          <button aria-label="閉じる" className="absolute top-20 right-4 text-gray-800 hover:text-gray-900 text-2xl font-semibold bg-white/70 rounded-full w-10 h-10 flex items-center justify-center shadow" onClick={() => setIsAllOverlayOpen(false)}>
             ×
           </button>
           <div className="max-w-7xl mx-auto px-4 pt-16 pb-10">
