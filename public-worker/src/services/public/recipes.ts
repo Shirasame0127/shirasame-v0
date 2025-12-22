@@ -55,6 +55,25 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
 
     const res = await query
     const data = res.data || []
+    // Fetch pins separately to avoid relying on PostgREST join alias behavior
+    const recipeIds = data.map((d: any) => d?.id).filter(Boolean)
+    let pinsMap: Record<string, any[]> = {}
+    if (recipeIds.length > 0) {
+      try {
+        const pinsRes = await supabase.from('recipe_pins').select('*').in('recipe_id', recipeIds)
+        const pinsData: any[] = pinsRes.data || []
+        pinsMap = pinsData.reduce((acc: Record<string, any[]>, p: any) => {
+          const rid = p.recipe_id || p.recipeId || null
+          if (!rid) return acc
+          if (!acc[rid]) acc[rid] = []
+          acc[rid].push(p)
+          return acc
+        }, {})
+      } catch {
+        pinsMap = {}
+      }
+    }
+
     // Normalize images and enforce recipe_image_keys constraints (max 1)
     const out: any[] = []
     for (const r of data) {
@@ -73,8 +92,12 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
           rec.images = []
         }
 
-        // Ensure pins are passed through as-is (joined via recipe_pins)
-        if (!Array.isArray(rec.pins)) rec.pins = Array.isArray(r.pins) ? r.pins : []
+        // Attach pins from the separate fetch (fallback to joined value if present)
+        if (Array.isArray(r.pins) && r.pins.length > 0) {
+          rec.pins = r.pins
+        } else {
+          rec.pins = Array.isArray(pinsMap[rec.id]) ? pinsMap[rec.id] : []
+        }
 
         out.push(rec)
       } catch {
