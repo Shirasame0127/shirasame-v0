@@ -216,9 +216,18 @@ export default function HomePage() {
         // Normalize profile/site settings so components receive expected shapes
         if (loadedUser && typeof loadedUser === 'object') {
           try {
-            if (typeof loadedUser.socialLinks === 'string') {
+            // Map snake_case keys from API to camelCase used by components
+            if (loadedUser.display_name && !loadedUser.displayName) loadedUser.displayName = loadedUser.display_name
+            if (loadedUser.profile_image && !loadedUser.profileImage) loadedUser.profileImage = loadedUser.profile_image
+            if (loadedUser.avatar_url && !loadedUser.avatarUrl) loadedUser.avatarUrl = loadedUser.avatar_url
+            if (loadedUser.social_links && !loadedUser.socialLinks) loadedUser.socialLinks = loadedUser.social_links
+            if (loadedUser.header_image_keys && !loadedUser.headerImageKeys) loadedUser.headerImageKeys = loadedUser.header_image_keys
+
+            // Normalize social_links: string or array -> map expected by SocialLinks
+            let socialLinksVal: any = loadedUser.socialLinks ?? null
+            if (typeof socialLinksVal === 'string') {
               try {
-                const arr = JSON.parse(loadedUser.socialLinks)
+                const arr = JSON.parse(socialLinksVal)
                 if (Array.isArray(arr)) {
                   const map: Record<string, string> = {}
                   for (const s of arr) {
@@ -227,10 +236,20 @@ export default function HomePage() {
                     if (s.url) map[key] = s.url
                   }
                   loadedUser.socialLinks = map
+                } else {
+                  loadedUser.socialLinks = { links: socialLinksVal }
                 }
               } catch {
-                loadedUser.socialLinks = { links: loadedUser.socialLinks }
+                loadedUser.socialLinks = { links: socialLinksVal }
               }
+            } else if (Array.isArray(socialLinksVal)) {
+              const map: Record<string, string> = {}
+              for (const s of socialLinksVal) {
+                if (!s) continue
+                const key = (s.platform && String(s.platform).trim()) || s.username || s.url || 'link'
+                if (s.url) map[key] = s.url
+              }
+              loadedUser.socialLinks = map
             }
 
             if (typeof loadedUser.headerImageKeys === 'string') {
@@ -240,7 +259,7 @@ export default function HomePage() {
             if (loadedUser.loading_animation && typeof loadedUser.loading_animation === 'object' && loadedUser.loading_animation.url) {
               loadedUser.loadingAnimation = loadedUser.loading_animation
             }
-          } catch {}
+          } catch (e) { console.error('[public] normalize profile error', e) }
         }
 
         // Normalize API fields (snake_case -> camelCase) for products/collections/recipes
