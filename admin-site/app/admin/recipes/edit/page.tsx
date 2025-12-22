@@ -265,21 +265,13 @@ export default function RecipeEditPage() {
         return
       }
       const merged = Array.from(new Set([...existing, key]))
-      try {
-        await RecipesService.update(recipeId, { recipe_image_keys: merged })
-      } catch (e) {
-        try {
-          await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipe_image_keys: merged }) })
-        } catch (e2) {
-          // swallow
-        }
-      }
+      // Update local state with the new key; do not persist recipe meta until image natural size is known
       setRecipeImageKeys(merged)
       try {
         const cdn = getPublicImageUrl(key)
         if (cdn) {
           setImageDataUrl(cdn)
-          // Try to measure natural image size using Image() so we can persist width/height/aspect immediately
+          // Measure natural image size using Image() and only then persist meta+keys+pins
           try {
             await new Promise<void>((resolve) => {
               try {
@@ -293,14 +285,15 @@ export default function RecipeEditPage() {
                       setImageHeight(h)
                       try {
                         const aspect = h ? (w / h) : null
-                        // Persist recipe_image_keys and image meta; ensure pins is an array (may be empty)
                         const toPatch: any = { recipe_image_keys: merged, image_width: w, image_height: h }
                         if (aspect) toPatch.aspect_ratio = aspect
+                        // Ensure pins is always an array
+                        const pinsPayload = Array.isArray(pins) ? pins : []
                         try {
-                          await RecipesService.update(recipeId, { ...toPatch, pins: Array.isArray(pins) ? pins : [] })
+                          await RecipesService.update(recipeId, { ...toPatch, pins: pinsPayload })
                         } catch (e) {
                           try {
-                            await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...toPatch, pins: Array.isArray(pins) ? pins : [] }) })
+                            await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...toPatch, pins: pinsPayload }) })
                           } catch (e2) {}
                         }
                       } catch (e) {}
