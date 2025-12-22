@@ -697,7 +697,7 @@ export default function HomePage() {
           <button aria-label="閉じる" className="absolute top-4 right-4 text-white/95 hover:text-white text-xl font-light" onClick={() => setIsAllOverlayOpen(false)}>
             ×
           </button>
-          <div className="max-w-7xl mx-auto px-4 py-10">
+          <div className="max-w-7xl mx-auto px-4 pt-16 pb-10">
             <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-4 text-center">All Items</h2>
             <div className="mb-6">
               <div className="flex justify-center">
