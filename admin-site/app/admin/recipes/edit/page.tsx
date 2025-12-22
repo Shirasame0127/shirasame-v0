@@ -277,12 +277,49 @@ export default function RecipeEditPage() {
       setRecipeImageKeys(merged)
       try {
         const cdn = getPublicImageUrl(key)
-        if (cdn) setImageDataUrl(cdn)
+        if (cdn) {
+          setImageDataUrl(cdn)
+          // Try to measure natural image size using Image() so we can persist width/height/aspect immediately
+          try {
+            await new Promise<void>((resolve) => {
+              try {
+                const img = new Image()
+                img.onload = async () => {
+                  try {
+                    const w = img.naturalWidth || null
+                    const h = img.naturalHeight || null
+                    if (w && h) {
+                      setImageWidth(w)
+                      setImageHeight(h)
+                      try {
+                        const aspect = h ? (w / h) : null
+                        // Persist recipe_image_keys and image meta; ensure pins is an array (may be empty)
+                        const toPatch: any = { recipe_image_keys: merged, image_width: w, image_height: h }
+                        if (aspect) toPatch.aspect_ratio = aspect
+                        try {
+                          await RecipesService.update(recipeId, { ...toPatch, pins: Array.isArray(pins) ? pins : [] })
+                        } catch (e) {
+                          try {
+                            await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...toPatch, pins: Array.isArray(pins) ? pins : [] }) })
+                          } catch (e2) {}
+                        }
+                      } catch (e) {}
+                    }
+                  } catch (e) {}
+                  resolve()
+                }
+                img.onerror = () => resolve()
+                img.src = cdn
+              } catch (e) { resolve() }
+            })
+          } catch (e) {}
+        }
       } catch (e) {}
     } finally {
       // keep modal open for multiple uploads, but allow parent to close
     }
   }
+
 
   function loadUserFonts() {
     const user = getCurrentUser()
@@ -1193,6 +1230,8 @@ export default function RecipeEditPage() {
         updatedAt: new Date().toISOString(),
         published,
       }
+      // Ensure pins are included (always an array)
+      payload.pins = Array.isArray(pins) ? pins : []
 
       // Prefer persisting canonical keys only. If we obtained a key from upload,
       // persist `imageKey`. Do NOT include full public URLs or inline data URLs in payloads.
