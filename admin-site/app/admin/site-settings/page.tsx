@@ -1131,7 +1131,6 @@ export default function AdminSettingsPage() {
                                   toast({ variant: 'destructive', title: '保存失敗', description: 'ヘッダー画像の保存に失敗しました' })
                                 }
                               } catch (e) { console.error('[settings] error persisting edited header image', e); toast({ variant: 'destructive', title: '保存失敗', description: 'ヘッダー画像の保存に失敗しました' }) }
-                            }
                             } else {
                               toast({ variant: 'destructive', title: 'アップロード失敗', description: '画像アップロードに失敗しました' })
                             }
