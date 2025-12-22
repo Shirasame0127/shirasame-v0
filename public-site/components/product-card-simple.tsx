@@ -18,8 +18,8 @@ export function ProductCardSimple({ product, onClick, saleName }: ProductCardSim
     <button onClick={onClick} className="group block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-lg">
       <div className="relative aspect-square overflow-hidden rounded-lg bg-muted transform transition-transform duration-300 ease-out motion-safe:will-change-transform hover:scale-[1.02] hover:shadow-md">
         <picture>
-          {webp && <source type="image/webp" srcSet={resp.srcSet || webp} />}
-          <img src={jpg || (raw ?? '/placeholder.svg')} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} loading="lazy" className="w-full h-full object-cover rounded-lg transition duration-300 ease-out group-hover:brightness-105" />
+          {webp && <source type="image/webp" srcSet={webp} />}
+          <img src={jpg || '/placeholder.svg'} alt={product.title} loading="lazy" className="w-full h-full object-cover rounded-lg transition duration-300 ease-out group-hover:brightness-105" />
         </picture>
         {saleName && (
           <div className="absolute left-2 top-2 z-10">
