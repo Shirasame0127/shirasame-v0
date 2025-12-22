@@ -1,17 +1,12 @@
 # 公開ページ用 API（Public API）実装計画書
 
-## 目的
-
-- 公開ページ（閲覧者向け）専用の **読み取り専用 API** を用意する
-- 認証は一切不要
-- 管理画面で使用している取得系クエリを **完コピ**
-- ただし `user_id` は常に  
-  `public-worker` の環境変数 `PUBLIC_OWNER_USER_ID` を使用する
-- 書き込み系・管理系 API は **一切含めない**
-
----
-
 ## 基本方針
+
+- 実装場所: `public-worker`（現在の実装もここ）
+- 認証: **なし**（公開読み取り専用）
+- `user_id` は常に環境変数 `PUBLIC_OWNER_USER_ID` を使用し、リクエストから受け取らない
+- 管理ページ用 API との差分は「公開用パス」および公開向けのフィールド正規化のみ
+- GET API はキャッシュが可能（`Cache-Control` を付与）
 
 - 実装場所: `public-worker`
 - 認証: **なし**
@@ -44,35 +39,19 @@
 
 ## 商品（Products）
 
-### 一覧取得
+### 現在の実装（要点）
 
-- **API**
-  - `GET /api/public/products`
-- **取得内容**
-  - 管理画面の `GET /api/admin/products` と同じ取得ロジック
-  - ただし:
-    - `published = true`
-    - `user_id = PUBLIC_OWNER_USER_ID`
-- **レスポンス例**
-```json
-{
-  "products": [
-    {
-      "id": "...",
-      "title": "...",
-      "price": 1000,
-      "tags": [],
-      "images": [
-        {
-          "key": "...",
-          "url": "...",
-          "responsive": { ... }
-        }
-      ]
-    }
-  ]
-}
-````
+- 一覧: `GET /api/public/owner-products?limit=<n>&offset=<m>` （`public-worker` 側で owner フィルタ適用）
+- 詳細: `GET /api/public/owner-products/:slug`（スラグで単一オブジェクトを返す。存在しない場合は `{ data: null }`）
+- 画像形状（公開 API）:
+  - `main_image`: `{ src, srcSet } | null`
+  - `attachment_images`: `[{ src, srcSet }]`
+  - 旧来の `*_image_key` やクライアントでの R2 ベース URL 組み立ては公開レスポンスで露出しない
+
+### 方針
+
+- レスポンスは Worker 側で `shared/lib/image-usecases.ts` の `responsiveImageForUsage` を使って生成される CDN 変換済み URL（images.shirasame.com + `/cdn-cgi/image/...`）を返す
+- フロント側で key→URL を組み立てる処理は禁止（Worker が唯一の変換元）
 
 ---
 
@@ -116,36 +95,26 @@
 
 ---
 
+
 ## レシピ（Recipes）
 
-### 一覧取得
+### 現在の実装（要点）
 
-* **API**
+- API: `GET /api/public/recipes`（一覧）、`GET /api/public/recipes/:id_or_slug`（個別ワイルドカード経由の取得）
+- 取得は常に `published = true` かつ `user_id = PUBLIC_OWNER_USER_ID`
+- `recipe_images` テーブルを `recipe_id` で結合して取得し、各行を Worker 側で正規化して返す
+- `recipe_pins` は `recipe_id` で結合し、そのまま `pins` 配列として返す
 
-  * `GET /api/public/recipes`
-* **内容**
+### 返却する画像の形
 
-  * 管理画面の `GET /api/admin/recipes`
-  * `published = true`
-  * `user_id = PUBLIC_OWNER_USER_ID`
+- `images: { src, srcSet, role, width, height, aspect, caption }[]` を返す
+  - 画像 URL は Worker が `responsiveImageForUsage(...,'recipe')` を経由して生成した `src` / `srcSet`（images.shirasame.com + `/cdn-cgi/image/...`）
+  - 公開レスポンスでは `recipe_image_keys` は参照しない（使用禁止）
 
----
+### 動作ポイント
 
-### レシピ詳細
-
-* **API**
-
-  * `GET /api/public/recipes/:id`
-* **内容**
-
-  * title / body
-  * images
-  * pins（商品タグ情報）
-* **画像処理**
-
-  * `responsiveImageForUsage('recipe')` を必ず通す
-
----
+- クライアントは `images[].src` をそのまま `<img src={...} srcSet={...}>` に渡すのみで良い
+- クライアント側で URL を組み立てる処理（`buildR2VariantFromBasePath` 等）は禁止
 
 ## Recipe に紐づく商品タグ情報
 
@@ -199,18 +168,14 @@
 
 ## 画像ユーティリティ（実運用）
 
-* 使用ファイル:
-
-  * `shared/lib/image-usecases.ts`
-* 必須使用関数:
-
-  * `getPublicImageUrl`
-  * `buildResizedImageUrl`
-  * `responsiveImageForUsage`
-* **禁止**
-
-  * 直接 R2 / S3 URL を返すこと
-  * サイズ指定なしの生 URL
+- 使用ファイル: `shared/lib/image-usecases.ts`（現在の実装で使用）
+- 必須使用関数:
+  - `getPublicImageUrl`
+  - `buildResizedImageUrl`（内部で使用）
+  - `responsiveImageForUsage`（公開 API の canonical 変換）
+- 禁止:
+  - クライアント側での生キーからの URL 組み立て
+  - 生の R2 / S3 URL をそのまま返すこと
 
 ---
 
@@ -223,15 +188,27 @@
 
 ---
 
-## 実装順（推奨）
+## 実装場所 / 主要変更ファイル
 
-1. `/api/public/site-settings`
-2. `/api/public/profile`
-3. `/api/public/products`
-4. `/api/public/collections`
-5. `/api/public/recipes`
-6. recipes 詳細（pins 含む）
-7. キャッシュ最適化
+- `public-worker/src/services/public/recipes.ts` — `recipe_images` / `recipe_pins` の結合、`responsiveImageForUsage` を通した `images[]` 生成（既に適用済み）
+- `public-worker/src/services/public/products.ts` — `fetchPublicOwnerProducts` / `fetchPublicOwnerProductBySlug` を実装し、`main_image` / `attachment_images` を `responsiveImageForUsage` で生成
+- `public-worker/src/routes/public/index.ts` — `/api/public/recipes`、`/api/public/owner-products`、`/api/public/owner-products/:slug` を登録
+- `public-site/app/page.tsx` と `public-site/components/recipe-display.tsx` — フロントで API 提供の `images[].src` / `srcSet` を直接使用するように変更済み（クライアントでの URL 組み立てロジックを削除）
+
+## 検証 / デプロイ手順（短め）
+
+1. Worker をデプロイ（`wrangler publish` 等、環境に合わせる）
+2. レシピ一覧を確認:
+```powershell
+Invoke-WebRequest -Uri "https://<public-worker-host>/api/public/recipes?limit=24&offset=0" -Headers @{ Origin = "http://localhost:3000" } | ConvertFrom-Json
+```
+3. レスポンスで `data[].images[].src` が `images.shirasame.com/.../cdn-cgi/image/...` 形式であることを確認
+
+## 完了条件（改訂）
+
+- 管理画面と公開ページの画像表示が一致する（images.shirasame.com + `cdn-cgi/image` を経由）
+- 公開 API は生のストレージキーを返さず、すべて Worker 側で CDN 変換済み URL を返す
+- フロントでは `images[].src` / `srcSet` をそのまま使い、URL を組み立てない
 
 ---
 

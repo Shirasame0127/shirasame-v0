@@ -21,6 +21,21 @@ function deriveBasePathFromUrl(urlOrKey?: string | null, env?: any): string | nu
   }
 }
 
+function normalizeRecipeBasePath(raw?: string | null, env?: any): string | null {
+  if (!raw) return null
+  try {
+    let key = deriveBasePathFromUrl(raw, env)
+    if (!key) return null
+    if (key.startsWith('images/')) key = key.slice('images/'.length)
+    const bucket = (env?.R2_BUCKET || '').replace(/^\/+|\/+$/g, '')
+    if (bucket && key.startsWith(`${bucket}/`)) key = key.slice(bucket.length + 1)
+    key = key.replace(/\/+/g, '/').replace(/^\/+/, '').replace(/\/+$/, '')
+    return key || null
+  } catch {
+    return null
+  }
+}
+
 export async function fetchPublicRecipes(env: any, params: { limit?: number | null; offset?: number; shallow?: boolean; }) {
   const ownerId = getPublicOwnerUserId(env)
   if (!ownerId) return { data: [] }
@@ -28,7 +43,8 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
   try {
     const { limit = null, offset = 0, shallow = false } = params || {}
     const selectShallow = 'id,user_id,title,slug,published,created_at,updated_at'
-    const selectFull = '*,images:recipe_images(id,recipe_id,key,width,height),pins'
+    // Join recipe_images and recipe_pins. Do NOT rely on recipe_image_keys.
+    const selectFull = '*,images:recipe_images(id,recipe_id,key,width,height,role,caption),pins:recipe_pins(*)'
 
     let query: any
     if (limit && limit > 0) {
@@ -44,26 +60,34 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
     for (const r of data) {
       try {
         const rec: any = Object.assign({}, r)
+        // Build `images` from joined recipe_images table and normalize URLs via responsiveImageForUsage
         if (Array.isArray(rec.images)) {
-          rec.images = rec.images.map((img: any) => ({
-            id: img.id || null,
-            recipeId: img.recipe_id || null,
-            key: img.key || null,
-            url: img.key ? getPublicImageUrl(img.key, env.IMAGES_DOMAIN) : (img.url || null),
-            width: typeof img.width !== 'undefined' ? img.width : null,
-            height: typeof img.height !== 'undefined' ? img.height : null,
-            responsive: responsiveImageForUsage(img.key || img.url || null, 'recipe', env.IMAGES_DOMAIN),
-            basePath: deriveBasePathFromUrl(img.key || img.url || null, env),
-          }))
+          rec.images = rec.images.map((img: any) => {
+            const keyRaw = img?.key || null
+            // Normalize stored key/basePath to canonical basePath
+            const basePath = normalizeRecipeBasePath(keyRaw, env) || null
+            const resp = responsiveImageForUsage(basePath || keyRaw || null, 'recipe', env.IMAGES_DOMAIN)
+            const width = typeof img.width !== 'undefined' ? img.width : null
+            const height = typeof img.height !== 'undefined' ? img.height : null
+            const aspect = (width && height) ? (width / height) : (img.aspect || null)
+            return {
+              id: img.id || null,
+              recipeId: img.recipe_id || null,
+              role: img.role || null,
+              src: resp.src || null,
+              srcSet: resp.srcSet || null,
+              width: width,
+              height: height,
+              aspect: aspect,
+              caption: img.caption || null,
+            }
+          })
         } else {
           rec.images = []
         }
 
-        // Derive recipe_image_keys similarly to admin but limit to at most 1
-        const keysFromJoin = Array.isArray(rec.images) ? rec.images.map((i: any) => i.key).filter(Boolean) : []
-        let recipeKeys: string[] = Array.isArray(rec.recipe_image_keys) ? rec.recipe_image_keys.slice(0, 1) : (keysFromJoin.length > 0 ? [keysFromJoin[0]] : [])
-        rec.recipe_image_keys = recipeKeys
-        rec.recipeImageKeys = recipeKeys
+        // Ensure pins are passed through as-is (joined via recipe_pins)
+        if (!Array.isArray(rec.pins)) rec.pins = Array.isArray(r.pins) ? r.pins : []
 
         out.push(rec)
       } catch {

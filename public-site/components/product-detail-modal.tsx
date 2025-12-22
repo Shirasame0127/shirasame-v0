@@ -31,10 +31,32 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
   }, [isOpen, product])
   if (!isOpen || !product) return null
 
-  const images = product.images || []
-  const preferred = initialImageUrl ? images.find((img: any) => (img?.url) === initialImageUrl) : null
-  const mainImage = preferred || images.find((img: any) => img.role === 'main') || images[0] || null
-  const attachmentImages = (images.filter ? images.filter((img: any) => img.role === 'attachment') : []).slice(0, 4)
+  // API now returns `main_image: { src, srcSet } | null` and `attachment_images: [{ src, srcSet }]`.
+  // Normalize sources: prefer `main_image`/`attachment_images`, fall back to legacy `images` shape.
+  const apiMainImage = product && product.main_image && typeof product.main_image === 'object' ? product.main_image : null
+  const apiAttachments = Array.isArray(product?.attachment_images) ? product.attachment_images : []
+
+  // Legacy images normalization (if worker hasn't provided main_image): images[].url -> {src, srcSet}
+  const legacyImages = Array.isArray(product?.images) ? product.images.map((img: any) => ({ src: img?.url || null, srcSet: img?.srcSet || img?.src || null, role: img?.role || null, id: img?.id || null })) : []
+
+  // Determine initial/main image
+  let mainImage: { src?: string | null; srcSet?: string | null } | null = null
+  if (initialImageUrl) {
+    // try match against apiMainImage, apiAttachments or legacyImages
+    if (apiMainImage && apiMainImage.src === initialImageUrl) mainImage = apiMainImage
+    else {
+      const matchLegacy = legacyImages.find((l: any) => l.src === initialImageUrl)
+      if (matchLegacy) mainImage = { src: matchLegacy.src, srcSet: matchLegacy.srcSet }
+      else {
+        const matchAttach = apiAttachments.find((a: any) => a && a.src === initialImageUrl)
+        if (matchAttach) mainImage = matchAttach
+      }
+    }
+  }
+  if (!mainImage) mainImage = apiMainImage || (legacyImages.find((l: any) => l.role === 'main') ? { src: legacyImages.find((l: any) => l.role === 'main').src, srcSet: legacyImages.find((l: any) => l.role === 'main').srcSet } : (legacyImages[0] ? { src: legacyImages[0].src, srcSet: legacyImages[0].srcSet } : null))
+
+  // Attachment images to render (ensure {src,srcSet} shape)
+  const attachmentImages = (apiAttachments.length > 0 ? apiAttachments : legacyImages.filter((l: any) => l.role === 'attachment').map((l: any) => ({ src: l.src, srcSet: l.srcSet }))) .slice(0, 4)
 
   const hasTags = product.tags && product.tags.length > 0
   const hasShortDescription = !!product.shortDescription
@@ -72,8 +94,9 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
             <div className={innerImageClassName}>
             {
               (() => {
-                const src = mainImage?.url || "/placeholder.svg"
-                return <img src={src} alt={product.title} className="w-full h-full object-cover" />
+                const src = mainImage?.src || "/placeholder.svg"
+                const srcSet = mainImage?.srcSet || undefined
+                return <img src={src} srcSet={srcSet} alt={product.title || '商品画像'} className="w-full h-full object-cover" />
               })()
             }
             {saleName && (
@@ -166,12 +189,13 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
             <div>
               <h3 className="font-semibold mb-2 text-sm text-center">添付画像</h3>
                 <div className="grid grid-cols-2 gap-2">
-                  {attachmentImages.map((img: any) => (
-                    <div key={img.id} className="relative aspect-square rounded-md overflow-hidden bg-white dark:bg-slate-800 shadow-sm">
+                  {attachmentImages.map((img: any, idx: number) => (
+                    <div key={`${product.id ?? 'p'}-att-${idx}`} className="relative aspect-square rounded-md overflow-hidden bg-white dark:bg-slate-800 shadow-sm">
                       {
                         (() => {
-                          const src = img.url || "/placeholder.svg"
-                          return <img src={src} alt="添付画像" className="w-full h-full object-cover" />
+                          const src = img?.src || "/placeholder.svg"
+                          const srcSet = img?.srcSet || undefined
+                          return <img src={src} srcSet={srcSet} alt={`添付画像 ${idx + 1}`} className="w-full h-full object-cover" />
                         })()
                       }
                     </div>

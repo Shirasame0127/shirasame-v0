@@ -198,7 +198,7 @@ export default function HomePage() {
     ;(async () => {
       try {
         const [prodRes, colRes, recRes, profileRes, saleRes] = await Promise.allSettled([
-          apiFetch(`/products?published=true&shallow=true&limit=${pageLimit}&offset=0`),
+          apiFetch(`/owner-products?limit=${pageLimit}&offset=0`),
           apiFetch(`/collections`),
           apiFetch(`/recipes`),
           apiFetch('/profile'),
@@ -310,11 +310,14 @@ export default function HomePage() {
           try {
             if (Array.isArray(r.images) && r.images.length > 0) {
                 const img = r.images[0]
-                r.imageUrl = img.url || null
+                r.imageUrl = img.src || img.url || null
               r.imageWidth = img.width || null
               r.imageHeight = img.height || null
               r.imageDataUrl = img.dataUrl || null
+            } else if (r.recipe_images && Array.isArray(r.recipe_images) && r.recipe_images.length > 0) {
+              r.imageUrl = r.recipe_images[0].src || null
             } else if (r.recipeImageKeys && Array.isArray(r.recipeImageKeys) && r.recipeImageKeys.length > 0) {
+              // Backwards-compat: if server hasn't yet provided recipe_images, fall back to recipeImageKeys
               r.imageUrl = r.recipeImageKeys[0]
             }
           } catch {}
@@ -440,24 +443,23 @@ export default function HomePage() {
   }, [])
 
   const handleProductClick = async (product: Product, imageUrl?: string) => {
-    // Prefer detail-800 when basePath is available for crisp modal image
+    // Prefer API-provided main_image.src for modal initial image
     let initial = imageUrl || null
     try {
-      const img0: any = (product as any)?.images?.[0] || null
-      const bp = img0?.basePath || null
-      if (!initial && bp) {
-        initial = buildR2VariantFromBasePath(bp, 'detail-800') || null
-      }
+      const apiMain = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
+      if (!initial && apiMain) initial = apiMain
     } catch {}
     setSelectedProduct(product)
     setSelectedImageUrl(initial)
     setIsModalOpen(true)
     ;(async () => {
       try {
-        const res = await apiFetch(`/products?id=${encodeURIComponent(product.id)}`)
+        // Use owner-products detail API (returns { data: object | null })
+        const slug = (product as any)?.slug || product.id
+        const res = await apiFetch(`/owner-products/${encodeURIComponent(String(slug || ''))}`)
         if (res.ok) {
-          const js = await res.json().catch(() => ({ data: [] }))
-          const full = Array.isArray(js.data) && js.data.length > 0 ? js.data[0] : null
+          const js = await res.json().catch(() => ({ data: null }))
+          const full = js.data || null
           if (full) { setSelectedProduct(full) }
         }
       } catch (e) { console.error('[public] failed to load full product for modal', e) }
@@ -490,12 +492,15 @@ export default function HomePage() {
   const galleryItemsShuffled = useMemo(() => {
     if (displayMode !== 'gallery') return [] as any[]
     return shuffleArray(products.flatMap((product) => {
-      return (product.images || []).map((img: any, idx: number) => {
-        const bp = img?.basePath || null
-        const pu = img?.url || null
-        const image = bp ? (buildR2VariantFromBasePath(bp, 'thumb-400') || pu) : pu
-        return ({ id: `${product.id}__${idx}`, productId: product.id, image: image || "/placeholder.svg", aspect: img.aspect || undefined, title: product.title, href: `/products/${product.slug}` })
-      })
+      // Prefer API-provided transformed URL: product.main_image.src
+      const mainSrc = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
+      if (mainSrc) {
+        return [{ id: `${product.id}__0`, productId: product.id, image: mainSrc, aspect: undefined, title: product.title, href: `/products/${product.slug}` }]
+      }
+      // Fallback to legacy images[].url if present
+      const legacy = (product as any)?.images && Array.isArray((product as any).images) ? (product as any).images[0] : null
+      const url = legacy?.url || "/placeholder.svg"
+      return [{ id: `${product.id}__0`, productId: product.id, image: url, aspect: legacy?.aspect || undefined, title: product.title, href: `/products/${product.slug}` }]
     }))
   }, [shuffleKey, products, displayMode])
 
@@ -506,7 +511,7 @@ export default function HomePage() {
     if (loadingMore || !hasMore) return
     setLoadingMore(true)
     try {
-      const res = await apiFetch(`/products?published=true&shallow=true&limit=${pageLimit}&offset=${pageOffset}`)
+      const res = await apiFetch(`/owner-products?limit=${pageLimit}&offset=${pageOffset}`)
       if (!res.ok) throw new Error('failed to fetch')
       const js = await res.json().catch(() => ({ data: [], meta: undefined }))
       const items = Array.isArray(js.data) ? js.data : []

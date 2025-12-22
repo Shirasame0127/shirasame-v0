@@ -232,6 +232,8 @@ export async function fetchPublicOwnerProductBySlug(env: any, slug?: string | nu
       notes: p.notes || null,
       main_image: mainResp ? { src: mainResp.src || null, srcSet: mainResp.srcSet || null } : null,
       attachment_images,
+      // Note: do not include legacy `images` array here — detail API must return only
+      // `main_image` and `attachment_images` per API contract.
       created_at: p.created_at || null,
       updated_at: p.updated_at || null,
     }
