@@ -43,8 +43,8 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
   try {
     const { limit = null, offset = 0, shallow = false } = params || {}
     const selectShallow = 'id,user_id,title,slug,published,created_at,updated_at'
-    // Join recipe_images and recipe_pins. Do NOT rely on recipe_image_keys.
-    const selectFull = '*,images:recipe_images(id,recipe_id,key,width,height,role,caption),pins:recipe_pins(*)'
+    // Use legacy recipe_image_keys as the sole image source; still join recipe_pins for pins
+    const selectFull = '*,pins:recipe_pins(*)'
 
     let query: any
     if (limit && limit > 0) {
@@ -60,29 +60,16 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
     for (const r of data) {
       try {
         const rec: any = Object.assign({}, r)
-        // Build `images` from joined recipe_images table and normalize URLs via responsiveImageForUsage
-        if (Array.isArray(rec.images)) {
-          rec.images = rec.images.map((img: any) => {
-            const keyRaw = img?.key || null
-            // Normalize stored key/basePath to canonical basePath
-            const basePath = normalizeRecipeBasePath(keyRaw, env) || null
-            const resp = responsiveImageForUsage(basePath || keyRaw || null, 'recipe', env.IMAGES_DOMAIN)
-            const width = typeof img.width !== 'undefined' ? img.width : null
-            const height = typeof img.height !== 'undefined' ? img.height : null
-            const aspect = (width && height) ? (width / height) : (img.aspect || null)
-            return {
-              id: img.id || null,
-              recipeId: img.recipe_id || null,
-              role: img.role || null,
-              src: resp.src || null,
-              srcSet: resp.srcSet || null,
-              width: width,
-              height: height,
-              aspect: aspect,
-              caption: img.caption || null,
-            }
+        // Build `images` from legacy `recipe_image_keys` (treat as canonical basePath)
+        try {
+          const keys = Array.isArray(rec.recipe_image_keys) ? rec.recipe_image_keys : []
+          rec.images = keys.map((k: any) => {
+            const keyStr = k ? String(k) : null
+            const basePath = normalizeRecipeBasePath(keyStr, env) || keyStr
+            const resp = responsiveImageForUsage(basePath || null, 'recipe', env.IMAGES_DOMAIN)
+            return { src: resp.src || null, srcSet: resp.srcSet || null }
           })
-        } else {
+        } catch {
           rec.images = []
         }
 
