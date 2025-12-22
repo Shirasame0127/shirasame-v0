@@ -1,5 +1,6 @@
 import { getSupabase } from '../../supabase'
 import { getPublicImageUrl, responsiveImageForUsage } from '../../../../shared/lib/image-usecases'
+import { normalizePin } from '../../../../shared/normalize/normalizePin'
 import { getPublicOwnerUserId } from '../../utils/public-owner'
 
 function deriveBasePathFromUrl(urlOrKey?: string | null, env?: any): string | null {
@@ -81,22 +82,30 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
         const rec: any = Object.assign({}, r)
         // Build `images` from legacy `recipe_image_keys` (treat as canonical basePath)
         try {
-          const keys = Array.isArray(rec.recipe_image_keys) ? rec.recipe_image_keys : []
+          let keys: any[] = []
+          if (Array.isArray(rec.recipe_image_keys)) keys = rec.recipe_image_keys
+          else if (typeof rec.recipe_image_keys === 'string') {
+            try { keys = JSON.parse(rec.recipe_image_keys) } catch { keys = [] }
+          }
           rec.images = keys.map((k: any) => {
             const keyStr = k ? String(k) : null
             const basePath = normalizeRecipeBasePath(keyStr, env) || keyStr
             const resp = responsiveImageForUsage(basePath || null, 'recipe', env.IMAGES_DOMAIN)
-            return { src: resp.src || null, srcSet: resp.srcSet || null }
+            const publicUrl = resp.src || getPublicImageUrl(basePath || keyStr || null, env.IMAGES_DOMAIN)
+            const w = typeof rec.image_width !== 'undefined' && rec.image_width !== null ? rec.image_width : null
+            const h = typeof rec.image_height !== 'undefined' && rec.image_height !== null ? rec.image_height : null
+            return { key: keyStr, url: publicUrl || null, width: w, height: h }
           })
         } catch {
           rec.images = []
         }
 
         // Attach pins from the separate fetch (fallback to joined value if present)
-        if (Array.isArray(r.pins) && r.pins.length > 0) {
-          rec.pins = r.pins
-        } else {
-          rec.pins = Array.isArray(pinsMap[rec.id]) ? pinsMap[rec.id] : []
+        try {
+          const fromJoin = Array.isArray(r.pins) && r.pins.length > 0 ? r.pins : (Array.isArray(pinsMap[rec.id]) ? pinsMap[rec.id] : [])
+          rec.pins = Array.isArray(fromJoin) ? fromJoin.map((p: any) => normalizePin(p)) : []
+        } catch {
+          rec.pins = []
         }
 
         out.push(rec)
