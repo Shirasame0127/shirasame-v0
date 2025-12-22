@@ -1000,7 +1000,12 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
             showPrice: p.show_price,
             notes: p.notes,
             relatedLinks: p.related_links,
-            images: Array.isArray(p.images) ? p.images.map((img: any) => ({ id: img.id, productId: img.product_id, url: getPublicImageUrl(img.key, c.env.IMAGES_DOMAIN) || img.url || null, key: img.key ?? null, width: img.width, height: img.height, aspect: img.aspect, role: img.role })) : [],
+            images: Array.isArray(p.images) ? p.images.map((img: any) => {
+              const rawKey = img.key || img.url || null
+              const normKey = (function(k: any){ try { if (!k) return null; let s = String(k).replace(/^\/+/, ''); if (s.startsWith('images/')) s = s.slice('images/'.length); const bucket = String(c.env?.R2_BUCKET || ''); if (bucket && s.startsWith(`${bucket}/`)) s = s.slice(bucket.length + 1); s = s.replace(/\/+/g, '/'); return s || null } catch { return null } })(rawKey)
+              const resp = responsiveImageForUsage(normKey || img.url || null, 'list', c.env.IMAGES_DOMAIN)
+              return ({ id: img.id, productId: img.product_id, url: resp.src || img.url || null, srcSet: resp.srcSet || null, width: img.width, height: img.height, aspect: img.aspect, role: img.role })
+            }) : [],
             affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : [],
           })),
         }
