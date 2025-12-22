@@ -14,6 +14,17 @@ export function registerPublicRoutes(app: any) {
   app.get('/api/public/site-settings', siteSettingsHandler)
   app.get('/api/public/profile', profileHandler)
   app.get('/api/public/products', productsHandler)
+  app.get('/api/public/owner-products', async (c: any) => {
+    try {
+      const { fetchPublicOwnerProducts } = await import('../../services/public/products')
+      const res = await fetchPublicOwnerProducts(c.env)
+      const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ data: res.data || [] }), { headers })
+    } catch (e: any) {
+      const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ data: [] }), { status: 500, headers })
+    }
+  })
   app.get('/api/public/collections', collectionsHandler)
   app.get('/api/public/recipes', recipesHandler)
   app.get('/api/public/tag-groups', tagGroupsHandler)

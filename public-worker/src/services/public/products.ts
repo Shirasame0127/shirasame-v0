@@ -156,3 +156,44 @@ export async function fetchPublicProducts(env: any, params: { limit?: number | n
     return { data: [], meta: undefined }
   }
 }
+
+export async function fetchPublicOwnerProducts(env: any) {
+  const ownerId = getPublicOwnerUserId(env)
+  if (!ownerId) return { data: [] }
+  const supabase = getSupabase(env)
+  try {
+    const select = 'id,slug,title,short_description,tags,price,show_price,main_image_key,attachment_image_keys,created_at,updated_at'
+    const res = await supabase.from('products').select(select).eq('user_id', ownerId).eq('published', true).order('updated_at', { ascending: false })
+    const rows = res.data || []
+    const out = (rows || []).map((p: any) => {
+      try {
+        const mainKey = normalizeRawKey(p.main_image_key || p.mainImageKey || null, env)
+        const mainResp = mainKey ? responsiveImageForUsage(mainKey, 'list', env.IMAGES_DOMAIN) : null
+        const attachmentKeys = parseKeysField(p.attachment_image_keys || p.attachmentImageKeys || null)
+        const attachment_images = attachmentKeys.map((kraw: any) => {
+          const k = normalizeRawKey(kraw, env)
+          const r = responsiveImageForUsage(k, 'list', env.IMAGES_DOMAIN)
+          return { src: r?.src || null, srcSet: r?.srcSet || null }
+        }).filter((a: any) => a && a.src)
+        return {
+          id: p.id || null,
+          slug: p.slug || null,
+          title: p.title || null,
+          short_description: p.short_description || null,
+          tags: p.tags || null,
+          price: typeof p.price !== 'undefined' ? p.price : null,
+          show_price: typeof p.show_price !== 'undefined' ? p.show_price : null,
+          main_image: mainResp ? { src: mainResp.src || null, srcSet: mainResp.srcSet || null } : null,
+          attachment_images,
+          created_at: p.created_at || null,
+          updated_at: p.updated_at || null,
+        }
+      } catch (e) {
+        return { id: p.id || null }
+      }
+    })
+    return { data: out }
+  } catch (e) {
+    return { data: [] }
+  }
+}
