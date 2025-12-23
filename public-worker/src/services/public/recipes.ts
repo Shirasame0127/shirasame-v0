@@ -103,7 +103,39 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
         // Attach pins from the separate fetch (fallback to joined value if present)
         try {
           const fromJoin = Array.isArray(r.pins) && r.pins.length > 0 ? r.pins : (Array.isArray(pinsMap[rec.id]) ? pinsMap[rec.id] : [])
-          rec.pins = Array.isArray(fromJoin) ? fromJoin.map((p: any) => normalizePin(p)) : []
+          // Transform raw DB pin rows into public-facing DTO with camelCase keys
+          const transformPin = (p: any) => {
+            try {
+              const id = p.id != null ? String(p.id) : ''
+              const productId = p.product_id ?? p.productId ?? null
+              const toNumber = (v: any, fallback: number | null = null) => {
+                if (v === null || typeof v === 'undefined' || v === '') return fallback
+                const n = Number(v)
+                return Number.isFinite(n) ? n : fallback
+              }
+              const dotX = toNumber(p.dot_x_percent ?? p.dot_x ?? p.dotX ?? null, 0)
+              const dotY = toNumber(p.dot_y_percent ?? p.dot_y ?? p.dotY ?? null, 0)
+              const tagX = toNumber(p.tag_x_percent ?? p.tag_x ?? p.tagX ?? null, null)
+              const tagY = toNumber(p.tag_y_percent ?? p.tag_y ?? p.tagY ?? null, null)
+              const dotSizePercent = toNumber(p.dot_size_percent ?? p.dot_size ?? p.dotSizePercent ?? 1, 1)
+              return {
+                id,
+                productId: productId || null,
+                dotX,
+                dotY,
+                dotSizePercent,
+                tagX: tagX === null ? undefined : tagX,
+                tagY: tagY === null ? undefined : tagY,
+                tagText: p.tag_display_text ?? p.tag_text ?? null,
+                dotColor: p.dot_color ?? null,
+                tagBackgroundColor: p.tag_background_color ?? null,
+              }
+            } catch (e) {
+              return null
+            }
+          }
+
+          rec.pins = Array.isArray(fromJoin) ? fromJoin.map((p: any) => transformPin(p)).filter(Boolean) : []
         } catch {
           rec.pins = []
         }
