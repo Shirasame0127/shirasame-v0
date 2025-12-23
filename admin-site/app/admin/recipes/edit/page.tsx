@@ -10,7 +10,6 @@ import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { db } from "@/lib/db/storage"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   ArrowLeft,
   Check,
@@ -76,14 +75,6 @@ function ensureImageKey(imgOrUrl: any): string | null {
     return null
   }
 }
-// 画像がまだ無いときのフォールバック比率（デフォルト: 横長 4:3）
-const DEFAULT_STAGE_ASPECT_RATIO = 4 / 3
-// レイアウト比: mobile は grid の行比、desktop は flex の比率
-// ここを変更すると即座に画像エリアとプロパティパネルの比率が変わります。
-const LAYOUT_RATIOS = {
-  mobile: { imageRow: 5, panelRow: 4, panelMinPercent: 44 },
-  desktop: { imageFlex: 5, panelFlex: 4, panelMinPercent: 44 },
-} as const
 // ===========================
 // 型定義: Pinオブジェクトの構造
 // ===========================
@@ -258,7 +249,6 @@ export default function RecipeEditPage() {
   async function handleUploadCompleteKey(key?: string, uploadedAspectRatio?: number) {
     if (!key) return
     try {
-      try { console.debug('[handleUploadCompleteKey] called', { key, uploadedAspectRatio }) } catch (e) {}
       const existing = Array.isArray(recipeImageKeys) ? recipeImageKeys : []
       const alreadyHad = existing.includes(key)
       const merged = Array.from(new Set([...existing, key]))
@@ -312,15 +302,11 @@ export default function RecipeEditPage() {
                     const shouldPersist = !alreadyHad || (alreadyHad && typeof uploadedAspectRatio === 'number' && !Number.isNaN(uploadedAspectRatio))
                     if (shouldPersist) {
                       try {
-                        try { console.debug('[handleUploadCompleteKey] persisting', { toPatch, pinsPayload, recipeId }) } catch (e) {}
                         await RecipesService.update(recipeId, { ...toPatch, pins: pinsPayload })
                       } catch (e) {
                         try {
                           await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...toPatch, pins: pinsPayload }) })
-                        } catch (e2) {
-                          try { console.error('[handleUploadCompleteKey] failed to persist via apiFetch', e2) } catch (e3) {}
-                        }
-                        try { console.error('[handleUploadCompleteKey] RecipesService.update failed', e) } catch (e4) {}
+                        } catch (e2) {}
                       }
                     }
                   } catch (e) {}
