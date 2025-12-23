@@ -75,17 +75,6 @@ function ensureImageKey(imgOrUrl: any): string | null {
     return null
   }
 }
-import { Label } from "@/components/ui/label"
-
-const DEFAULT_STAGE_ASPECT_RATIO = 3 / 2 // 画像がまだ無いときのフォールバック比率
-// レイアウト比: mobile は grid の行比、desktop は flex の比率
-// ここを変更すると即座に画像エリアとプロパティパネルの比率が変わります。
-// 要望に合わせて image : panel を 5:4 に設定しています。
-const LAYOUT_RATIOS = {
-  mobile: { imageRow: 5, panelRow: 4, panelMinPercent: 44 },
-  desktop: { imageFlex: 5, panelFlex: 4, panelMinPercent: 44 },
-} as const
-
 // ===========================
 // 型定義: Pinオブジェクトの構造
 // ===========================
@@ -257,16 +246,16 @@ export default function RecipeEditPage() {
   }, [recipeId])
 
   // Handle upload completion from ImageUpload dialog: append key to recipes.recipe_image_keys
-  async function handleUploadCompleteKey(key?: string) {
+  async function handleUploadCompleteKey(key?: string, uploadedAspectRatio?: number) {
     if (!key) return
     try {
+      try { console.debug('[handleUploadCompleteKey] called', { key, uploadedAspectRatio }) } catch (e) {}
       const existing = Array.isArray(recipeImageKeys) ? recipeImageKeys : []
-      if (existing.includes(key)) {
-        return
-      }
+      const alreadyHad = existing.includes(key)
       const merged = Array.from(new Set([...existing, key]))
       // Update local state with the new key; do not persist recipe meta until image natural size is known
       setRecipeImageKeys(merged)
+
       try {
         const cdn = getPublicImageUrl(key)
         if (cdn) {
@@ -280,23 +269,50 @@ export default function RecipeEditPage() {
                   try {
                     const w = img.naturalWidth || null
                     const h = img.naturalHeight || null
+
+                    // Prepare patch payload
+                    const toPatch: any = { recipe_image_keys: merged }
                     if (w && h) {
                       setImageWidth(w)
                       setImageHeight(h)
+                      toPatch.image_width = w
+                      toPatch.image_height = h
+                    }
+
+                    // Prefer explicit uploadedAspectRatio when provided
+                    if (typeof uploadedAspectRatio === 'number' && !Number.isNaN(uploadedAspectRatio)) {
+                      toPatch.aspect_ratio = Number(uploadedAspectRatio)
+                    } else if (h && w) {
+                      toPatch.aspect_ratio = w / h
+                    } else {
+                      // Fallback default to avoid null
                       try {
-                        const aspect = h ? (w / h) : null
-                        const toPatch: any = { recipe_image_keys: merged, image_width: w, image_height: h }
-                        if (aspect) toPatch.aspect_ratio = aspect
-                        // Ensure pins is always an array
-                        const pinsPayload = Array.isArray(pins) ? pins : []
+                        toPatch.aspect_ratio = DEFAULT_STAGE_ASPECT_RATIO
+                      } catch (e) {
+                        // If DEFAULT_STAGE_ASPECT_RATIO is not available for any reason,
+                        // avoid throwing and leave aspect_ratio unset so server won't overwrite.
+                      }
+                    }
+
+                    // Ensure pins is always an array
+                    const pinsPayload = Array.isArray(pins) ? pins : []
+
+                    // Persist only when:
+                    // - this is a new key (not alreadyHad) OR
+                    // - we already had the key but now received an explicit numeric aspect to update
+                    const shouldPersist = !alreadyHad || (alreadyHad && typeof uploadedAspectRatio === 'number' && !Number.isNaN(uploadedAspectRatio))
+                    if (shouldPersist) {
+                      try {
+                        try { console.debug('[handleUploadCompleteKey] persisting', { toPatch, pinsPayload, recipeId }) } catch (e) {}
+                        await RecipesService.update(recipeId, { ...toPatch, pins: pinsPayload })
+                      } catch (e) {
                         try {
-                          await RecipesService.update(recipeId, { ...toPatch, pins: pinsPayload })
-                        } catch (e) {
-                          try {
-                            await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...toPatch, pins: pinsPayload }) })
-                          } catch (e2) {}
+                          await apiFetch(`/api/admin/recipes/${encodeURIComponent(recipeId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...toPatch, pins: pinsPayload }) })
+                        } catch (e2) {
+                          try { console.error('[handleUploadCompleteKey] failed to persist via apiFetch', e2) } catch (e3) {}
                         }
-                      } catch (e) {}
+                        try { console.error('[handleUploadCompleteKey] RecipesService.update failed', e) } catch (e4) {}
+                      }
                     }
                   } catch (e) {}
                   resolve()
@@ -1691,7 +1707,7 @@ export default function RecipeEditPage() {
             </DialogHeader>
             <div className="py-2">
               <p className="text-sm text-muted-foreground mb-3">このレシピにはまだ画像が登録されていません。ここで画像をアップロードしてください。</p>
-              <ImageUpload open={showUploadModal} onOpenChange={setShowUploadModal} aspectRatioType="recipe" onUploadComplete={(k) => handleUploadCompleteKey(k)} onChange={() => { }} />
+              <ImageUpload open={showUploadModal} onOpenChange={setShowUploadModal} aspectRatioType="recipe" onUploadComplete={(k, aspect) => handleUploadCompleteKey(k, aspect)} onChange={() => { }} />
             </div>
             <div className="flex justify-end mt-3">
               <Button variant="outline" onClick={() => setShowUploadModal(false)}>閉じる</Button>

@@ -125,17 +125,56 @@ app.use('/api/*', async (c, next) => {
 })
 
 // Admin: toggle / set published state for a product (called from admin UI toggle)
-app.put('/api/admin/products/*/published', async (c) => {
-  try {
-    const supabase = getSupabase(c.env)
-    try {
-      const maybeToken = await getTokenFromRequest(c)
-      if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
-        try { supabase.auth.setAuth(maybeToken) } catch (e) {}
+      if (upsertRes.ok) {
+        const inserted = await upsertRes.json().catch(() => [])
+        if (Array.isArray(inserted) && inserted.length > 0) {
+          await tryAssignProfile(key)
+          await tryAppendHeaderKey(key)
+          await tryAssignRecipeKey(key)
+          const base = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=60' }
+          const merged = Object.assign({}, completeCorsBase, base)
+          return new Response(JSON.stringify({ key, publicUrl: publicUrlForKey, inserted: inserted }), { status: 200, headers: merged })
+        }
+
+        // Insert returned empty -> existing row already present. If we received
+        // metadata (e.g. aspect) in this request, attempt to PATCH the existing
+        // images row to include missing metadata. This ensures clients that
+        // retry / complete with additional metadata still persist it.
+        try {
+          if (Object.keys(metadata || {}).length > 0) {
+            try {
+              const fetchUrl = `${supabaseUrl}/rest/v1/images?select=metadata&key=eq.${encodeURIComponent(key)}`
+              const getRes = await fetch(fetchUrl, { method: 'GET', headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } })
+              if (getRes.ok) {
+                const rows = await getRes.json().catch(() => null)
+                if (Array.isArray(rows) && rows.length > 0) {
+                  const existingMetadata = rows[0]?.metadata || null
+                  let mergedMetadata: any = {}
+                  try {
+                    mergedMetadata = existingMetadata && typeof existingMetadata === 'object' ? Object.assign({}, existingMetadata) : {}
+                  } catch (e) { mergedMetadata = {} }
+                  // Merge incoming metadata keys (do not remove existing keys)
+                  for (const k in metadata) {
+                    if (Object.prototype.hasOwnProperty.call(metadata, k)) mergedMetadata[k] = metadata[k]
+                  }
+
+                  const patchUrl = `${supabaseUrl}/rest/v1/images?key=eq.${encodeURIComponent(key)}`
+                  const patchRes = await fetch(patchUrl, {
+                    method: 'PATCH',
+                    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+                    body: JSON.stringify({ metadata: mergedMetadata })
+                  })
+                  if (!patchRes.ok) {
+                    try { console.warn('[images/complete] failed to patch existing images.metadata', await patchRes.text().catch(() => '')) } catch(e){}
+                  }
+                }
+              }
+            } catch (e) {
+              try { console.warn('[images/complete] metadata merge fetch/patch failed', String(e)) } catch(e){}
+            }
+          }
+        } catch (e) { /* best-effort */ }
       }
-    } catch (e) {}
-    try {
-      const maybeToken = await getTokenFromRequest(c)
       if (!((c.env as any).SUPABASE_SERVICE_ROLE_KEY) && maybeToken) {
         try { supabase.auth.setAuth(maybeToken) } catch (e) {}
       }

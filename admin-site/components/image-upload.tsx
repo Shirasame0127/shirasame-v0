@@ -78,7 +78,8 @@ interface ImageUploadProps {
   open?: boolean
   onOpenChange?: (open: boolean) => void
   // onUploadComplete provides the canonical image KEY (R2/Supabase key). Not a URL.
-  onUploadComplete?: (fileKey?: string) => void
+  // Second optional argument: numeric aspect ratio (width/height) selected in cropper
+  onUploadComplete?: (fileKey?: string, aspectRatio?: number) => void
 }
 
 export function ImageUpload({
@@ -527,8 +528,22 @@ export function ImageUpload({
             }
           }
 
-          // Only report canonical R2 key to callers (key-only policy).
-          if (onUploadComplete) onUploadComplete(uploadedKey || undefined)
+          try {
+            // Convert aspect string like "16:9" to numeric ratio if provided
+            const parseAspect = (s?: string) => {
+              if (!s) return undefined
+              const parts = String(s).split(":")
+              if (parts.length !== 2) return undefined
+              const a = Number(parts[0])
+              const b = Number(parts[1])
+              if (!a || !b) return undefined
+              return a / b
+            }
+            const numericAspect = parseAspect(aspectString) || parseAspect(selectedAspect)
+            if (onUploadComplete) onUploadComplete(uploadedKey || undefined, numericAspect)
+          } catch (e) {
+            if (onUploadComplete) onUploadComplete(uploadedKey || undefined)
+          }
         } catch (e) {
           console.error('upload failed', e)
           // Keep local preview visible as a fallback so the editor doesn't go blank
