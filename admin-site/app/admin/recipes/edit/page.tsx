@@ -10,6 +10,7 @@ import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { db } from "@/lib/db/storage"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   ArrowLeft,
   Check,
@@ -75,6 +76,14 @@ function ensureImageKey(imgOrUrl: any): string | null {
     return null
   }
 }
+// 画像がまだ無いときのフォールバック比率（デフォルト: 横長 4:3）
+const DEFAULT_STAGE_ASPECT_RATIO = 4 / 3
+// レイアウト比: mobile は grid の行比、desktop は flex の比率
+// ここを変更すると即座に画像エリアとプロパティパネルの比率が変わります。
+const LAYOUT_RATIOS = {
+  mobile: { imageRow: 5, panelRow: 4, panelMinPercent: 44 },
+  desktop: { imageFlex: 5, panelFlex: 4, panelMinPercent: 44 },
+} as const
 // ===========================
 // 型定義: Pinオブジェクトの構造
 // ===========================
