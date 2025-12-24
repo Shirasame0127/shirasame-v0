@@ -747,7 +747,7 @@ export default function HomePage() {
                   const sale = saleNameFor(product.id)
                   const sizes = "(max-width: 768px) 100vw, 400px"
                   // prefer top-level main_image, fallback to legacy images
-                  const mainTop = product.main_image && typeof product.main_image === 'object' ? product.main_image : null
+                  const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
                   const img0: any = product.images?.[0] || null
                   const mainLegacyUrl = img0?.url || null
                   const src = mainTop?.src || mainLegacyUrl || '/placeholder.svg'
@@ -770,7 +770,7 @@ export default function HomePage() {
                 {filteredAndSortedProducts.map((product) => {
                   const sale = saleNameFor(product.id)
                   const sizes = "(max-width: 768px) 100vw, 400px"
-                  const mainTop = product.main_image && typeof product.main_image === 'object' ? product.main_image : null
+                  const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
                   const img0: any = product.images?.[0] || null
                   const mainLegacyUrl = img0?.url || null
                   const src = mainTop?.src || mainLegacyUrl || '/placeholder.svg'

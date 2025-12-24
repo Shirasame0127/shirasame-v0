@@ -64,8 +64,9 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
         const pinsRes = await supabase.from('recipe_pins').select('*').in('recipe_id', recipeIds)
         const pinsData: any[] = pinsRes.data || []
         pinsMap = pinsData.reduce((acc: Record<string, any[]>, p: any) => {
-          const rid = p.recipe_id || p.recipeId || null
-          if (!rid) return acc
+          const ridRaw = p.recipe_id ?? p.recipeId ?? null
+          if (!ridRaw) return acc
+          const rid = String(ridRaw)
           if (!acc[rid]) acc[rid] = []
           acc[rid].push(p)
           return acc
@@ -108,29 +109,78 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
             try {
               const id = p.id != null ? String(p.id) : ''
               const productId = p.product_id ?? p.productId ?? null
+              const userId = p.user_id ?? p.userId ?? null
               const toNumber = (v: any, fallback: number | null = null) => {
                 if (v === null || typeof v === 'undefined' || v === '') return fallback
                 const n = Number(v)
                 return Number.isFinite(n) ? n : fallback
               }
-              const dotX = toNumber(p.dot_x_percent ?? p.dot_x ?? p.dotX ?? null, 0)
-              const dotY = toNumber(p.dot_y_percent ?? p.dot_y ?? p.dotY ?? null, 0)
-              const tagX = toNumber(p.tag_x_percent ?? p.tag_x ?? p.tagX ?? null, null)
-              const tagY = toNumber(p.tag_y_percent ?? p.tag_y ?? p.tagY ?? null, null)
-              const dotSizePercent = toNumber(p.dot_size_percent ?? p.dot_size ?? p.dotSizePercent ?? 1, 1)
-              return {
+
+              // required numeric coords (default 0)
+              const dotX = toNumber(p.dot_x_percent ?? p.dot_x ?? p.dotX ?? null, 0) as number
+              const dotY = toNumber(p.dot_y_percent ?? p.dot_y ?? p.dotY ?? null, 0) as number
+
+              // optional numeric fields
+              const tagXn = toNumber(p.tag_x_percent ?? p.tag_x ?? p.tagX ?? null, null)
+              const tagYn = toNumber(p.tag_y_percent ?? p.tag_y ?? p.tagY ?? null, null)
+              const dotSizeN = toNumber(p.dot_size_percent ?? p.dot_size ?? p.dotSizePercent ?? null, null)
+              const tagFontSizeN = toNumber(p.tag_font_size_percent ?? p.tag_font_size ?? null, null)
+              const lineWidthN = toNumber(p.line_width_percent ?? p.line_width ?? p.lineWidthPercent ?? null, null)
+              const tagPadXN = toNumber(p.tag_padding_x_percent ?? p.tag_padding_x ?? null, null)
+              const tagPadYN = toNumber(p.tag_padding_y_percent ?? p.tag_padding_y ?? null, null)
+              const tagBorderRadiusN = toNumber(p.tag_border_radius_percent ?? p.tag_border_radius_percent ?? null, null)
+              const tagBorderWidthN = toNumber(p.tag_border_width_percent ?? p.tag_border_width_percent ?? null, null)
+              const tagBgOpacityN = toNumber(p.tag_background_opacity ?? p.tag_background_opacity ?? null, null)
+
+              // string fields
+              const tagDisplayTextRaw = p.tag_display_text ?? p.tag_display_text ?? undefined
+              const tagTextRaw = p.tag_text ?? undefined
+              const dotColorRaw = p.dot_color ?? undefined
+              const dotShapeRaw = p.dot_shape ?? undefined
+              const tagFontFamilyRaw = p.tag_font_family ?? undefined
+              const tagFontWeightRaw = p.tag_font_weight ?? undefined
+              const tagTextColorRaw = p.tag_text_color ?? undefined
+              const tagTextShadowRaw = p.tag_text_shadow ?? undefined
+              const tagBgRaw = p.tag_background_color ?? undefined
+              const tagBorderColorRaw = p.tag_border_color ?? undefined
+              const tagShadowRaw = p.tag_shadow ?? undefined
+              const lineTypeRaw = p.line_type ?? undefined
+
+              const out: any = {
                 id,
                 productId: productId || null,
+                userId: userId || null,
                 dotX,
                 dotY,
-                dotSizePercent,
-                tagX: tagX === null ? undefined : tagX,
-                tagY: tagY === null ? undefined : tagY,
-                tagText: p.tag_display_text ?? p.tag_text ?? null,
-                dotColor: p.dot_color ?? null,
-                tagBackgroundColor: p.tag_background_color ?? null,
               }
+
+              if (dotSizeN !== null) out.dotSizePercent = dotSizeN
+              if (tagXn !== null) out.tagX = tagXn
+              if (tagYn !== null) out.tagY = tagYn
+              if (tagFontSizeN !== null) out.tagFontSizePercent = tagFontSizeN
+              if (lineWidthN !== null) out.lineWidthPercent = lineWidthN
+              if (tagPadXN !== null) out.tagPaddingXPercent = tagPadXN
+              if (tagPadYN !== null) out.tagPaddingYPercent = tagPadYN
+              if (tagBorderRadiusN !== null) out.tagBorderRadiusPercent = tagBorderRadiusN
+              if (tagBorderWidthN !== null) out.tagBorderWidthPercent = tagBorderWidthN
+              if (tagBgOpacityN !== null) out.tagBackgroundOpacity = tagBgOpacityN
+
+              if (typeof tagDisplayTextRaw === 'string' && tagDisplayTextRaw !== '') out.tagDisplayText = tagDisplayTextRaw
+              if (typeof tagTextRaw === 'string' && tagTextRaw !== '') out.tagText = tagTextRaw
+              if (typeof dotColorRaw === 'string' && dotColorRaw !== '') out.dotColor = dotColorRaw
+              if (typeof dotShapeRaw === 'string' && dotShapeRaw !== '') out.dotShape = dotShapeRaw
+              if (typeof tagFontFamilyRaw === 'string' && tagFontFamilyRaw !== '') out.tagFontFamily = tagFontFamilyRaw
+              if (typeof tagFontWeightRaw === 'string' && tagFontWeightRaw !== '') out.tagFontWeight = tagFontWeightRaw
+              if (typeof tagTextColorRaw === 'string' && tagTextColorRaw !== '') out.tagTextColor = tagTextColorRaw
+              if (typeof tagTextShadowRaw === 'string' && tagTextShadowRaw !== '') out.tagTextShadow = tagTextShadowRaw
+              if (typeof tagBgRaw === 'string' && tagBgRaw !== '') out.tagBackgroundColor = tagBgRaw
+              if (typeof tagBorderColorRaw === 'string' && tagBorderColorRaw !== '') out.tagBorderColor = tagBorderColorRaw
+              if (typeof tagShadowRaw === 'string' && tagShadowRaw !== '') out.tagShadow = tagShadowRaw
+              if (typeof lineTypeRaw === 'string' && lineTypeRaw !== '') out.lineType = lineTypeRaw
+
+              return out
             } catch (e) {
+              try { console.warn('[DBG] transformPin error', String(e)) } catch {}
               return null
             }
           }

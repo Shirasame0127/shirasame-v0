@@ -9,12 +9,12 @@ interface ProductCardSimpleProps { product: Product; onClick: () => void; saleNa
 export function ProductCardSimple({ product, onClick, saleName }: ProductCardSimpleProps) {
   const sizes = "(max-width: 768px) 100vw, 400px"
   // Prefer top-level `main_image` from owner-products API; fallback to legacy product.images
-  const mainTop = product.main_image && typeof product.main_image === 'object' ? product.main_image : null
+  const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
   const images = Array.isArray(product.images) ? product.images : []
   const mainLegacy = images.find((img) => img?.role === "main") || images[0] || null
 
   const src = mainTop?.src || mainLegacy?.url || '/placeholder.svg'
-  const srcSet = mainTop?.srcSet || (mainLegacy && (mainLegacy.srcSet || mainLegacy.src)) || null
+  const srcSet = (mainTop as any)?.srcSet || (mainLegacy && ((mainLegacy as any).srcSet || (mainLegacy as any).src)) || null
 
   return (
     <button onClick={onClick} className="group block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-lg">
