@@ -8,6 +8,7 @@ import EmbeddedLink from './embedded-link'
 import Image from "next/image"
 
 import { useEffect, useRef, useState } from "react"
+import { responsiveImageForUsage } from '@/lib/image-url'
 
 
 interface ProductDetailModalProps {
@@ -96,13 +97,21 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
 
         <div ref={leftImageRef} className={leftImageClassName}>
             <div className={innerImageClassName}>
-            {
-              (() => {
-                const src = mainImage?.src || "/placeholder.svg"
-                const srcSet = mainImage?.srcSet || undefined
-                return <img src={src} srcSet={srcSet} alt={product.title || '商品画像'} className="w-full h-full object-cover" />
-              })()
-            }
+                {
+                  (() => {
+                    const domain = (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN as string) || 'https://images.shirasame.com'
+                    let displaySrc = mainImage?.src || "/placeholder.svg"
+                    let displaySrcSet = mainImage?.srcSet || undefined
+                    try {
+                      if (displaySrc && !String(displaySrc).startsWith('data:')) {
+                        const ri = responsiveImageForUsage(String(mainImage?.src || ''), 'detail', domain)
+                        if (ri.src) displaySrc = ri.src
+                        if (ri.srcSet) displaySrcSet = ri.srcSet || displaySrcSet
+                      }
+                    } catch {}
+                    return <img src={displaySrc} srcSet={displaySrcSet} alt={product.title || '商品画像'} className="w-full h-full object-cover" />
+                  })()
+                }
             {saleName && (
               <div className="absolute left-3 top-3 z-10">
                 <span className="inline-flex items-center rounded-full bg-pink-600 text-white text-[11px] font-semibold px-2 py-0.5 shadow-sm">
@@ -197,9 +206,17 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                     <div key={`${product.id ?? 'p'}-att-${idx}`} className="relative aspect-square rounded-md overflow-hidden bg-white dark:bg-slate-800 shadow-sm">
                       {
                         (() => {
-                          const src = img?.src || "/placeholder.svg"
-                          const srcSet = img?.srcSet || undefined
-                          return <img src={src} srcSet={srcSet} alt={`添付画像 ${idx + 1}`} className="w-full h-full object-cover" />
+                          const domain = (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN as string) || 'https://images.shirasame.com'
+                          let displaySrc = img?.src || "/placeholder.svg"
+                          let displaySrcSet = img?.srcSet || undefined
+                          try {
+                            if (displaySrc && !String(displaySrc).startsWith('data:')) {
+                              const ri = responsiveImageForUsage(String(img?.src || ''), 'attachment', domain)
+                              if (ri.src) displaySrc = ri.src
+                              if (ri.srcSet) displaySrcSet = ri.srcSet || displaySrcSet
+                            }
+                          } catch {}
+                          return <img src={displaySrc} srcSet={displaySrcSet} alt={`添付画像 ${idx + 1}`} className="w-full h-full object-cover" />
                         })()
                       }
                     </div>
