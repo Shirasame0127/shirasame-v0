@@ -822,6 +822,7 @@ export default function ProductEditPageQuery() {
                 open={addUploadOpen}
                 onOpenChange={setAddUploadOpen}
                 aspectRatioType="product"
+                onChange={() => { /* noop: handled by onUploadComplete */ }}
                 onUploadComplete={(key) => {
                   if (!key) return
                   setAttachmentSlots((prev) => {
@@ -842,6 +843,7 @@ export default function ProductEditPageQuery() {
                   if (!v) setReplaceIndex(null)
                 }}
                 aspectRatioType="product"
+                onChange={() => { /* noop: handled by onUploadComplete */ }}
                 onUploadComplete={(key) => {
                   if (!key || replaceIndex === null) return
                   const idx = replaceIndex

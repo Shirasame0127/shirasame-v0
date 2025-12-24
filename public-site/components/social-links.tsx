@@ -65,7 +65,7 @@ export function SocialLinks({ links, className }: Props) {
         const key = link.platform || String(index)
         const cfg = getIconAndColor(key)
         const isLastAndOdd = arr.length % 2 !== 0 && index === arr.length - 1
-        const displayName = link.username || cfg.name || key
+        const displayName = link.username || key
         return (
           <Link key={key} href={link.url} target="_blank" rel="noopener noreferrer" className={cn(isLastAndOdd ? 'col-span-2' : '', 'group')}> 
             <Card className={`px-3 py-2 transition-all ${cfg.color} h-full rounded-b-2xl border border-gray-200 bg-white shadow-sm`}> 
