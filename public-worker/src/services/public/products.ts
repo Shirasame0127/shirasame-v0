@@ -79,7 +79,7 @@ export async function fetchPublicProducts(env: any, params: { limit?: number | n
   try {
     const { limit = null, offset = 0, shallow = false, count = false } = params || {}
     const selectShallow = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,main_image_key,attachment_image_keys,images:product_images(id,product_id,key,width,height,role)'
-    const selectFull = '*,main_image_key,attachment_image_keys,images:product_images(id,product_id,key,width,height,role),related_links,notes,show_price,affiliate_links'
+    const selectFull = '*,body,main_image_key,attachment_image_keys,images:product_images(id,product_id,key,width,height,role),related_links,notes,show_price,affiliate_links'
 
     if (count) {
       if (!limit || limit === 0) {
@@ -181,6 +181,7 @@ export async function fetchPublicProducts(env: any, params: { limit?: number | n
         try { p.shortDescription = p.short_description ?? null } catch {}
         try { p.relatedLinks = p.related_links ?? null } catch {}
         try { p.showPrice = typeof p.show_price !== 'undefined' ? p.show_price : null } catch {}
+        try { p.body = p.body ?? null } catch {}
         // Remove any raw key fields to avoid exposing storage keys and strip internal timestamps
         delete p.main_image_key; delete p.mainImageKey; delete p.attachment_image_keys; delete p.attachmentImageKeys
         try { delete p.created_at; delete p.updated_at } catch {}
