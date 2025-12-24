@@ -1,6 +1,12 @@
 @import "tailwindcss";
 
 :root {
+  /* Font variables (fallbacks included). Ensure fonts are loaded elsewhere or via CDN if needed */
+  --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+  --font-heading: 'Oswald', 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto;
+
+  --font-size-base: 1rem;
   --background: oklch(0.99 0.002 264);
   --foreground: oklch(0.15 0.01 264);
   --card: oklch(1 0 0);
@@ -47,5 +53,7 @@
 
 @layer base {
   * { border-color: var(--border); }
-  body { background-color: var(--background); color: var(--foreground); }
+  body { background-color: var(--background); color: var(--foreground); font-family: var(--font-sans); }
+  code, pre, kbd, samp { font-family: var(--font-mono); }
+  h1,h2,h3,h4,h5,h6 { font-family: var(--font-heading), var(--font-sans); }
 }
