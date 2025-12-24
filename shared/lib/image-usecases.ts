@@ -114,7 +114,7 @@ export function buildResizedImageUrl(raw?: string | null, opts?: { width?: numbe
     try {
       if ((base as string).startsWith('http')) return base
     } catch {}
-    const imagesRoot = getEnvImagesDomain(domainOverride)
+    const imagesRoot = getEnvImagesDomain(domainOverride ?? undefined)
     if (imagesRoot) return `${imagesRoot}/${String(base).replace(/^\/+/, '')}`
     // Fallbacks when no configured images domain available:
     // 1) in browser, prefer a known project images domain
