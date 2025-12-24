@@ -96,7 +96,21 @@ export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, produ
             (() => {
             const raw = imageUrl || imageDataUrl
             const src = raw || "/placeholder.svg"
-            return <img src={src} alt={recipeTitle} className="w-full h-auto object-contain rounded-md" onLoad={handleImageLoad} />
+            try {
+              // If the API provided a data URL, use it directly. Otherwise generate
+              // a canonical src/srcSet via the shared image-usecase so recipe images
+              // use the same CDN + srcset logic as the rest of the site.
+              if (raw && String(raw).startsWith('data:')) {
+                return <img src={raw} alt={recipeTitle} className="w-full h-auto object-contain rounded-md" onLoad={handleImageLoad} />
+              }
+              const domain = (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN as string) || 'https://images.shirasame.com'
+              const ri = responsiveImageForUsage(String(raw || ''), 'recipe', domain)
+              const imgSrc = ri.src || src
+              const imgSrcSet = ri.srcSet || undefined
+              return <img src={imgSrc} srcSet={imgSrcSet} alt={recipeTitle} className="w-full h-auto object-contain rounded-md" onLoad={handleImageLoad} />
+            } catch (e) {
+              return <img src={src} alt={recipeTitle} className="w-full h-auto object-contain rounded-md" onLoad={handleImageLoad} />
+            }
           })()
         }
         {imageLoaded && Array.isArray(pins) && pins.length > 0 ? (
@@ -109,18 +123,24 @@ export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, produ
               const productFromItems = pidKey ? itemsMap.get(pidKey) : undefined
               const productFromProducts = pidKey ? productMap.get(pidKey) : undefined
               const product = productFromItems || productFromProducts || undefined
-              const handleActivate = () => {
+                  const handleActivate = () => {
                 if (!product) return
                 try {
                   let initial: string | null = null
+                  // Prefer canonical generation from `main_image_key` so we always
+                  // get the same CDN origin + srcset structure as other flows.
                   try {
-                    const apiMain = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
-                    if (apiMain) initial = apiMain
+                    const key = (product as any)?.main_image_key || (product as any)?.mainImageKey || null
+                    if (key) {
+                      const domain = (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN as string) || 'https://images.shirasame.com'
+                      initial = responsiveImageForUsage(String(key), 'detail', domain).src || null
+                    }
                   } catch {}
+                  // Fallback to API-provided main_image.src if no key exists
                   if (!initial) {
                     try {
-                      const key = (product as any)?.main_image_key || (product as any)?.mainImageKey || null
-                      if (key) initial = responsiveImageForUsage(String(key), 'list').src || null
+                      const apiMain = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
+                      if (apiMain) initial = apiMain
                     } catch {}
                   }
                   if (!initial) {
