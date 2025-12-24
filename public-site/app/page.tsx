@@ -640,7 +640,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 py-8">
           <div className="mb-8 flex justify-center">
             <div className="relative inline-flex items-center bg-muted p-1 rounded-full shadow-sm" style={{ width: 280 }}>
-              <div className={`absolute top-1 left-1 h-8 w-1/2 rounded-full transition-transform duration-300 ease-in-out ${displayMode === 'gallery' ? 'translate-x-full bg-pink-600' : 'translate-x-0 bg-primary'}`} style={{ marginTop: '3px' , width: '137px' }} aria-hidden />
+              <div className={`absolute top-1 left-1 h-8 w-1/2 rounded-full transition-transform duration-300 ease-in-out ${displayMode === 'gallery' ? 'translate-x-full' : 'translate-x-0'} bg-sky-400`} style={{ marginTop: '3px' , width: '137px' }} aria-hidden />
               <button onClick={() => changeDisplayMode('normal')} aria-pressed={displayMode === 'normal'} className={`relative z-10 flex-1 text-sm font-semibold px-4 py-2 text-center rounded-full ${displayMode === 'normal' ? 'text-white' : 'text-foreground/70'}`}>Normal</button>
               <button onClick={() => changeDisplayMode('gallery')} aria-pressed={displayMode === 'gallery'} className={`relative z-10 flex-1 text-sm font-semibold px-4 py-2 text-center rounded-full ${displayMode === 'gallery' ? 'text-white' : 'text-foreground/70'}`}>Gallery</button>
             </div>
