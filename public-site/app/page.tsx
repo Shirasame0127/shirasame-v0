@@ -265,8 +265,9 @@ export default function HomePage() {
         const grouped: Record<string, any> = {}
         for (const it of apiProductsFlattened) {
           const pid = it.productId || `p-${it.id}`
-          if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
-          grouped[pid].images.push({ src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
+            if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
+            // include both `url` and `src` for compatibility with legacy rendering
+            grouped[pid].images.push({ url: it.image, src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
         }
         const apiProducts: Product[] = Object.values(grouped)
         const apiCollections: Collection[] = Array.isArray(colJson.data) ? colJson.data : []
@@ -631,11 +632,15 @@ export default function HomePage() {
         try {
           const pid = it.productId || `p-${it.id}`
           if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
-          grouped[pid].images.push({ src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
+          grouped[pid].images.push({ url: it.image, src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
         } catch (e) { continue }
       }
       const normalized = Object.values(grouped).map((p: any) => p)
-      setProducts((prev) => [...prev, ...normalized])
+      setProducts((prev) => {
+        const existing = new Set(prev.map((x: any) => String(x.id)))
+        const toAdd = normalized.filter((p: any) => !existing.has(String(p.id)))
+        return [...prev, ...toAdd]
+      })
       setPageOffset((prev) => prev + items.length)
       if (js?.meta && typeof js.meta.total === 'number') { setHasMore((prevOffset) => pageOffset + items.length < js.meta.total) } else { setHasMore(items.length === pageLimit) }
     } catch (e) { console.error('[public] loadMore failed', e) } finally { setLoadingMore(false) }
