@@ -957,7 +957,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
       let products: any[] = []
       if (productIds.length > 0) {
         const shallowSelect = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
-        const baseSelect = '*, images:product_images(*), affiliateLinks:affiliate_links(*)'
+        const baseSelect = '*, images:product_images(*), affiliateLinks:affiliate_links'
         // 認証情報から userId を取得して優先的に絞り込む
         // Use outer scoped reqUserId (resolved above for collections)
         let prodQuery = supabase.from('products').select(shallowSelect).in('id', productIds).eq('published', true)
@@ -1006,7 +1006,7 @@ app.get('/collections', zValidator('query', listQuery.partial()), async (c) => {
               const resp = responsiveImageForUsage(normKey || img.url || null, 'list', c.env.IMAGES_DOMAIN)
               return ({ id: img.id, productId: img.product_id, url: resp.src || img.url || null, srcSet: resp.srcSet || null, width: img.width, height: img.height, aspect: img.aspect, role: img.role })
             }) : [],
-            affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : [],
+            affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ label: l.label || null, url: l.url || null })) : [],
           })),
         }
       })
@@ -2457,6 +2457,14 @@ app.post('/api/admin/products', async (c) => {
       related_links: safeEval('related_links', () => Array.isArray(body.related_links) ? body.related_links : (Array.isArray(body.relatedLinks) ? body.relatedLinks : [])),
       notes: safeEval('notes', () => body.notes || null),
       show_price: safeEval('show_price', () => (typeof body.show_price !== 'undefined' ? !!body.show_price : false)),
+      created_at: safeEval('created_at', () => body.created_at || body.createdAt || null),
+      updated_at: safeEval('updated_at', () => body.updated_at || body.updatedAt || null),
+      // Accept affiliate links from admin (camelCase or snake_case). Normalize to [{label,url}]
+      affiliate_links: safeEval('affiliate_links', () => {
+        const raw = Array.isArray(body.affiliate_links) ? body.affiliate_links : (Array.isArray(body.affiliateLinks) ? body.affiliateLinks : null)
+        if (!Array.isArray(raw)) return null
+        return raw.map((a: any) => ({ label: a.label || a.text || null, url: a.url || null })).filter((x: any) => x && x.url)
+      }),
     }
     // Only include id when explicitly provided to avoid sending null which
     // violates NOT NULL constraints on the DB side when omitted/defaults exist.
@@ -2521,6 +2529,13 @@ app.post('/api/admin/products', async (c) => {
     try {
       try { console.log('[DBG] POST /api/admin/products body keys=', Object.keys(body || {})) } catch {}
       try { console.log('[DBG] POST /api/admin/products insertBody=', JSON.stringify(insertBody)) } catch {}
+      // Final normalization: ensure camelCase aliases are respected
+      try {
+        if (!insertBody.short_description && typeof body.shortDescription !== 'undefined') insertBody.short_description = body.shortDescription || null
+        if ((!Array.isArray(insertBody.related_links) || insertBody.related_links.length === 0) && Array.isArray(body.relatedLinks)) insertBody.related_links = body.relatedLinks
+        if (!insertBody.created_at && typeof body.createdAt !== 'undefined') insertBody.created_at = body.createdAt
+        if (!insertBody.updated_at && typeof body.updatedAt !== 'undefined') insertBody.updated_at = body.updatedAt
+      } catch (e) { try { console.warn('[DBG] final insertBody normalization failed', String(e)) } catch {} }
       // Perform insert inside try/catch and log supabase result details for diagnosis
       let ins: any = null
       let insErr: any = null
@@ -2545,27 +2560,18 @@ app.post('/api/admin/products', async (c) => {
         const affiliateRaw = body && (body.affiliateLinks || body.affiliate_links) ? (body.affiliateLinks || body.affiliate_links) : null
         if (createdProduct && Array.isArray(affiliateRaw) && affiliateRaw.length > 0) {
           try {
-            const now = new Date().toISOString()
-            const rows = affiliateRaw
-              .filter((a: any) => a && (a.url || a.provider))
-              .map((a: any) => ({
-                product_id: createdProduct.id,
-                provider: a.provider || null,
-                url: a.url || null,
-                label: a.label || null,
-                user_id: createdProduct.user_id || null,
-                created_at: now,
-              }))
-            if (rows.length > 0) {
+            // Persist affiliate links into products.affiliate_links JSONB column
+            const normalized = (affiliateRaw || []).filter((a: any) => a && (a.url || a.label)).map((a: any) => ({ label: a.label || a.text || null, url: a.url || null }))
+            if (normalized.length > 0) {
               try {
-                const { data: affData, error: affErr } = await supabase.from('affiliate_links').insert(rows).select('*')
-                if (affErr) {
-                  try { console.warn('[DBG] affiliate_links insert error', affErr) } catch {}
+                const { data: updData, error: updErr } = await supabase.from('products').update({ affiliate_links: normalized }).eq('id', createdProduct.id).select('*')
+                if (updErr) {
+                  try { console.warn('[DBG] affiliate_links update error', updErr) } catch {}
                 } else {
-                  try { console.log('[DBG] affiliate_links inserted count=', Array.isArray(affData) ? affData.length : 0) } catch {}
+                  try { console.log('[DBG] affiliate_links saved into product count=', Array.isArray(updData) ? updData.length : 0) } catch {}
                 }
               } catch (e) {
-                try { console.warn('[DBG] exception inserting affiliate_links', String(e)) } catch {}
+                try { console.warn('[DBG] exception updating products.affiliate_links', String(e)) } catch {}
               }
             }
           } catch (e) {
@@ -2650,14 +2656,26 @@ app.put('/api/admin/products/*', async (c) => {
     const updates: any = {}
     if (typeof body.title !== 'undefined') updates.title = body.title
     if (typeof body.slug !== 'undefined') updates.slug = body.slug
-    if (typeof body.short_description !== 'undefined') updates.short_description = body.short_description
+    if (typeof body.short_description !== 'undefined' || typeof body.shortDescription !== 'undefined') updates.short_description = (typeof body.short_description !== 'undefined') ? body.short_description : body.shortDescription
     if (typeof body.body !== 'undefined') updates.body = body.body
     if (typeof body.tags !== 'undefined') updates.tags = Array.isArray(body.tags) ? body.tags : (body.tags ? [body.tags] : null)
     if (typeof body.price !== 'undefined') updates.price = body.price
     if (typeof body.published !== 'undefined') updates.published = !!body.published
-    if (typeof body.related_links !== 'undefined') updates.related_links = Array.isArray(body.related_links) ? body.related_links : (Array.isArray(body.relatedLinks) ? body.relatedLinks : null)
+    if (typeof body.related_links !== 'undefined' || typeof body.relatedLinks !== 'undefined') updates.related_links = Array.isArray(body.related_links) ? body.related_links : (Array.isArray(body.relatedLinks) ? body.relatedLinks : null)
     if (typeof body.notes !== 'undefined') updates.notes = body.notes
     if (typeof body.show_price !== 'undefined') updates.show_price = !!body.show_price
+    if (typeof body.affiliate_links !== 'undefined' || typeof body.affiliateLinks !== 'undefined') {
+      try {
+        const rawAff = Array.isArray(body.affiliate_links) ? body.affiliate_links : (Array.isArray(body.affiliateLinks) ? body.affiliateLinks : null)
+        if (Array.isArray(rawAff)) {
+          updates.affiliate_links = rawAff.map((a: any) => ({ label: a.label || a.text || null, url: a.url || null })).filter((x: any) => x && x.url)
+        } else {
+          updates.affiliate_links = null
+        }
+      } catch (e) { try { console.warn('[DBG] affiliate_links normalization failed during update', String(e)) } catch {} }
+    }
+    // allow client to set created_at (snake_case or camelCase) when needed
+    if (typeof body.created_at !== 'undefined' || typeof body.createdAt !== 'undefined') updates.created_at = (typeof body.created_at !== 'undefined') ? body.created_at : body.createdAt
 
     // Handle product-level image fields: prefer explicit fields, otherwise derive from body.images
     try {
@@ -3021,7 +3039,10 @@ app.put('/api/admin/recipes/:id', async (c) => {
     // image_data_url is deprecated and intentionally ignored/removed
     if (typeof body.image_width !== 'undefined') upd.image_width = body.image_width
     if (typeof body.image_height !== 'undefined') upd.image_height = body.image_height
-    upd.updated_at = now
+    // allow client to set updated_at (snake_case or camelCase), otherwise use server time
+    if (typeof body.updated_at !== 'undefined') upd.updated_at = body.updated_at
+    else if (typeof body.updatedAt !== 'undefined') upd.updated_at = body.updatedAt
+    else upd.updated_at = now
 
     const { data: upres, error: upErr } = await supabase.from('recipes').update(upd).eq('id', id).select('*')
     if (upErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'レシピ更新に失敗しました', upErr.message || upErr, 'db_error', 500)
@@ -3166,7 +3187,7 @@ app.get('/api/admin/products/:id', async (c) => {
     if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品IDが必要です', null, 'invalid_request', 400)
     const ctx = await resolveRequestUserContext(c)
     if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
-    const { data: resData, error: resErr } = await supabase.from('products').select('*, images:product_images(id,product_id,key,width,height,role), affiliateLinks:affiliate_links(*)').eq('id', id).limit(1).maybeSingle()
+    const { data: resData, error: resErr } = await supabase.from('products').select('*, images:product_images(id,product_id,key,width,height,role), affiliateLinks:affiliate_links').eq('id', id).limit(1).maybeSingle()
     if (resErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品の取得に失敗しました', resErr.message || resErr, 'db_error', 500)
     const p = resData || null
     if (!p) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '商品が見つかりません', null, 'not_found', 404)
@@ -3189,7 +3210,7 @@ app.get('/api/admin/products/:id', async (c) => {
       // expose canonical key fields for admin clients
       main_image_key: p.main_image_key ?? null,
       attachment_image_keys: Array.isArray(p.attachment_image_keys) ? p.attachment_image_keys : (p.attachment_image_keys || []),
-      affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : []
+      affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ label: l.label || null, url: l.url || null })) : []
     }
     return new Response(JSON.stringify({ data: transformed }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
@@ -3227,7 +3248,7 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
           return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
         }
         const supabase = getSupabase(c2.env)
-        const res = await supabase.from('products').select('*, images:product_images(id,product_id,key,width,height,role), affiliateLinks:affiliate_links(*)').eq('id', tailId).limit(1).maybeSingle()
+        const res = await supabase.from('products').select('*, images:product_images(id,product_id,key,width,height,role), affiliateLinks:affiliate_links').eq('id', tailId).limit(1).maybeSingle()
         if (res.error) return makeErrorResponse({ env: c2.env, computeCorsHeaders, req: c2.req }, '商品取得に失敗しました', res.error.message || res.error, 'db_error', 500)
         const p = res.data || null
         if (!p) {
@@ -3254,7 +3275,7 @@ app.get('/api/admin/products/*', async (c) => mirrorGet(c, async (c2) => {
           // expose canonical key fields for admin clients
           main_image_key: p.main_image_key ?? null,
           attachment_image_keys: Array.isArray(p.attachment_image_keys) ? p.attachment_image_keys : (p.attachment_image_keys || []),
-          affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label })) : []
+          affiliateLinks: Array.isArray(p.affiliateLinks) ? p.affiliateLinks.map((l: any) => ({ label: l.label || null, url: l.url || null })) : []
         }
         const headers = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8' })
         return new Response(JSON.stringify({ data: transformed }), { headers })
@@ -4437,7 +4458,7 @@ async function productsHandler(c: any): Promise<Response> {
   const slug = q.slug
   const tag = q.tag
 
-  const baseSelect = '*, images:product_images(*), affiliateLinks:affiliate_links(*)'
+  const baseSelect = '*, images:product_images(*), affiliateLinks:affiliate_links'
   const shallowSelect = 'id,user_id,title,slug,tags,price,published,created_at,updated_at,images:product_images(id,product_id,key,width,height,role)'
 
   const key = `products${c.req.url.includes('?') ? c.req.url.substring(c.req.url.indexOf('?')) : ''}`
@@ -4533,9 +4554,9 @@ async function productsHandler(c: any): Promise<Response> {
             : [],
           main_image_key: p.main_image_key ?? null,
           attachment_image_keys: Array.isArray(p.attachment_image_keys) ? p.attachment_image_keys : (p.attachment_image_keys || []),
-          affiliateLinks: Array.isArray(p.affiliateLinks)
-            ? p.affiliateLinks.map((l: any) => ({ provider: l.provider, url: l.url, label: l.label }))
-            : [],
+            affiliateLinks: Array.isArray(p.affiliateLinks)
+            ? p.affiliateLinks.map((l: any) => ({ label: l.label || null, url: l.url || null }))
+            : []
         }
       })
 

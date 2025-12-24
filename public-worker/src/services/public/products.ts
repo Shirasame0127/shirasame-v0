@@ -230,7 +230,7 @@ export async function fetchPublicOwnerProductBySlug(env: any, slug?: string | nu
       short_description: p.short_description || null,
       body: p.body || null,
       tags: p.tags || null,
-      price: typeof p.price !== 'undefined' ? p.price : null,
+      price: (typeof p.price === 'string' && /^\d+$/.test(p.price)) ? Number(p.price) : (typeof p.price !== 'undefined' ? p.price : null),
       show_price: typeof p.show_price !== 'undefined' ? p.show_price : null,
       related_links: p.related_links || null,
       notes: p.notes || null,
@@ -238,8 +238,6 @@ export async function fetchPublicOwnerProductBySlug(env: any, slug?: string | nu
       attachment_images,
       // Note: do not include legacy `images` array here — detail API must return only
       // `main_image` and `attachment_images` per API contract.
-      created_at: p.created_at || null,
-      updated_at: p.updated_at || null,
     }
     return { data: out }
   } catch (e) {
