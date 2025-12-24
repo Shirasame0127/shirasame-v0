@@ -43,7 +43,7 @@ export async function fetchPublicProfile(env: any) {
     const headerKeys = parseKeysField(u.header_image_keys || u.headerImageKeys || null)
     const header_images = headerKeys
       .map((k: string) => {
-        try { return buildResizedImageUrl(k, { width: 800 }, env.IMAGES_DOMAIN) } catch { return null }
+        try { return buildResizedImageUrl(k, { width: 1600 }, env.IMAGES_DOMAIN) } catch { return null }
       })
       .filter(Boolean)
 

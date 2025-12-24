@@ -1,4 +1,4 @@
-export const ALLOWED_WIDTHS = [200, 400, 800] as const
+export const ALLOWED_WIDTHS = [200, 400, 1600] as const
 export const DEFAULT_QUALITY = 75
 
 export type AllowedWidth = typeof ALLOWED_WIDTHS[number]
@@ -17,13 +17,13 @@ export function snapToAllowed(w: number): AllowedWidth {
   const clamped = Math.max(1, Math.min(4096, Math.round(w)))
   if (clamped <= 200) return 200
   if (clamped <= 400) return 400
-  return 800
+  return 1600
 }
 
 export function usageToWidths(u: ImageUsage): number[] {
   switch (u) {
     case 'header-large':
-      return [800]
+      return [1600]
     case 'list':
       return [200, 400]
     case 'detail':
@@ -33,7 +33,7 @@ export function usageToWidths(u: ImageUsage): number[] {
     case 'gallery':
       return [200, 400]
     case 'recipe':
-      return [400, 800]
+      return [400, 1600]
     case 'avatar':
       return [200]
     case 'original':
@@ -160,13 +160,13 @@ export function responsiveImageForUsage(raw?: string | null, usage: ImageUsage =
 // Deprecated compatibility helpers (maintain old public-site API names)
 export function buildR2VariantFromBasePath(basePath?: string | null, variant?: 'thumb-400' | 'detail-800') {
   if (!basePath) return null
-  const width = variant === 'thumb-400' ? 400 : 800
+  const width = variant === 'thumb-400' ? 400 : 1600
   return buildResizedImageUrl(basePath, { width, format: 'auto', quality: DEFAULT_QUALITY })
 }
 
 export function buildR2VariantFromBasePathWithFormat(basePath?: string | null, variant?: 'thumb-400' | 'detail-800', format?: 'jpg' | 'webp') {
   if (!basePath) return null
-  const width = variant === 'thumb-400' ? 400 : 800
+  const width = variant === 'thumb-400' ? 400 : 1600
   const fmt = format === 'webp' ? 'webp' : (format === 'jpg' ? 'jpeg' : 'auto')
   return buildResizedImageUrl(basePath, { width, format: fmt as 'auto' | 'webp' | 'jpeg', quality: DEFAULT_QUALITY })
 }
