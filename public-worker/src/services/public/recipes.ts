@@ -255,9 +255,69 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
           }
 
           const itemsOut: any[] = []
+          // Normalize products to match public products DTO (images, main_image, attachment_images)
           for (const pid of Array.from(recipeProductIds)) {
-            const prod = productsMap[String(pid)] || null
-            if (prod) itemsOut.push(prod)
+            const rawProd = productsMap[String(pid)] || null
+            if (!rawProd) continue
+            try {
+              const p = { ...rawProd }
+              // Normalize images array if present
+              if (Array.isArray(p.images) && p.images.length > 0) {
+                p.images = p.images.map((img: any) => {
+                  try {
+                    const rawKey = img.key || img.url || null
+                    const normKey = normalizeRecipeBasePath(String(rawKey || ''), env) || rawKey || null
+                    const resp = responsiveImageForUsage(normKey || (img.url || null), 'list', env.IMAGES_DOMAIN)
+                    return {
+                      id: img.id || null,
+                      productId: img.product_id || img.productId || null,
+                      src: resp?.src || null,
+                      srcSet: resp?.srcSet || null,
+                      width: typeof img.width !== 'undefined' ? img.width : null,
+                      height: typeof img.height !== 'undefined' ? img.height : null,
+                      aspect: img.aspect || null,
+                      role: img.role || null,
+                    }
+                  } catch { return { id: img.id || null, productId: img.product_id || img.productId || null, src: null, srcSet: null, width: null, height: null, aspect: null, role: img.role || null } }
+                })
+              } else {
+                const imgs: any[] = []
+                const mainKeyRaw = p.main_image_key || p.mainImageKey || null
+                const mainKey = typeof mainKeyRaw !== 'undefined' && mainKeyRaw !== null ? normalizeRecipeBasePath(String(mainKeyRaw), env) : null
+                if (mainKey) {
+                  const mainResp = responsiveImageForUsage(mainKey, 'list', env.IMAGES_DOMAIN)
+                  imgs.push({ id: null, productId: p.id || null, src: mainResp?.src || null, srcSet: mainResp?.srcSet || null, width: null, height: null, aspect: null, role: 'main' })
+                }
+                const attachmentKeysRaw = p.attachment_image_keys || p.attachmentImageKeys || null
+                const parseKeys = (val: any) => {
+                  try {
+                    if (!val) return []
+                    if (Array.isArray(val)) return val.filter(Boolean).map(String)
+                    if (typeof val === 'string') {
+                      const s = val.trim()
+                      if (s.startsWith('[')) return JSON.parse(s)
+                      return [s]
+                    }
+                    return []
+                  } catch { return [] }
+                }
+                const attachmentKeys = parseKeys(attachmentKeysRaw)
+                for (const rawK of attachmentKeys) {
+                  try {
+                    const k = normalizeRecipeBasePath(String(rawK), env)
+                    const aResp = responsiveImageForUsage(k, 'list', env.IMAGES_DOMAIN)
+                    imgs.push({ id: null, productId: p.id || null, src: aResp?.src || null, srcSet: aResp?.srcSet || null, width: null, height: null, aspect: null, role: 'attachment' })
+                  } catch {}
+                }
+                p.images = imgs
+              }
+
+              try { p.main_image = Array.isArray(p.images) && p.images.length > 0 ? (p.images.find((i: any) => i.role === 'main')?.src || p.images[0]?.src || null) : null } catch { p.main_image = null }
+              try { p.attachment_images = Array.isArray(p.images) ? p.images.filter((i: any) => i.role === 'attachment').map((i: any) => i.src).filter(Boolean) : [] } catch { p.attachment_images = [] }
+              // Remove raw storage key fields
+              try { delete p.main_image_key; delete p.mainImageKey; delete p.attachment_image_keys; delete p.attachmentImageKeys } catch {}
+              itemsOut.push(p)
+            } catch {}
           }
           rec.items = itemsOut
         } catch {

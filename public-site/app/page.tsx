@@ -9,7 +9,6 @@ const RecipeDisplay = dynamic(() => import('@/components/recipe-display').then((
 const ProductMasonry = dynamic(() => import('@/components/product-masonry').then((m) => m.default), { ssr: false, loading: () => <div className="h-32" /> })
 
 import Image from "next/image"
-import { buildR2VariantFromBasePath, buildR2VariantFromBasePathWithFormat, responsiveImageForUsage } from "@/lib/image-url"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
@@ -194,16 +193,30 @@ export default function HomePage() {
   useEffect(() => {
     // Preload main images for visible products and recipe items so modal shows immediately
     try {
-      if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined') {
+        const domain = (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN as string) || 'https://images.shirasame.com'
+        const normalizeRawForUsage = (raw?: string | null) => {
+          if (!raw) return ''
+          let s = String(raw)
+          try { const u = new URL(s); s = u.pathname + (u.search || '') } catch {}
+          const m = s.match(/\/cdn-cgi\/image\/[^\/]+\/(.+)$/)
+          if (m && m[1]) return m[1]
+          return s.replace(/^\/+/, '')
+        }
         const toPreload = new Set<string>()
         for (const p of products) {
           try {
-            const mainSrc = (p as any)?.main_image && (p as any).main_image.src ? (p as any).main_image.src : null
-            const key = (p as any)?.main_image_key || (p as any)?.mainImageKey || null
+                const mainSrc = (p as any)?.main_image && (p as any).main_image.src ? (p as any).main_image.src : null
             let url: string | null = null
-            if (mainSrc) url = mainSrc
-            else if (key) url = responsiveImageForUsage(String(key), 'list').src || null
-            else if (Array.isArray(p.images) && p.images[0]) url = p.images[0].url || null
+            if (mainSrc) {
+              // Use API-provided transformed URL as-is
+              url = String(mainSrc)
+            } else if (Array.isArray(p.images) && p.images[0]) {
+              const legacy = p.images[0].url || null
+              if (legacy) {
+                url = String(legacy)
+              }
+            }
             if (url) toPreload.add(url)
           } catch {}
         }
@@ -212,11 +225,13 @@ export default function HomePage() {
             if (Array.isArray(r.items)) {
               for (const it of r.items) {
                 const mainSrc = it?.main_image && it.main_image.src ? it.main_image.src : null
-                const key = it?.main_image_key || it?.mainImageKey || null
                 let url: string | null = null
-                if (mainSrc) url = mainSrc
-                else if (key) url = responsiveImageForUsage(String(key), 'list').src || null
-                else if (Array.isArray(it.images) && it.images[0]) url = it.images[0].url || null
+                if (mainSrc) {
+                  url = String(mainSrc)
+                } else if (Array.isArray(it.images) && it.images[0]) {
+                  const legacy = it.images[0].url || null
+                  if (legacy) url = String(legacy)
+                }
                 if (url) toPreload.add(url)
               }
             }
@@ -451,8 +466,9 @@ export default function HomePage() {
     if ((rawUrl as any).startsWith && (rawUrl as any).startsWith('data:')) return rawUrl
     try {
       const pu = rawUrl
+      // Do not construct CDN URLs on the client. Prefer API-provided URL (pu).
       if (basePath) {
-        return pu || buildR2VariantFromBasePath(basePath, w <= 400 ? 'thumb-400' : 'detail-800')
+        return pu || '/placeholder.svg'
       }
       try { return api(`/images/thumbnail?url=${encodeURIComponent(pu)}&w=${w}`) } catch { return pu }
     } catch {
@@ -527,16 +543,35 @@ export default function HomePage() {
 
   const galleryItemsShuffled = useMemo(() => {
     if (displayMode !== 'gallery') return [] as any[]
+    const domain = (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN as string) || 'https://images.shirasame.com'
+    const normalizeRawForUsage = (raw?: string | null) => {
+      if (!raw) return ''
+      let s = String(raw)
+      try { const u = new URL(s); s = u.pathname + (u.search || '') } catch {}
+      const m = s.match(/\/cdn-cgi\/image\/[^\/]+\/(.+)$/)
+      if (m && m[1]) return m[1]
+      return s.replace(/^\/+/, '')
+    }
     return shuffleArray(products.flatMap((product) => {
       // Prefer API-provided transformed URL: product.main_image.src
       const mainSrc = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
       if (mainSrc) {
-        return [{ id: `${product.id}__0`, productId: product.id, image: mainSrc, aspect: undefined, title: product.title, href: `/products/${product.slug}` }]
+        try {
+            const u = String(mainSrc)
+          return [{ id: `${product.id}__0`, productId: product.id, image: u, aspect: undefined, title: product.title, href: `/products/${product.slug}` }]
+        } catch {
+          return [{ id: `${product.id}__0`, productId: product.id, image: String(mainSrc), aspect: undefined, title: product.title, href: `/products/${product.slug}` }]
+        }
       }
       // Fallback to legacy images[].url if present
       const legacy = (product as any)?.images && Array.isArray((product as any).images) ? (product as any).images[0] : null
       const url = legacy?.url || "/placeholder.svg"
-      return [{ id: `${product.id}__0`, productId: product.id, image: url, aspect: legacy?.aspect || undefined, title: product.title, href: `/products/${product.slug}` }]
+      try {
+        const u2 = String(url)
+        return [{ id: `${product.id}__0`, productId: product.id, image: u2, aspect: legacy?.aspect || undefined, title: product.title, href: `/products/${product.slug}` }]
+      } catch {
+        return [{ id: `${product.id}__0`, productId: product.id, image: url, aspect: legacy?.aspect || undefined, title: product.title, href: `/products/${product.slug}` }]
+      }
     }))
   }, [shuffleKey, products, displayMode])
 
@@ -650,9 +685,7 @@ export default function HomePage() {
                               const cardImage = (() => {
                                 try {
                                   const mainSrc = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
-                                  if (mainSrc) return mainSrc
-                                  const key = (product as any)?.main_image_key || (product as any)?.mainImageKey || null
-                                  if (key) return responsiveImageForUsage(String(key), 'list').src || null
+                                  if (mainSrc) return String(mainSrc)
                                   const legacy = (product as any)?.images && Array.isArray((product as any).images) ? (product as any).images[0] : null
                                   return legacy?.url || '/placeholder.svg'
                                 } catch { return '/placeholder.svg' }
@@ -692,12 +725,18 @@ export default function HomePage() {
                   if (!recipe.imageDataUrl && !recipe.imageUrl) return null
                   const linkedProductIds = [...new Set(pins.map((pin: any) => pin.productId).filter(Boolean))]
                   const linkedProducts = linkedProductIds.map((id) => {
-                    // Prefer recipe.items (API-provided full product objects) when present
-                    const itemFromRecipe = Array.isArray(recipe.items) ? recipe.items.find((it: any) => String(it.id ?? it.product_id ?? it.productId) === String(id)) : undefined
-                    if (itemFromRecipe) return itemFromRecipe
+                    // Prefer canonical product objects from the site's product index
+                    // (productById / products). Fall back to recipe.items only when
+                    // the canonical product is not available. This ensures image
+                    // fields like `main_image` and `main_image_key` are present
+                    // so thumbnail rendering matches collection views.
                     const byMap = productById.get(String(id))
                     if (byMap) return byMap
-                    return products.find((p) => String(p.id) === String(id)) || null
+                    const fromProducts = products.find((p) => String(p.id) === String(id)) || null
+                    if (fromProducts) return fromProducts
+                    const itemFromRecipe = Array.isArray(recipe.items) ? recipe.items.find((it: any) => String(it.id ?? it.product_id ?? it.productId) === String(id)) : undefined
+                    if (itemFromRecipe) return itemFromRecipe
+                    return null
                   }).filter(Boolean) as any[]
                   const isEvenIndex = index % 2 === 0
                   const imageFirst = isEvenIndex
@@ -717,9 +756,7 @@ export default function HomePage() {
                                   const cardImage = (() => {
                                     try {
                                       const mainSrc = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
-                                      if (mainSrc) return mainSrc
-                                      const key = (product as any)?.main_image_key || (product as any)?.mainImageKey || null
-                                      if (key) return responsiveImageForUsage(String(key), 'list').src || null
+                                      if (mainSrc) return String(mainSrc)
                                       const legacy = (product as any)?.images && Array.isArray((product as any).images) ? (product as any).images[0] : null
                                       return legacy?.url || '/placeholder.svg'
                                     } catch { return '/placeholder.svg' }

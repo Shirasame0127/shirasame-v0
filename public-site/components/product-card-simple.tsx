@@ -1,7 +1,7 @@
 "use client"
 
 import type { Product } from "@shared/types"
-import { responsiveImageForUsage } from '@/lib/image-url'
+// Do not transform image keys on the client; expect the API to provide transformed URLs
 
 interface ProductCardSimpleProps { product: Product; onClick: (initialImageUrl?: string) => void; saleName?: string | null }
 
@@ -12,24 +12,33 @@ export function ProductCardSimple({ product, onClick, saleName }: ProductCardSim
   const images = Array.isArray(product.images) ? product.images : []
   const mainLegacy = images.find((img) => img?.role === "main") || images[0] || null
 
-  // If API only provides `main_image_key`, generate a public URL via image-usecases
+  // Use API-provided transformed URLs (prefer `main_image.src`).
+  // Do NOT construct CDN URLs from keys on the client — backend should provide them.
   let src: string | null = null
   let srcSet: string | null = null
-  try {
-    const key = (product as any)?.main_image_key || (product as any)?.mainImageKey || null
-    if (key) {
-      const resp = responsiveImageForUsage(String(key), 'list')
-      src = resp.src || null
-      srcSet = resp.srcSet || null
-    }
-  } catch {}
 
-  if (!src) src = mainTop?.src || mainLegacy?.url || '/placeholder.svg'
-  if (!srcSet) srcSet = (mainTop as any)?.srcSet || (mainLegacy && ((mainLegacy as any).srcSet || (mainLegacy as any).src)) || null
+  if (mainTop && mainTop.src) {
+    src = String(mainTop.src)
+    srcSet = (mainTop as any).srcSet || null
+  } else if (mainLegacy && (mainLegacy as any).url) {
+    src = (mainLegacy as any).url
+    srcSet = (mainLegacy as any).srcSet || null
+  } else {
+    src = '/placeholder.svg'
+    srcSet = null
+  }
 
   const handleClick = () => {
     try { onClick(src || undefined) } catch { try { (onClick as any)() } catch {} }
   }
+
+  // Debug: log cases where src is still a relative /cdn-cgi/image path
+  try {
+    if (typeof window !== 'undefined' && src && String(src).includes('/cdn-cgi/image/')) {
+      // eslint-disable-next-line no-console
+      console.debug('[DEBUG] ProductCardSimple image src', { id: (product as any)?.id, src, srcSet })
+    }
+  } catch {}
 
   return (
     <button onClick={handleClick} className="group block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-lg">

@@ -1,7 +1,6 @@
 "use client"
 
 import React, { useEffect, useState } from 'react'
-import { getPublicImageUrl } from '@/lib/image-url'
 
 import apiFetch, { apiPath } from '@/lib/api-client'
 const api = (p: string) => apiPath(p)
@@ -30,9 +29,11 @@ export default function InitialLoading() {
         else if (typeof raw === 'string') url = raw
         else if (typeof raw === 'object') url = raw?.url || null
 
+        // Do not perform client-side CDN transformation here.
+        // Accept absolute or data URLs from the API; otherwise fall back to env config.
         try {
-          let normalized = getPublicImageUrl(url) || url
-          const looksAbsolute = typeof normalized === 'string' && /^(https?:)?\//.test(normalized)
+          let normalized = url
+          const looksAbsolute = typeof normalized === 'string' && (/^(https?:)?\/\//.test(normalized) || /^data:/.test(normalized))
           if (!looksAbsolute) {
             const envUrl = (process.env.NEXT_PUBLIC_LOADING_GIF_URL || process.env.LOADING_GIF_URL || '').trim()
             if (envUrl) normalized = envUrl

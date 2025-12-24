@@ -8,7 +8,6 @@ import EmbeddedLink from './embedded-link'
 import Image from "next/image"
 
 import { useEffect, useRef, useState } from "react"
-import { responsiveImageForUsage } from '@/lib/image-url'
 
 
 interface ProductDetailModalProps {
@@ -99,16 +98,8 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
             <div className={innerImageClassName}>
                 {
                   (() => {
-                    const domain = (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN as string) || 'https://images.shirasame.com'
-                    let displaySrc = mainImage?.src || "/placeholder.svg"
-                    let displaySrcSet = mainImage?.srcSet || undefined
-                    try {
-                      if (displaySrc && !String(displaySrc).startsWith('data:')) {
-                        const ri = responsiveImageForUsage(String(mainImage?.src || ''), 'detail', domain)
-                        if (ri.src) displaySrc = ri.src
-                        if (ri.srcSet) displaySrcSet = ri.srcSet || displaySrcSet
-                      }
-                    } catch {}
+                    const displaySrc = mainImage?.src || "/placeholder.svg"
+                    const displaySrcSet = mainImage?.srcSet || undefined
                     return <img src={displaySrc} srcSet={displaySrcSet} alt={product.title || '商品画像'} className="w-full h-full object-cover" />
                   })()
                 }
@@ -204,21 +195,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                 <div className="grid grid-cols-2 gap-2">
                   {attachmentImages.map((img: any, idx: number) => (
                     <div key={`${product.id ?? 'p'}-att-${idx}`} className="relative aspect-square rounded-md overflow-hidden bg-white dark:bg-slate-800 shadow-sm">
-                      {
-                        (() => {
-                          const domain = (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN as string) || 'https://images.shirasame.com'
-                          let displaySrc = img?.src || "/placeholder.svg"
-                          let displaySrcSet = img?.srcSet || undefined
-                          try {
-                            if (displaySrc && !String(displaySrc).startsWith('data:')) {
-                              const ri = responsiveImageForUsage(String(img?.src || ''), 'attachment', domain)
-                              if (ri.src) displaySrc = ri.src
-                              if (ri.srcSet) displaySrcSet = ri.srcSet || displaySrcSet
-                            }
-                          } catch {}
-                          return <img src={displaySrc} srcSet={displaySrcSet} alt={`添付画像 ${idx + 1}`} className="w-full h-full object-cover" />
-                        })()
-                      }
+                          <img src={img?.src || "/placeholder.svg"} srcSet={img?.srcSet || undefined} alt={`添付画像 ${idx + 1}`} className="w-full h-full object-cover" />
                     </div>
                   ))}
                 </div>
