@@ -22,6 +22,7 @@ import InitialLoading from '@/components/initial-loading'
 import { ProfileHeader } from "@/components/profile-header"
 import { apiFetch } from "@/lib/api-client"
 import { expandTokens } from '@/lib/search-synonyms'
+import { tokenizeJapanese } from '@/lib/morph-tokenizer'
 import type { Product, Collection, User, AmazonSaleSchedule } from "@shared/types"
 
 const API_BASE = process.env.NEXT_PUBLIC_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_BASE_URL || "/api/public"
@@ -662,7 +663,9 @@ export default function HomePage() {
     }
 
     const tokens = normalize(q).split(' ').filter(Boolean)
-    const expandedTokens = expandTokens(tokens)
+    // include morphological tokens for Japanese-like queries
+    const morph = tokenizeJapanese(q)
+    const expandedTokens = Array.from(new Set([...expandTokens(tokens), ...morph]))
 
     const scoreItem = (item: any) => {
       let score = 0
