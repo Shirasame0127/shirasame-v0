@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
+import { responsiveImageForUsage } from '@/lib/image-url'
 // Use API-provided image URLs; no client-side URL generation
 import type { Product } from "@shared/types"
 
@@ -77,7 +78,7 @@ type RecipeDisplayProps = {
   pins: RecipePin[]
   products: Product[]
   items?: any[]
-  onProductClick: (product: Product) => void
+  onProductClick: (product: Product, imageUrl?: string) => void
 }
 
 export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, products, onProductClick }: RecipeDisplayProps) {
@@ -108,7 +109,26 @@ export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, produ
               const productFromItems = pidKey ? itemsMap.get(pidKey) : undefined
               const productFromProducts = pidKey ? productMap.get(pidKey) : undefined
               const product = productFromItems || productFromProducts || undefined
-              const handleActivate = () => { if (product) try { onProductClick(product) } catch {} }
+              const handleActivate = () => {
+                if (!product) return
+                try {
+                  let initial: string | null = null
+                  try {
+                    const apiMain = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
+                    if (apiMain) initial = apiMain
+                  } catch {}
+                  if (!initial) {
+                    try {
+                      const key = (product as any)?.main_image_key || (product as any)?.mainImageKey || null
+                      if (key) initial = responsiveImageForUsage(String(key), 'list').src || null
+                    } catch {}
+                  }
+                  if (!initial) {
+                    try { const img0 = (product as any)?.images?.[0] || null; initial = img0?.url || null } catch {}
+                  }
+                  onProductClick(product, initial || undefined)
+                } catch {}
+              }
               const handleKey = (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleActivate() } }
           // If product is not found, still allow rendering the pin (requirements say show nothing only when pins empty)
           // but clicking should not error

@@ -53,6 +53,10 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
       }
     }
   }
+  // If initialImageUrl provided but no match was found, use it directly so modal shows immediately
+  if (initialImageUrl && !mainImage) {
+    mainImage = { src: initialImageUrl, srcSet: null }
+  }
   if (!mainImage) mainImage = apiMainImage || (legacyImages.find((l: any) => l.role === 'main') ? { src: legacyImages.find((l: any) => l.role === 'main').src, srcSet: legacyImages.find((l: any) => l.role === 'main').srcSet } : (legacyImages[0] ? { src: legacyImages[0].src, srcSet: legacyImages[0].srcSet } : null))
 
   // Attachment images to render (ensure {src,srcSet} shape)

@@ -9,7 +9,7 @@ const RecipeDisplay = dynamic(() => import('@/components/recipe-display').then((
 const ProductMasonry = dynamic(() => import('@/components/product-masonry').then((m) => m.default), { ssr: false, loading: () => <div className="h-32" /> })
 
 import Image from "next/image"
-import { buildR2VariantFromBasePath, buildR2VariantFromBasePathWithFormat } from "@/lib/image-url"
+import { buildR2VariantFromBasePath, buildR2VariantFromBasePathWithFormat, responsiveImageForUsage } from "@/lib/image-url"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
@@ -192,6 +192,42 @@ export default function HomePage() {
   const sentinelRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
+    // Preload main images for visible products and recipe items so modal shows immediately
+    try {
+      if (typeof window !== 'undefined') {
+        const toPreload = new Set<string>()
+        for (const p of products) {
+          try {
+            const mainSrc = (p as any)?.main_image && (p as any).main_image.src ? (p as any).main_image.src : null
+            const key = (p as any)?.main_image_key || (p as any)?.mainImageKey || null
+            let url: string | null = null
+            if (mainSrc) url = mainSrc
+            else if (key) url = responsiveImageForUsage(String(key), 'list').src || null
+            else if (Array.isArray(p.images) && p.images[0]) url = p.images[0].url || null
+            if (url) toPreload.add(url)
+          } catch {}
+        }
+        for (const r of recipes) {
+          try {
+            if (Array.isArray(r.items)) {
+              for (const it of r.items) {
+                const mainSrc = it?.main_image && it.main_image.src ? it.main_image.src : null
+                const key = it?.main_image_key || it?.mainImageKey || null
+                let url: string | null = null
+                if (mainSrc) url = mainSrc
+                else if (key) url = responsiveImageForUsage(String(key), 'list').src || null
+                else if (Array.isArray(it.images) && it.images[0]) url = it.images[0].url || null
+                if (url) toPreload.add(url)
+              }
+            }
+          } catch {}
+        }
+        const imgs: HTMLImageElement[] = []
+        toPreload.forEach((u) => { try { const im = new Image(); im.src = u; imgs.push(im) } catch {} })
+        // no cleanup necessary beyond letting images be garbage collected
+      }
+    } catch {}
+
     if (openGroups === undefined && Object.keys(tagGroups).length > 0) {
       setOpenGroups(Object.keys(tagGroups))
     }
@@ -610,9 +646,19 @@ export default function HomePage() {
                         {collection.description && (<p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">{collection.description}</p>)}
                         {collectionProducts.length > 0 ? (
                           <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 z-30">
-                            {collectionProducts.map((product) => (
-                              <ProductCardSimple key={product.id} product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
-                            ))}
+                            {collectionProducts.map((product) => {
+                              const cardImage = (() => {
+                                try {
+                                  const mainSrc = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
+                                  if (mainSrc) return mainSrc
+                                  const key = (product as any)?.main_image_key || (product as any)?.mainImageKey || null
+                                  if (key) return responsiveImageForUsage(String(key), 'list').src || null
+                                  const legacy = (product as any)?.images && Array.isArray((product as any).images) ? (product as any).images[0] : null
+                                  return legacy?.url || '/placeholder.svg'
+                                } catch { return '/placeholder.svg' }
+                              })()
+                              return (<ProductCardSimple key={product.id} product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product, cardImage)} />)
+                            })}
                           </div>
                         ) : (
                           <p className="text-center text-muted-foreground py-8 text-sm">商品がありません</p>
@@ -667,9 +713,19 @@ export default function HomePage() {
                             <div>
                               <h4 className="font-heading text-base sm:text-lg font-semibold mb-4 text-center md:text-left">使用アイテム</h4>
                               <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-3 gap-3">
-                                {linkedProducts.map((product) => (
-                                  <ProductCardSimple key={product.id} product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
-                                ))}
+                                {linkedProducts.map((product) => {
+                                  const cardImage = (() => {
+                                    try {
+                                      const mainSrc = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
+                                      if (mainSrc) return mainSrc
+                                      const key = (product as any)?.main_image_key || (product as any)?.mainImageKey || null
+                                      if (key) return responsiveImageForUsage(String(key), 'list').src || null
+                                      const legacy = (product as any)?.images && Array.isArray((product as any).images) ? (product as any).images[0] : null
+                                      return legacy?.url || '/placeholder.svg'
+                                    } catch { return '/placeholder.svg' }
+                                  })()
+                                  return (<ProductCardSimple key={product.id} product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product, cardImage)} />)
+                                })}
                               </div>
                             </div>
                           )}

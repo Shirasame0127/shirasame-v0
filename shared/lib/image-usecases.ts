@@ -107,7 +107,27 @@ export function buildResizedImageUrl(raw?: string | null, opts?: { width?: numbe
   const width = Math.max(1, Math.min(4096, opts?.width || 200))
   const format = opts?.format || 'auto'
   const quality = typeof opts?.quality === 'number' ? Math.max(1, Math.min(100, Math.round(opts!.quality))) : DEFAULT_QUALITY
-  if (base.includes('/cdn-cgi/image/')) return base
+  if (base.includes('/cdn-cgi/image/')) {
+    // If already absolute, return as-is. If relative (starts with '/'),
+    // prefix with the configured images domain so callers always receive
+    // an absolute public URL.
+    try {
+      if ((base as string).startsWith('http')) return base
+    } catch {}
+    const imagesRoot = getEnvImagesDomain(domainOverride)
+    if (imagesRoot) return `${imagesRoot}/${String(base).replace(/^\/+/, '')}`
+    // Fallbacks when no configured images domain available:
+    // 1) in browser, prefer a known project images domain
+    // 2) as last resort, use the canonical images host for this project
+    try {
+      if (typeof window !== 'undefined' && window && window.location && window.location.origin) {
+        // Prefer a canonical images host when the origin isn't suitable
+        const fallback = 'https://images.shirasame.com'
+        return `${fallback}/${String(base).replace(/^\/+/, '')}`
+      }
+    } catch {}
+    return `https://images.shirasame.com/${String(base).replace(/^\/+/, '')}`
+  }
   try {
     const u = new URL(base)
     const origin = `${u.protocol}//${u.hostname}` + (u.port ? `:${u.port}` : '')
