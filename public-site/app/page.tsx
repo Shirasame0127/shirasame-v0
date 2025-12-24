@@ -696,7 +696,7 @@ export default function HomePage() {
             )
           )}
 
-          {products.length > 0 && displayMode !== 'gallery' && (
+          {displayMode !== 'gallery' && (
             <section id="all-products" className="mb-16 scroll-mt-20">
               <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-6 text-center heading-with-vertical">
                 <button onClick={() => setIsAllOverlayOpen(true)} className="underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded px-2">All Items</button>
@@ -879,9 +879,9 @@ export default function HomePage() {
                         )}
                       </div>
                       <div className="flex-1">
-                        <h3 className="text-sm md:text-lg font-semibold mb-1 line-clamp-2">{product.title}</h3>
-                        <p className="text-xs md:text-sm text-muted-foreground line-clamp-2">{product.shortDescription}</p>
-                        {product.price && <p className="text-sm md:text-lg font-bold mt-2">¥{Number(product.price).toLocaleString()}</p>}
+                        <h3 className="font-semibold mb-1">{product.title}</h3>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{product.shortDescription}</p>
+                        {product.price && <p className="text-lg font-bold mt-2">¥{Number(product.price).toLocaleString()}</p>}
                       </div>
                     </div>
                   )
