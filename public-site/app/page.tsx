@@ -391,6 +391,8 @@ export default function HomePage() {
         setSaleSchedules(apiSchedules)
         setUser(loadedUser || null)
         setIsLoaded(true)
+        // Shuffle gallery on initial load so order differs each page visit
+        setShuffleKey((k) => k + 1)
 
         // Build active sale map { productId -> saleName }
         try {
@@ -552,7 +554,8 @@ export default function HomePage() {
       if (m && m[1]) return m[1]
       return s.replace(/^\/+/, '')
     }
-    return shuffleArray(products.flatMap((product) => {
+    // Use the filtered product list so gallery responds to keyword/tag filters
+    return shuffleArray(filteredAndSortedProducts.flatMap((product) => {
       const entries: any[] = []
       const pushImage = (img: any, idx: number) => {
         if (!img) return
