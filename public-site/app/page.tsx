@@ -23,6 +23,7 @@ import { ProfileHeader } from "@/components/profile-header"
 import { apiFetch } from "@/lib/api-client"
 import { expandTokens } from '@/lib/search-synonyms'
 import { tokenize } from '@/lib/morph-tokenizer'
+import { normalizeForSearch } from '@/lib/normalize'
 import type { Product, Collection, User, AmazonSaleSchedule } from "@shared/types"
 
 const API_BASE = process.env.NEXT_PUBLIC_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_BASE_URL || "/api/public"
@@ -654,13 +655,8 @@ export default function HomePage() {
     const q = (searchText || '').trim()
     if (!q && (!selectedTags || selectedTags.length === 0)) return base
 
-    // Normalization helpers
-    const normalize = (s?: any) => {
-      if (!s && s !== 0) return ''
-      try {
-        return String(s).normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
-      } catch { return String(s).toLowerCase().replace(/[^a-z0-9\s]/gi, ' ').replace(/\s+/g, ' ').trim() }
-    }
+    // use shared normalize helper (NFKC, katakana->hiragana, collapse punctuation)
+    const normalize = (s?: any) => normalizeForSearch(s)
 
     const tokens = normalize(q).split(' ').filter(Boolean)
     const expandedTokens = expandTokens(tokens)
@@ -674,8 +670,8 @@ export default function HomePage() {
       // tag filtering: if selectedTags is set, require item to have at least one
       if (selectedTags && selectedTags.length > 0) {
         const itemTags = (item.tags || []).map((x: any) => normalize(x))
-        const required = selectedTags.map((t) => normalize(t))
-        const hasAny = required.some((rt) => itemTags.some((it) => it.includes(rt)))
+        const required = selectedTags.map((t: string) => normalize(t))
+        const hasAny = required.some((rt: string) => itemTags.some((itm: string) => itm.includes(rt)))
         if (!hasAny) return { ok: false, score: 0 }
         score += 5
       }
