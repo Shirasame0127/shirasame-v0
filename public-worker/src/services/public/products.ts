@@ -121,11 +121,6 @@ export async function fetchPublicProducts(env: any, params: { limit?: number | n
               height: typeof img.height !== 'undefined' ? img.height : null,
               aspect: img.aspect || null,
               role: img.role || null,
-          // normalize affiliate links (support jsonb array, stringified json, or single string)
-          try {
-            const rawAff = (p.affiliate_links || p.affiliateLinks || null)
-            p.affiliateLinks = parseAffiliateField(rawAff)
-          } catch { p.affiliateLinks = [] }
             }
           })
         } else {
@@ -178,6 +173,14 @@ export async function fetchPublicProducts(env: any, params: { limit?: number | n
         try {
           p.attachment_images = Array.isArray(p.images) ? p.images.filter((i: any) => i.role === 'attachment').map((i: any) => ({ src: i.src, srcSet: i.srcSet })) : []
         } catch { p.attachment_images = [] }
+        // normalize affiliate links and provide camelCase aliases expected by public frontend
+        try {
+          const rawAff = (p.affiliate_links || p.affiliateLinks || null)
+          p.affiliateLinks = parseAffiliateField(rawAff)
+        } catch { p.affiliateLinks = [] }
+        try { p.shortDescription = p.short_description ?? null } catch {}
+        try { p.relatedLinks = p.related_links ?? null } catch {}
+        try { p.showPrice = typeof p.show_price !== 'undefined' ? p.show_price : null } catch {}
         // Remove any raw key fields to avoid exposing storage keys and strip internal timestamps
         delete p.main_image_key; delete p.mainImageKey; delete p.attachment_image_keys; delete p.attachmentImageKeys
         try { delete p.created_at; delete p.updated_at } catch {}
@@ -212,9 +215,11 @@ export async function fetchPublicOwnerProducts(env: any) {
           slug: p.slug || null,
           title: p.title || null,
           short_description: p.short_description || null,
+          shortDescription: p.short_description || null,
           tags: p.tags || null,
           price: typeof p.price !== 'undefined' ? p.price : null,
           show_price: typeof p.show_price !== 'undefined' ? p.show_price : null,
+          showPrice: typeof p.show_price !== 'undefined' ? p.show_price : null,
           main_image: mainResp ? { src: mainResp.src || null, srcSet: mainResp.srcSet || null } : null,
           attachment_images,
         }
@@ -254,11 +259,14 @@ export async function fetchPublicOwnerProductBySlug(env: any, slug?: string | nu
       slug: p.slug || null,
       title: p.title || null,
       short_description: p.short_description || null,
+      shortDescription: p.short_description || null,
       body: p.body || null,
       tags: p.tags || null,
       price: (typeof p.price === 'string' && /^\d+$/.test(p.price)) ? Number(p.price) : (typeof p.price !== 'undefined' ? p.price : null),
       show_price: typeof p.show_price !== 'undefined' ? p.show_price : null,
+      showPrice: typeof p.show_price !== 'undefined' ? p.show_price : null,
       related_links: p.related_links || null,
+      relatedLinks: p.related_links || null,
       notes: p.notes || null,
       affiliateLinks: parseAffiliateField(p.affiliate_links || p.affiliateLinks || null),
       main_image: mainResp ? { src: mainResp.src || null, srcSet: mainResp.srcSet || null } : null,
