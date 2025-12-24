@@ -646,6 +646,9 @@ export default function HomePage() {
                   if (!recipe.imageDataUrl && !recipe.imageUrl) return null
                   const linkedProductIds = [...new Set(pins.map((pin: any) => pin.productId).filter(Boolean))]
                   const linkedProducts = linkedProductIds.map((id) => {
+                    // Prefer recipe.items (API-provided full product objects) when present
+                    const itemFromRecipe = Array.isArray(recipe.items) ? recipe.items.find((it: any) => String(it.id ?? it.product_id ?? it.productId) === String(id)) : undefined
+                    if (itemFromRecipe) return itemFromRecipe
                     const byMap = productById.get(String(id))
                     if (byMap) return byMap
                     return products.find((p) => String(p.id) === String(id)) || null
@@ -657,7 +660,7 @@ export default function HomePage() {
                       <h3 className="font-heading text-xl sm:text-2xl font-semibold mb-6 text-center">{recipe.title}</h3>
                       <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-start bg-transparent">
                         <div className={`w-full md:w-1/2 ${imageFirst ? "md:order-1" : "md:order-2"}`}>
-                          <RecipeDisplay recipeId={recipe.id} recipeTitle={recipe.title} imageDataUrl={recipe.imageDataUrl} imageUrl={recipe.imageUrl} imageWidth={recipe.imageWidth} imageHeight={recipe.imageHeight} pins={pins} products={products} onProductClick={handleProductClick as any} />
+                          <RecipeDisplay recipeId={recipe.id} recipeTitle={recipe.title} imageDataUrl={recipe.imageDataUrl} imageUrl={recipe.imageUrl} imageWidth={recipe.imageWidth} imageHeight={recipe.imageHeight} pins={pins} products={products} items={recipe.items || []} onProductClick={handleProductClick as any} />
                         </div>
                         <div className={`w-full bg-transparent md:w-1/2 ${imageFirst ? "md:order-2" : "md:order-1"}`}>
                           {linkedProducts.length > 0 && (

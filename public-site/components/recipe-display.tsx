@@ -76,10 +76,14 @@ type RecipeDisplayProps = {
   aspectRatio?: string
   pins: RecipePin[]
   products: Product[]
+  items?: any[]
   onProductClick: (product: Product) => void
 }
 
 export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, products, onProductClick }: RecipeDisplayProps) {
+  // items prop may be provided by API (full product objects related to this recipe)
+  // keep destructuring backward-compatible by reading from arguments object below
+  const items: any[] = (arguments && (arguments as any)[0] && (arguments as any)[0].items) || []
   const pinAreaRef = useRef<HTMLDivElement>(null)
   const [imageLoaded, setImageLoaded] = useState(false)
   const handleImageLoad = () => setImageLoaded(true)
@@ -98,8 +102,12 @@ export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, produ
           // Build product map once for quick lookup
           (() => {
             const productMap = new Map(products.map((p) => [String(p.id), p]))
+            const itemsMap = new Map((Array.isArray(items) ? items : []).map((it: any) => [String(it.id ?? it.product_id ?? it.productId), it]))
             return pins.map((pin) => {
-              const product = pin && pin.productId ? productMap.get(String(pin.productId)) : undefined
+              const pidKey = pin && pin.productId ? String(pin.productId) : null
+              const productFromItems = pidKey ? itemsMap.get(pidKey) : undefined
+              const productFromProducts = pidKey ? productMap.get(pidKey) : undefined
+              const product = productFromItems || productFromProducts || undefined
               const handleActivate = () => { if (product) try { onProductClick(product) } catch {} }
               const handleKey = (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleActivate() } }
           // If product is not found, still allow rendering the pin (requirements say show nothing only when pins empty)
