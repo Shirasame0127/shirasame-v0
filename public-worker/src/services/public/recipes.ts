@@ -312,8 +312,21 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
                 p.images = imgs
               }
 
-              try { p.main_image = Array.isArray(p.images) && p.images.length > 0 ? (p.images.find((i: any) => i.role === 'main')?.src || p.images[0]?.src || null) : null } catch { p.main_image = null }
-              try { p.attachment_images = Array.isArray(p.images) ? p.images.filter((i: any) => i.role === 'attachment').map((i: any) => i.src).filter(Boolean) : [] } catch { p.attachment_images = [] }
+              try {
+                if (Array.isArray(p.images) && p.images.length > 0) {
+                  const mainImg = p.images.find((i: any) => i.role === 'main') || p.images[0]
+                  p.main_image = { src: mainImg?.src || null, srcSet: mainImg?.srcSet || null }
+                } else {
+                  p.main_image = null
+                }
+              } catch {
+                p.main_image = null
+              }
+              try {
+                p.attachment_images = Array.isArray(p.images) ? p.images.filter((i: any) => i.role === 'attachment').map((i: any) => i.src).filter(Boolean) : []
+              } catch {
+                p.attachment_images = []
+              }
               // Remove raw storage key fields
               try { delete p.main_image_key; delete p.mainImageKey; delete p.attachment_image_keys; delete p.attachmentImageKeys } catch {}
               itemsOut.push(p)
