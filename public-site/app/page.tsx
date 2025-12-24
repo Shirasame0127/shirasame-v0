@@ -21,9 +21,6 @@ import { PublicNav } from "@/components/public-nav"
 import InitialLoading from '@/components/initial-loading'
 import { ProfileHeader } from "@/components/profile-header"
 import { apiFetch } from "@/lib/api-client"
-import { expandTokens } from '@/lib/search-synonyms'
-import { tokenize } from '@/lib/morph-tokenizer'
-import { normalizeForSearch } from '@/lib/normalize'
 import type { Product, Collection, User, AmazonSaleSchedule } from "@shared/types"
 
 const API_BASE = process.env.NEXT_PUBLIC_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_BASE_URL || "/api/public"
@@ -170,6 +167,7 @@ export default function HomePage() {
   const [displayMode, setDisplayMode] = useState<'normal' | 'gallery'>('normal')
   const [isTransitioning, setIsTransitioning] = useState(false)
   const [shuffleKey, setShuffleKey] = useState(0)
+  const [galleryFlatItems, setGalleryFlatItems] = useState<any[]>([])
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -264,13 +262,15 @@ export default function HomePage() {
         const recJson = recRes.status === 'fulfilled' ? await recRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const profileJson = profileRes.status === 'fulfilled' ? await profileRes.value.json().catch(() => null) : null
         const apiProductsFlattened: any[] = Array.isArray(prodJson.data) ? prodJson.data : []
+        // store flattened gallery items for client-side filtering
+        setGalleryFlatItems(apiProductsFlattened)
         // Convert flattened gallery items back into a product-like collection for initial page state
         const grouped: Record<string, any> = {}
         for (const it of apiProductsFlattened) {
           const pid = it.productId || `p-${it.id}`
-            if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
-            // include both `url` and `src` for compatibility with legacy rendering
-            grouped[pid].images.push({ url: it.image, src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
+          if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
+          // include both `url` and `src` for compatibility with legacy rendering
+          grouped[pid].images.push({ url: it.image, src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
         }
         const apiProducts: Product[] = Object.values(grouped)
         const apiCollections: Collection[] = Array.isArray(colJson.data) ? colJson.data : []
@@ -558,65 +558,71 @@ export default function HomePage() {
 
   const galleryItemsShuffled = useMemo(() => {
     if (displayMode !== 'gallery') return [] as any[]
-    const domain = (process.env?.NEXT_PUBLIC_IMAGES_DOMAIN as string) || 'https://images.shirasame.com'
-    const normalizeRawForUsage = (raw?: string | null) => {
-      if (!raw) return ''
-      let s = String(raw)
-      try { const u = new URL(s); s = u.pathname + (u.search || '') } catch {}
-      const m = s.match(/\/cdn-cgi\/image\/[^\/]+\/(.+)$/)
-      if (m && m[1]) return m[1]
-      return s.replace(/^\/+/, '')
+
+    const nfkc = (s?: string | null) => {
+      if (!s) return ''
+      try { s = String(s).normalize('NFKC') } catch {}
+      s = String(s).toLowerCase()
+      // Convert Katakana to Hiragana for rough normalization
+      s = s.replace(/[\u30A1-\u30F6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60))
+      // remove punctuation
+      s = s.replace(/[\p{P}\p{S}]+/gu, ' ')
+      s = s.replace(/\s+/g, ' ').trim()
+      return s
     }
-    // Use the filtered product list so gallery responds to keyword/tag filters
-    return shuffleArray(filteredAndSortedProducts.flatMap((product) => {
-      const entries: any[] = []
-      const pushImage = (img: any, idx: number) => {
-        if (!img) return
-        let url: string | null = null
-        let aspect: number | undefined = undefined
-        try {
-          if (typeof img === 'string') url = img
-          else url = img.src || img.url || null
-        } catch {}
-        try {
-          aspect = img && (img.aspect || (img.width && img.height ? img.width / img.height : undefined))
-        } catch {}
-        if (!url) return
-        try { entries.push({ id: `${product.id}__${idx}`, productId: product.id, image: String(url), aspect, title: product.title, href: `/products/${product.slug}` }) } catch { entries.push({ id: `${product.id}__${idx}`, productId: product.id, image: url, aspect, title: product.title, href: `/products/${product.slug}` }) }
+
+    const terms = (searchText || '').split(/\s+/).map((t) => nfkc(t)).filter(Boolean)
+
+    // scoring weights
+    const weight = { tags: 4, title: 3, slug: 2, short: 2, body: 1, notes: 1 }
+
+    const scoreForItem = (item: any) => {
+      // require selectedTags to be matched (if any)
+      try {
+        if (selectedTags && selectedTags.length > 0) {
+          const itags = Array.isArray(item.tags) ? item.tags.map((t: any) => nfkc(String(t))) : []
+          for (const st of selectedTags) {
+            if (!itags.includes(nfkc(st))) return 0
+          }
+        }
+      } catch {}
+      if (terms.length === 0) return 1
+      let score = 0
+      const hay = {
+        tags: Array.isArray(item.tags) ? nfkc(item.tags.join(' ')) : nfkc(String(item.tags || '')),
+        title: nfkc(item.title || ''),
+        slug: nfkc(item.slug || ''),
+        short: nfkc(item.shortDescription || item.short_description || ''),
+        body: nfkc(item.body || ''),
+        notes: nfkc(item.notes || ''),
       }
+      for (const t of terms) {
+        if (!t) continue
+        if (hay.tags && hay.tags.indexOf(t) !== -1) score += weight.tags
+        if (hay.title && hay.title.indexOf(t) !== -1) score += weight.title
+        if (hay.slug && hay.slug.indexOf(t) !== -1) score += weight.slug
+        if (hay.short && hay.short.indexOf(t) !== -1) score += weight.short
+        if (hay.body && hay.body.indexOf(t) !== -1) score += weight.body
+        if (hay.notes && hay.notes.indexOf(t) !== -1) score += weight.notes
+      }
+      return score
+    }
 
-      // main_image (transformed URL) first
-      try {
-        const main = (product as any)?.main_image
-        if (main && main.src) pushImage(main.src, entries.length)
-      } catch {}
+    // filter + score
+    const scored = galleryFlatItems.map((it: any) => ({ item: it, score: scoreForItem(it) })).filter((s: any) => s.score > 0)
+    // sort by score desc
+    scored.sort((a: any, b: any) => b.score - a.score)
 
-      // product.images array (legacy and modern) - include all
-      try {
-        if (Array.isArray((product as any).images)) {
-          ;((product as any).images as any[]).forEach((img, i) => pushImage(img, entries.length))
-        }
-      } catch {}
+    // map to gallery item shape
+    const mapped = scored.flatMap((s: any, idx: number) => {
+      const it = s.item
+      return [{ id: it.id || `${it.productId}__${idx}`, productId: it.productId || null, image: it.image || it.src || it.url || null, aspect: it.aspect || null, title: it.title || null, href: it.slug ? `/products/${it.slug}` : null }]
+    })
 
-      // attachments / additional image arrays if present
-      try {
-        if (Array.isArray((product as any).attachments)) {
-          ;((product as any).attachments as any[]).forEach((img) => pushImage(img, entries.length))
-        }
-      } catch {}
-
-      // some APIs may provide plain image URL arrays
-      try {
-        if (Array.isArray((product as any).imageUrls)) {
-          ;((product as any).imageUrls as any[]).forEach((img) => pushImage(img, entries.length))
-        }
-      } catch {}
-
-      // Ensure at least one entry
-      if (entries.length === 0) pushImage('/placeholder.svg', 0)
-      return entries
-    }))
-  }, [shuffleKey, products, displayMode])
+    // if shuffleKey changed and there's no search terms, shuffle results
+    if ((!searchText || searchText.trim() === '') && shuffleKey) return shuffleArray(mapped)
+    return mapped
+  }, [shuffleKey, galleryFlatItems, displayMode, searchText, selectedTags])
 
   const productById = useMemo(() => { const m = new Map<string, Product>(); for (const p of products) m.set(p.id, p); return m }, [products])
   const saleNameFor = (productId: string): string | null => activeSaleMap.get(productId) || null
@@ -649,110 +655,7 @@ export default function HomePage() {
     } catch (e) { console.error('[public] loadMore failed', e) } finally { setLoadingMore(false) }
   }
 
-  const galleryItems = useMemo(() => {
-    // base set: ensure product exists
-    const base = galleryItemsShuffled.filter((item: any) => productById.has(item.productId))
-    const q = (searchText || '').trim()
-    if (!q && (!selectedTags || selectedTags.length === 0)) return base
-
-    // use shared normalize helper (NFKC, katakana->hiragana, collapse punctuation)
-    const normalize = (s?: any) => normalizeForSearch(s)
-
-    const tokens = normalize(q).split(' ').filter(Boolean)
-    const expandedTokens = expandTokens(tokens)
-
-    const scoreItem = (item: any) => {
-      let score = 0
-      const prod = productById.get(String(item.productId)) as any
-      const itemTokens = (tokenMapRef.current && tokenMapRef.current[item.id]) || []
-      const prodTokens = (tokenMapRef.current && prod ? tokenMapRef.current[`prod-${prod.id}`] : []) || []
-
-      // tag filtering: if selectedTags is set, require item to have at least one
-      if (selectedTags && selectedTags.length > 0) {
-        const itemTags = (item.tags || []).map((x: any) => normalize(x))
-        const required = selectedTags.map((t: string) => normalize(t))
-        const hasAny = required.some((rt: string) => itemTags.some((itm: string) => itm.includes(rt)))
-        if (!hasAny) return { ok: false, score: 0 }
-        score += 5
-      }
-
-      // If tokenizer results exist, use token membership for scoring
-      if (itemTokens.length > 0 || prodTokens.length > 0) {
-        const hayTokens = new Set<string>([...itemTokens, ...prodTokens].map((x) => String(x).toLowerCase()))
-        let anyMatched = false
-        for (const t of expandedTokens) {
-          if (!t) continue
-          if (hayTokens.has(t)) { score += 30; anyMatched = true }
-          else if (Array.from(hayTokens).some((ht) => ht.includes(t))) { score += 8; anyMatched = true }
-        }
-        if (!anyMatched && expandedTokens.length > 0) return { ok: false, score: 0 }
-        return { ok: true, score }
-      }
-
-      // fallback: simple substring scoring if tokens are not ready
-      const fields: Record<string, string> = {}
-      fields.title = normalize(item.title || '')
-      fields.slug = normalize(item.slug || '')
-      fields.tags = normalize((item.tags || []).join(' '))
-      fields.short = normalize(prod?.shortDescription || prod?.short_description || '')
-      fields.body = normalize(prod?.body || '')
-      fields.notes = normalize(prod?.notes || '')
-      for (const t of expandedTokens) {
-        if (!t) continue
-        if (fields.title.includes(t)) score += 40
-        if (fields.slug.includes(t)) score += 25
-        if (fields.tags.includes(t)) score += 30
-        if (fields.short.includes(t)) score += 12
-        if (fields.body.includes(t)) score += 8
-        if (fields.notes.includes(t)) score += 6
-      }
-      if (expandedTokens.length > 0) {
-        const hay = [fields.title, fields.slug, fields.tags, fields.short, fields.body, fields.notes].join(' ')
-        const matched = expandedTokens.some((t) => hay.includes(t))
-        if (!matched) return { ok: false, score: 0 }
-      }
-      return { ok: true, score }
-    }
-
-    const scored = base.map((it: any) => ({ it, s: scoreItem(it) })).filter((x) => x.s.ok)
-    scored.sort((a, b) => b.s.score - a.s.score)
-    return scored.map((x) => x.it)
-  }, [galleryItemsShuffled, productById, searchText, selectedTags])
-
-  // Tokenization cache (ref to avoid re-creating in scoring loop)
-  const [tokenMapState, setTokenMapState] = useState<Record<string, string[]>>({})
-  const tokenMapRef = useRef<Record<string, string[]>>(tokenMapState)
-  useEffect(() => { tokenMapRef.current = tokenMapState }, [tokenMapState])
-
-  // Build token cache for items and products asynchronously
-  useEffect(() => {
-    let cancelled = false
-    const items = galleryItemsShuffled || []
-    const prods = products || []
-    const newMap: Record<string, string[]> = {}
-    ;(async () => {
-      try {
-        // tokenize products first
-        for (const p of prods) {
-          try {
-              const txt = `${p.title || ''} ${p.slug || ''} ${(p.tags || []).join(' ')} ${(p as any).shortDescription || (p as any).short_description || ''} ${ (p as any).body || '' } ${ (p as any).notes || '' }`
-            const toks = await tokenize(txt)
-            newMap[`prod-${p.id}`] = toks
-          } catch {}
-        }
-        for (const it of items) {
-          try {
-            const prod = products.find((pp) => String(pp.id) === String(it.productId))
-            const txt = `${it.title || ''} ${it.slug || ''} ${(it.tags || []).join(' ')} ${(prod as any)?.shortDescription || (prod as any)?.short_description || ''} ${(prod as any)?.body || ''} ${(prod as any)?.notes || ''}`
-            const toks = await tokenize(txt)
-            newMap[it.id] = toks
-          } catch {}
-        }
-        if (!cancelled) setTokenMapState((prev) => ({ ...prev, ...newMap }))
-      } catch (e) { }
-    })()
-    return () => { cancelled = true }
-  }, [galleryItemsShuffled, products])
+  const galleryItems = useMemo(() => { return galleryItemsShuffled.filter((item: any) => productById.has(item.productId)) }, [galleryItemsShuffled, productById])
 
   useEffect(() => {
     const node = sentinelRef.current
