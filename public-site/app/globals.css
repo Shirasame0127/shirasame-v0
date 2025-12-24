@@ -67,4 +67,12 @@
   .profile-card p { color: var(--muted-foreground); }
   /* all paragraph text should use the sans font variable */
   p { font-family: var(--font-sans); }
+  /* Make image dragging/selecting/download via browser harder (best-effort) */
+  .no-download {
+    -webkit-user-drag: none;
+    user-drag: none;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
 }

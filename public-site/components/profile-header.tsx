@@ -56,7 +56,10 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
               <img
                 src={image || "/placeholder.svg"}
                 alt={`ヘッダー画像 ${index + 1}`}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover no-download"
+                draggable={false}
+                onDragStart={(e) => e.preventDefault()}
+                onContextMenu={(e) => e.preventDefault()}
                 onError={(e: any) => {
                   try {
                     e.currentTarget.onerror = null
