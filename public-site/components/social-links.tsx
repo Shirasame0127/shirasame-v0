@@ -3,14 +3,18 @@
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { Globe, Github, Mail, FileText } from "lucide-react"
+import { Card } from "@/components/ui/card"
 
-type Props = { links: Record<string, string>; className?: string }
+type Props = { links: Record<string, string> | Array<{ platform: string; url: string; username?: string }>; className?: string }
 
 const normalize = (k: string) => k.trim().toLowerCase()
 
 export function SocialLinks({ links, className }: Props) {
   const entries = Object.entries(links || {}).filter(([_, url]) => !!url)
-  if (entries.length === 0) return null
+  const arr: Array<{ platform: string; url: string; username?: string }> = Array.isArray(links)
+    ? (links as any)
+    : Object.entries(links || {}).filter(([_, url]) => !!url).map(([platform, url]) => ({ platform, url }))
+  if (arr.length === 0) return null
 
   const getIconAndColor = (key: string) => {
     const k = normalize(key)
@@ -56,15 +60,20 @@ export function SocialLinks({ links, className }: Props) {
   }
 
   return (
-    <div className={cn("grid grid-cols-2 gap-2", className)}>
-      {entries.map(([key, url], idx) => {
-        const lastOdd = entries.length % 2 === 1 && idx === entries.length - 1
-        const spanClass = lastOdd ? 'col-span-2' : ''
-        const { icon, color } = getIconAndColor(key)
+    <div className={cn("grid grid-cols-2 gap-2 justify-center max-w-md mx-auto", className)}>
+      {arr.map((link, index) => {
+        const key = link.platform || String(index)
+        const cfg = getIconAndColor(key)
+        const isLastAndOdd = arr.length % 2 !== 0 && index === arr.length - 1
+        const displayName = link.username || cfg.name || key
         return (
-          <Link key={key} href={url} target="_blank" rel="noopener noreferrer" className={cn(`inline-flex items-center gap-2 px-3 py-2 transition-all h-full rounded-md border bg-background text-xs hover:text-white ${color}`, spanClass)}>
-            {icon}
-            <span className="truncate max-w-[10rem]">{key}</span>
+          <Link key={key} href={link.url} target="_blank" rel="noopener noreferrer" className={isLastAndOdd ? 'col-span-2' : ''}>
+            <Card className={`px-3 py-2 transition-all ${cfg.color} h-full`}> 
+              <div className="flex items-center gap-2 justify-center">
+                {cfg.icon}
+                <span className="font-medium text-xs truncate">{displayName}</span>
+              </div>
+            </Card>
           </Link>
         )
       })}
