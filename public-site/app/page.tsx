@@ -248,18 +248,27 @@ export default function HomePage() {
     }
     ;(async () => {
       try {
-        const [prodRes, colRes, recRes, profileRes, saleRes] = await Promise.allSettled([
-          apiFetch(`/owner-products?limit=${pageLimit}&offset=0`),
+        const [galleryRes, colRes, recRes, profileRes, saleRes] = await Promise.allSettled([
+          apiFetch(`/gallery?limit=${pageLimit}&offset=0`),
           apiFetch(`/collections`),
           apiFetch(`/recipes`),
           apiFetch('/profile'),
           apiFetch('/amazon-sale-schedules'),
         ])
-        const prodJson = prodRes.status === 'fulfilled' ? await prodRes.value.json().catch(() => ({ data: [] })) : { data: [] }
+        const prodJson = galleryRes.status === 'fulfilled' ? await galleryRes.value.json().catch(() => ({ data: [] })) : { data: [] }
+        // gallery API returns flattened items in data[]; we'll reconstruct lightweight product-like entries
         const colJson = colRes.status === 'fulfilled' ? await colRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const recJson = recRes.status === 'fulfilled' ? await recRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const profileJson = profileRes.status === 'fulfilled' ? await profileRes.value.json().catch(() => null) : null
-        const apiProducts: Product[] = Array.isArray(prodJson.data) ? prodJson.data : []
+        const apiProductsFlattened: any[] = Array.isArray(prodJson.data) ? prodJson.data : []
+        // Convert flattened gallery items back into a product-like collection for initial page state
+        const grouped: Record<string, any> = {}
+        for (const it of apiProductsFlattened) {
+          const pid = it.productId || `p-${it.id}`
+          if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
+          grouped[pid].images.push({ src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
+        }
+        const apiProducts: Product[] = Object.values(grouped)
         const apiCollections: Collection[] = Array.isArray(colJson.data) ? colJson.data : []
         const apiRecipes = Array.isArray(recJson.data) ? recJson.data : []
         let loadedUser = profileJson?.data || profileJson || null
@@ -379,7 +388,7 @@ export default function HomePage() {
 
         const normalizedRecipes = apiRecipes.map((r: any) => normalizeRecipe(r))
 
-        setProducts(normalizedProducts.filter((p: any) => p.published))
+        setProducts(normalizedProducts.filter((p: any) => p.published !== false))
         setPageOffset(normalizedProducts.length)
         if (prodJson?.meta && typeof prodJson.meta.total === 'number') {
           setHasMore(normalizedProducts.length < prodJson.meta.total)
@@ -612,17 +621,20 @@ export default function HomePage() {
     if (loadingMore || !hasMore) return
     setLoadingMore(true)
     try {
-      const res = await apiFetch(`/owner-products?limit=${pageLimit}&offset=${pageOffset}`)
+      const res = await apiFetch(`/gallery?limit=${pageLimit}&offset=${pageOffset}`)
       if (!res.ok) throw new Error('failed to fetch')
       const js = await res.json().catch(() => ({ data: [], meta: undefined }))
       const items = Array.isArray(js.data) ? js.data : []
-      const normalized = items.map((p: any) => {
-        if (Array.isArray(p.images)) return p
-        if (p.image && p.image.url) {
-          return { ...p, images: [{ id: p.image.id || null, product_id: p.id, url: p.image.url, width: p.image.width || null, height: p.image.height || null, aspect: p.image.width && p.image.height ? p.image.width / p.image.height : p.image.aspect || null, role: p.image.role || 'main', }], }
-        }
-        return { ...p, images: [] }
-      }).filter((p: any) => p.published)
+      // items are flattened gallery items; group by productId to produce product-like entries
+      const grouped: Record<string, any> = {}
+      for (const it of items) {
+        try {
+          const pid = it.productId || `p-${it.id}`
+          if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
+          grouped[pid].images.push({ src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
+        } catch (e) { continue }
+      }
+      const normalized = Object.values(grouped).map((p: any) => p)
       setProducts((prev) => [...prev, ...normalized])
       setPageOffset((prev) => prev + items.length)
       if (js?.meta && typeof js.meta.total === 'number') { setHasMore((prevOffset) => pageOffset + items.length < js.meta.total) } else { setHasMore(items.length === pageLimit) }

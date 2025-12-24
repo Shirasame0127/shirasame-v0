@@ -44,6 +44,90 @@ export function registerPublicRoutes(app: any) {
   app.get('/api/public/tag-groups', tagGroupsHandler)
   app.get('/api/public/tags', tagsHandler)
 
+  // Gallery endpoint: returns flattened image items across products
+  app.get('/api/public/gallery', async (c: any) => {
+    try {
+      const url = new URL(c.req.url)
+      const qp = Object.fromEntries(url.searchParams.entries())
+      const limit = qp.limit ? Math.max(0, parseInt(String(qp.limit), 10) || 0) : 50
+      const offset = qp.offset ? Math.max(0, parseInt(String(qp.offset), 10) || 0) : 0
+      const q = qp.q ? String(qp.q).trim().toLowerCase() : null
+      const tagsParam = qp.tags ? String(qp.tags).trim() : null
+      const tags = tagsParam ? tagsParam.split(',').map((t: string) => t.trim().toLowerCase()).filter(Boolean) : []
+      const shuffle = qp.shuffle === 'true' || qp.shuffle === '1'
+
+      const { fetchPublicProducts } = await import('../../services/public/products')
+      // When shuffle or filtering is requested we need the full product set to flatten and filter client-side
+      const fetchLimit = (shuffle || q || (tags && tags.length > 0)) ? null : null
+      const res = await fetchPublicProducts(c.env, { limit: fetchLimit, offset: 0, shallow: false })
+      const products = Array.isArray(res.data) ? res.data : []
+
+      // Filter by q (search) and tags if provided
+      const filtered = products.filter((p: any) => {
+        try {
+          if (q) {
+            const hay = ((p.title || '') + ' ' + (p.short_description || '')).toLowerCase()
+            if (!hay.includes(q)) return false
+          }
+          if (tags && tags.length > 0) {
+            const ptags = Array.isArray(p.tags) ? p.tags.map((t: any) => String(t).toLowerCase()) : (typeof p.tags === 'string' ? String(p.tags).toLowerCase().split(/[,\s]+/) : [])
+            // require that product contains all requested tags
+            for (const t of tags) {
+              if (!ptags.includes(t)) return false
+            }
+          }
+          return true
+        } catch (e) { return false }
+      })
+
+      // Flatten images
+      const items: any[] = []
+      for (const p of filtered) {
+        try {
+          const imgs = Array.isArray(p.images) ? p.images : []
+          let idx = 0
+          for (const img of imgs) {
+            try {
+              const src = img?.src || (img?.main_image?.src) || null
+              if (!src) continue
+              items.push({
+                id: `${p.id}__${idx}`,
+                productId: p.id || null,
+                title: p.title || null,
+                slug: p.slug || null,
+                image: src,
+                srcSet: img?.srcSet || null,
+                aspect: img?.aspect || null,
+                role: img?.role || null,
+                href: p.slug ? `/products/${p.slug}` : null,
+              })
+              idx += 1
+            } catch (e) { continue }
+          }
+        } catch (e) { continue }
+      }
+
+      // Optional shuffle
+      if (shuffle) {
+        for (let i = items.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1))
+          const tmp = items[i]
+          items[i] = items[j]
+          items[j] = tmp
+        }
+      }
+
+      const total = items.length
+      const sliced = typeof limit === 'number' && limit > 0 ? items.slice(offset, offset + limit) : items.slice(offset)
+
+      const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ data: sliced, meta: { total, limit, offset } }), { headers })
+    } catch (e: any) {
+      const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ data: [], meta: null }), { status: 500, headers })
+    }
+  })
+
   // Single-resource detail routes (by id)
   app.get('/api/public/products/*', async (c: any) => {
     // delegate to products service by id via existing handler logic
