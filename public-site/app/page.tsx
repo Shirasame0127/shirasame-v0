@@ -735,7 +735,7 @@ export default function HomePage() {
         // tokenize products first
         for (const p of prods) {
           try {
-            const txt = `${p.title || ''} ${p.slug || ''} ${(p.tags || []).join(' ')} ${p.shortDescription || p.short_description || ''} ${p.body || ''} ${p.notes || ''}`
+              const txt = `${p.title || ''} ${p.slug || ''} ${(p.tags || []).join(' ')} ${(p as any).shortDescription || (p as any).short_description || ''} ${ (p as any).body || '' } ${ (p as any).notes || '' }`
             const toks = await tokenize(txt)
             newMap[`prod-${p.id}`] = toks
           } catch {}
@@ -743,7 +743,7 @@ export default function HomePage() {
         for (const it of items) {
           try {
             const prod = products.find((pp) => String(pp.id) === String(it.productId))
-            const txt = `${it.title || ''} ${it.slug || ''} ${(it.tags || []).join(' ')} ${prod?.shortDescription || prod?.short_description || ''} ${prod?.body || ''} ${prod?.notes || ''}`
+            const txt = `${it.title || ''} ${it.slug || ''} ${(it.tags || []).join(' ')} ${(prod as any)?.shortDescription || (prod as any)?.short_description || ''} ${(prod as any)?.body || ''} ${(prod as any)?.notes || ''}`
             const toks = await tokenize(txt)
             newMap[it.id] = toks
           } catch {}

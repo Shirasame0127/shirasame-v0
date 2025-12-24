@@ -4,31 +4,7 @@
 export async function tokenize(text?: string): Promise<string[]> {
   if (!text && text !== 0) return []
   const s = String(text)
-  // try kuromoji if available
-  try {
-    // Dynamic import may fail in typical browser setups if kuromoji isn't bundled.
-    const kuromoji = await import('kuromoji')
-    if (kuromoji && kuromoji.builder) {
-      // Attempt to build tokenizer with default dicPath; in many setups this will fail
-      // but we try and if it does, fallback to simple tokenizer.
-      return new Promise((resolve) => {
-        try {
-          const builder = kuromoji.builder({ dicPath: '/node_modules/kuromoji/dict/' })
-          builder.build((err: any, tokenizer: any) => {
-            if (err || !tokenizer) return resolve(simpleTokenize(s))
-            try {
-              const toks = tokenizer.tokenize(s || '') || []
-              const out = toks.map((t: any) => (t.basic_form && t.basic_form !== '*' ? t.basic_form : t.surface_form)).filter(Boolean).map((x: any) => String(x).toLowerCase())
-              resolve(Array.from(new Set(out)))
-            } catch (e) { resolve(simpleTokenize(s)) }
-          })
-        } catch (e) { resolve(simpleTokenize(s)) }
-      })
-    }
-  } catch (e) {
-    // ignore, fallback
-  }
-
+  // No kuromoji bundling by default in the browser build; always use lightweight tokenizer.
   return simpleTokenize(s)
 }
 
