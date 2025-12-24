@@ -68,9 +68,9 @@ export function SocialLinks({ links, className }: Props) {
         const displayName = link.username || cfg.name || key
         return (
           <Link key={key} href={link.url} target="_blank" rel="noopener noreferrer" className={cn(isLastAndOdd ? 'col-span-2' : '', 'group')}> 
-            <Card className={`px-3 py-2 transition-all ${cfg.color} h-full rounded-full border border-gray-200 bg-white shadow-sm`}> 
+            <Card className={`px-3 py-2 transition-all ${cfg.color} h-full rounded-b-2xl border border-gray-200 bg-white shadow-sm`}> 
               <div className="flex items-center gap-2 justify-center">
-                            <span className="text-current group-hover:text-white flex-shrink-0 self-center [&>svg]:w-[20px] [&>svg]:h-[20px]">{cfg.icon}</span>
+                  <span className="text-current group-hover:text-white flex-shrink-0 self-center [&>svg]:w-[20px] [&>svg]:h-[20px]">{cfg.icon}</span>
                             <span className="font-medium text-sm leading-tight truncate text-current group-hover:text-white self-center ml-2">{displayName}</span>
               </div>
             </Card>

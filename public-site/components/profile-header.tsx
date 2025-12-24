@@ -67,7 +67,7 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
               />
             </div>
           ))}
-          <div className="absolute inset-0 bg-black/10" />
+          <div className="absolute inset-0" />
         </div>
       ) : (
         <div className="absolute inset-0 bg-muted flex items-center justify-center">

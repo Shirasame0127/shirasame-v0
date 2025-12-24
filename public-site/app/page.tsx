@@ -553,25 +553,52 @@ export default function HomePage() {
       return s.replace(/^\/+/, '')
     }
     return shuffleArray(products.flatMap((product) => {
-      // Prefer API-provided transformed URL: product.main_image.src
-      const mainSrc = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
-      if (mainSrc) {
+      const entries: any[] = []
+      const pushImage = (img: any, idx: number) => {
+        if (!img) return
+        let url: string | null = null
+        let aspect: number | undefined = undefined
         try {
-            const u = String(mainSrc)
-          return [{ id: `${product.id}__0`, productId: product.id, image: u, aspect: undefined, title: product.title, href: `/products/${product.slug}` }]
-        } catch {
-          return [{ id: `${product.id}__0`, productId: product.id, image: String(mainSrc), aspect: undefined, title: product.title, href: `/products/${product.slug}` }]
-        }
+          if (typeof img === 'string') url = img
+          else url = img.src || img.url || null
+        } catch {}
+        try {
+          aspect = img && (img.aspect || (img.width && img.height ? img.width / img.height : undefined))
+        } catch {}
+        if (!url) return
+        try { entries.push({ id: `${product.id}__${idx}`, productId: product.id, image: String(url), aspect, title: product.title, href: `/products/${product.slug}` }) } catch { entries.push({ id: `${product.id}__${idx}`, productId: product.id, image: url, aspect, title: product.title, href: `/products/${product.slug}` }) }
       }
-      // Fallback to legacy images[].url if present
-      const legacy = (product as any)?.images && Array.isArray((product as any).images) ? (product as any).images[0] : null
-      const url = legacy?.url || "/placeholder.svg"
+
+      // main_image (transformed URL) first
       try {
-        const u2 = String(url)
-        return [{ id: `${product.id}__0`, productId: product.id, image: u2, aspect: legacy?.aspect || undefined, title: product.title, href: `/products/${product.slug}` }]
-      } catch {
-        return [{ id: `${product.id}__0`, productId: product.id, image: url, aspect: legacy?.aspect || undefined, title: product.title, href: `/products/${product.slug}` }]
-      }
+        const main = (product as any)?.main_image
+        if (main && main.src) pushImage(main.src, entries.length)
+      } catch {}
+
+      // product.images array (legacy and modern) - include all
+      try {
+        if (Array.isArray((product as any).images)) {
+          ;((product as any).images as any[]).forEach((img, i) => pushImage(img, entries.length))
+        }
+      } catch {}
+
+      // attachments / additional image arrays if present
+      try {
+        if (Array.isArray((product as any).attachments)) {
+          ;((product as any).attachments as any[]).forEach((img) => pushImage(img, entries.length))
+        }
+      } catch {}
+
+      // some APIs may provide plain image URL arrays
+      try {
+        if (Array.isArray((product as any).imageUrls)) {
+          ;((product as any).imageUrls as any[]).forEach((img) => pushImage(img, entries.length))
+        }
+      } catch {}
+
+      // Ensure at least one entry
+      if (entries.length === 0) pushImage('/placeholder.svg', 0)
+      return entries
     }))
   }, [shuffleKey, products, displayMode])
 
@@ -599,7 +626,7 @@ export default function HomePage() {
     } catch (e) { console.error('[public] loadMore failed', e) } finally { setLoadingMore(false) }
   }
 
-  const galleryItems = useMemo(() => { return galleryItemsShuffled.filter((item: any) => { const p = productById.get(item.productId); return p ? productMatches(p) : false }) }, [galleryItemsShuffled, productById, searchText, selectedTags])
+  const galleryItems = useMemo(() => { return galleryItemsShuffled.filter((item: any) => productById.has(item.productId)) }, [galleryItemsShuffled, productById])
 
   useEffect(() => {
     const node = sentinelRef.current

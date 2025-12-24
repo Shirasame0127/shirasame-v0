@@ -26,7 +26,7 @@ export function ProfileCard({ user }: ProfileCardProps) {
   }, [user])
 
   return (
-    <Card className="overflow-hidden border-2 shadow-xl w-[90vw] md:w-[85vw] max-w-md mx-auto">
+    <Card className="profile-card overflow-hidden border-2 shadow-xl w-[90vw] md:w-[85vw] max-w-md mx-auto">
       <CardContent className="p-[5%] text-center">
         <div className="mb-[4%] inline-block">
           <Image
@@ -37,8 +37,8 @@ export function ProfileCard({ user }: ProfileCardProps) {
             className="rounded-full border-4 border-background shadow-lg w-[22vw] h-[22vw] md:w-[18vw] md:h-[18vw] max-w-[100px] max-h-[100px]"
           />
         </div>
-        <h2 className="text-[5.5vw] md:text-[4vw] lg:text-2xl font-bold mb-[2%]">{user.displayName}</h2>
-        <p className="text-[3.5vw] md:text-[2.5vw] lg:text-sm text-muted-foreground mb-[4%] leading-relaxed">{user.bio}</p>
+        <h2 className="text-[5.5vw] md:text-xl lg:text-2xl font-bold mb-[2%]">{user.displayName}</h2>
+        <p className="text-[3.5vw] md:text-sm lg:text-sm text-muted-foreground mb-[4%] leading-relaxed">{user.bio}</p>
         {user.socialLinks && (
           <div className="mt-[4%]"><SocialLinks links={user.socialLinks} /></div>
         )}

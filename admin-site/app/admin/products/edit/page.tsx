@@ -79,9 +79,9 @@ export default function ProductEditPageQuery() {
     Array.from({ length: 4 }).map(() => ({ file: null, key: "" }))
   )
 
-  const addInputRef = useRef<HTMLInputElement | null>(null)
-  const replaceInputRef = useRef<HTMLInputElement | null>(null)
   const [replaceIndex, setReplaceIndex] = useState<number | null>(null)
+  const [addUploadOpen, setAddUploadOpen] = useState(false)
+  const [replaceUploadOpen, setReplaceUploadOpen] = useState(false)
 
   const ensureSlotsLength = (slots: AttachmentSlot[] | any[]) => {
     const next = (slots || []).slice(0, 4).map((s: any) => ({ file: s.file || null, key: s.key || "" }))
@@ -817,54 +817,49 @@ export default function ProductEditPageQuery() {
               </div>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-4">
-              <input ref={addInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                const f = e.target.files?.[0]
-                if (!f) return
-                try {
-                  const u = await uploadFile(f)
-                  const k = (u as any)?.key
-                  if (!k) throw new Error('upload failed')
-                  // put into first empty slot
+              {/* Add/Replace via ImageUpload dialog to enable cropping */}
+              <ImageUpload
+                open={addUploadOpen}
+                onOpenChange={setAddUploadOpen}
+                aspectRatioType="product"
+                onUploadComplete={(key) => {
+                  if (!key) return
                   setAttachmentSlots((prev) => {
                     const next = ensureSlotsLength([...(prev || [])])
                     const idx = next.findIndex((s) => !s.key)
                     const useIdx = idx === -1 ? next.length : idx
                     while (next.length < useIdx + 1) next.push({ file: null, key: "" })
-                    next[useIdx] = { file: null, key: k }
+                    next[useIdx] = { file: null, key }
                     return ensureSlotsLength(next)
                   })
-                } catch (err) {
-                  console.error('add attachment upload failed', err)
-                  toast({ variant: 'destructive', title: 'アップロード失敗' })
-                } finally { if (addInputRef.current) addInputRef.current.value = '' }
-              }} />
+                }}
+              />
 
-              <input ref={replaceInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                const f = e.target.files?.[0]
-                if (!f || replaceIndex === null) return
-                const idx = replaceIndex
-                try {
-                  const u = await uploadFile(f)
-                  const k = (u as any)?.key
-                  if (!k) throw new Error('upload failed')
+              <ImageUpload
+                open={replaceUploadOpen}
+                onOpenChange={(v) => {
+                  setReplaceUploadOpen(v)
+                  if (!v) setReplaceIndex(null)
+                }}
+                aspectRatioType="product"
+                onUploadComplete={(key) => {
+                  if (!key || replaceIndex === null) return
+                  const idx = replaceIndex
                   setAttachmentSlots((prev) => {
                     const next = ensureSlotsLength([...(prev || [])])
                     while (next.length < idx + 1) next.push({ file: null, key: "" })
-                    next[idx] = { file: null, key: k }
+                    next[idx] = { file: null, key }
                     return ensureSlotsLength(next)
                   })
-                } catch (err) {
-                  console.error('replace attachment upload failed', err)
-                  toast({ variant: 'destructive', title: 'アップロード失敗' })
-                } finally { setReplaceIndex(null); if (replaceInputRef.current) replaceInputRef.current.value = '' }
-              }} />
+                }}
+              />
 
               {/* Existing attachments thumbnails */}
               {attachmentSlots.filter(s => s.key).map((slot, idx) => (
                 <div key={idx} className="relative w-full sm:w-1/2 lg:w-1/4 border rounded overflow-hidden">
                   <img src={getPublicImageUrl(db.images.getUpload(slot.key) || slot.key) || ''} alt={`attachment-${idx}`} className="w-full h-48 object-cover" />
                   <div className="absolute top-2 right-2 flex flex-col gap-2">
-                    <button type="button" className="bg-white/90 rounded p-1" onClick={() => { setReplaceIndex(idx); replaceInputRef.current?.click() }} title="入れ替え">
+                    <button type="button" className="bg-white/90 rounded p-1" onClick={() => { setReplaceIndex(idx); setReplaceUploadOpen(true) }} title="入れ替え">
                       置換
                     </button>
                     <button type="button" className="bg-white/90 rounded p-1" onClick={() => {
@@ -883,7 +878,7 @@ export default function ProductEditPageQuery() {
               {/* Single add button when less than 4 attachments */}
               {attachmentSlots.filter(s => s.key).length < 4 && (
                 <div className="w-full sm:w-1/2 lg:w-1/4 flex items-center justify-center border rounded p-4">
-                  <Button onClick={() => addInputRef.current?.click()} variant="outline">
+                  <Button onClick={() => setAddUploadOpen(true)} variant="outline">
                     <Plus className="w-4 h-4 mr-2" /> 追加
                   </Button>
                 </div>
