@@ -79,7 +79,7 @@ export async function fetchPublicProducts(env: any, params: { limit?: number | n
   try {
     const { limit = null, offset = 0, shallow = false, count = false } = params || {}
     const selectShallow = 'id,user_id,title,slug,short_description,tags,price,published,created_at,updated_at,main_image_key,attachment_image_keys,images:product_images(id,product_id,key,width,height,role)'
-    const selectFull = '*,main_image_key,attachment_image_keys,images:product_images(id,product_id,key,width,height,role),related_links,notes,show_price'
+    const selectFull = '*,main_image_key,attachment_image_keys,images:product_images(id,product_id,key,width,height,role),related_links,notes,show_price,affiliate_links'
 
     if (count) {
       if (!limit || limit === 0) {
@@ -239,7 +239,7 @@ export async function fetchPublicOwnerProductBySlug(env: any, slug?: string | nu
   if (!slug) return { data: null }
   const supabase = getSupabase(env)
   try {
-    const select = 'id,slug,title,short_description,body,tags,price,show_price,related_links,notes,main_image_key,attachment_image_keys,created_at,updated_at'
+    const select = 'id,slug,title,short_description,body,tags,price,show_price,related_links,notes,main_image_key,attachment_image_keys,affiliate_links,created_at,updated_at'
     const res = await supabase.from('products').select(select).eq('user_id', ownerId).eq('published', true).eq('slug', String(slug)).limit(1).single()
     const p = res.data || null
     if (!p) return { data: null }

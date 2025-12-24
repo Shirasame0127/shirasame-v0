@@ -64,7 +64,11 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
 
   const hasTags = product.tags && product.tags.length > 0
   const hasShortDescription = !!product.shortDescription
-  const hasPrice = !!product.price && (product.showPrice ?? true)
+  // Treat 0 and numeric strings as valid prices. Respect explicit showPrice / show_price flags.
+  const rawPrice = product?.price ?? null
+  const parsedPrice = typeof rawPrice === 'number' ? rawPrice : (typeof rawPrice === 'string' && /^\d+$/.test(rawPrice) ? Number(rawPrice) : (rawPrice === null ? null : Number(rawPrice)))
+  // Force-show price regardless of showPrice / show_price flags
+  const hasPrice = parsedPrice !== null && !Number.isNaN(parsedPrice)
   const hasBody = !!product.body
   const hasAffiliateLinks = product.affiliateLinks && product.affiliateLinks.length > 0
   const hasNotes = !!product.notes
@@ -130,7 +134,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
 
           {hasPrice ? (
             <div className="flex items-center gap-3">
-                <p className="text-2xl font-bold">¥{product.price?.toLocaleString()}</p>
+                <p className="text-2xl font-bold">¥{(typeof parsedPrice === 'number' && !Number.isNaN(parsedPrice)) ? parsedPrice.toLocaleString() : String(parsedPrice)}</p>
               {saleName && (
                 <Badge variant="destructive" className="text-sm px-3 py-1.5 flex items-center gap-2">
                   <Sparkles className="w-4 h-4" />
