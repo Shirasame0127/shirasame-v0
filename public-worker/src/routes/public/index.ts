@@ -100,6 +100,7 @@ export function registerPublicRoutes(app: any) {
                 aspect: img?.aspect || null,
                 role: img?.role || null,
                 href: p.slug ? `/products/${p.slug}` : null,
+                  tags: Array.isArray(p.tags) ? p.tags : (p.tags ? [p.tags] : []),
               })
               idx += 1
             } catch (e) { continue }
