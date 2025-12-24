@@ -22,7 +22,7 @@ import InitialLoading from '@/components/initial-loading'
 import { ProfileHeader } from "@/components/profile-header"
 import { apiFetch } from "@/lib/api-client"
 import { expandTokens } from '@/lib/search-synonyms'
-import { tokenizeJapanese } from '@/lib/morph-tokenizer'
+import { tokenize } from '@/lib/morph-tokenizer'
 import type { Product, Collection, User, AmazonSaleSchedule } from "@shared/types"
 
 const API_BASE = process.env.NEXT_PUBLIC_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_BASE_URL || "/api/public"
@@ -663,39 +663,13 @@ export default function HomePage() {
     }
 
     const tokens = normalize(q).split(' ').filter(Boolean)
-    // include morphological tokens for Japanese-like queries
-    const morph = tokenizeJapanese(q)
-    const expandedTokens = Array.from(new Set([...expandTokens(tokens), ...morph]))
+    const expandedTokens = expandTokens(tokens)
 
     const scoreItem = (item: any) => {
       let score = 0
-      const fields: Record<string, string> = {}
-      fields.title = normalize(item.title || '')
-      fields.slug = normalize(item.slug || '')
-      fields.tags = normalize((item.tags || []).join(' '))
-      // pull product-level fields if available
       const prod = productById.get(String(item.productId)) as any
-      fields.short = normalize(prod?.shortDescription || prod?.short_description || '')
-      fields.body = normalize(prod?.body || '')
-      fields.notes = normalize(prod?.notes || '')
-
-      for (const t of expandedTokens) {
-        if (!t) continue
-        // exact token in title -> high
-        if (fields.title.includes(t)) score += 40
-        // slug match -> medium-high
-        if (fields.slug.includes(t)) score += 25
-        // tag match -> high
-        if (fields.tags.includes(t)) score += 30
-        // short/body/notes -> medium
-        if (fields.short.includes(t)) score += 12
-        if (fields.body.includes(t)) score += 8
-        if (fields.notes.includes(t)) score += 6
-        // partial token match (prefix/infix) gives smaller boost
-        // check also against image href/title
-        const imgField = normalize(item.title || '')
-        if (imgField.includes(t)) score += 6
-      }
+      const itemTokens = (tokenMapRef.current && tokenMapRef.current[item.id]) || []
+      const prodTokens = (tokenMapRef.current && prod ? tokenMapRef.current[`prod-${prod.id}`] : []) || []
 
       // tag filtering: if selectedTags is set, require item to have at least one
       if (selectedTags && selectedTags.length > 0) {
@@ -706,14 +680,41 @@ export default function HomePage() {
         score += 5
       }
 
-      // only pass items with any token match when query present
+      // If tokenizer results exist, use token membership for scoring
+      if (itemTokens.length > 0 || prodTokens.length > 0) {
+        const hayTokens = new Set<string>([...itemTokens, ...prodTokens].map((x) => String(x).toLowerCase()))
+        let anyMatched = false
+        for (const t of expandedTokens) {
+          if (!t) continue
+          if (hayTokens.has(t)) { score += 30; anyMatched = true }
+          else if (Array.from(hayTokens).some((ht) => ht.includes(t))) { score += 8; anyMatched = true }
+        }
+        if (!anyMatched && expandedTokens.length > 0) return { ok: false, score: 0 }
+        return { ok: true, score }
+      }
+
+      // fallback: simple substring scoring if tokens are not ready
+      const fields: Record<string, string> = {}
+      fields.title = normalize(item.title || '')
+      fields.slug = normalize(item.slug || '')
+      fields.tags = normalize((item.tags || []).join(' '))
+      fields.short = normalize(prod?.shortDescription || prod?.short_description || '')
+      fields.body = normalize(prod?.body || '')
+      fields.notes = normalize(prod?.notes || '')
+      for (const t of expandedTokens) {
+        if (!t) continue
+        if (fields.title.includes(t)) score += 40
+        if (fields.slug.includes(t)) score += 25
+        if (fields.tags.includes(t)) score += 30
+        if (fields.short.includes(t)) score += 12
+        if (fields.body.includes(t)) score += 8
+        if (fields.notes.includes(t)) score += 6
+      }
       if (expandedTokens.length > 0) {
-        // check overall presence
         const hay = [fields.title, fields.slug, fields.tags, fields.short, fields.body, fields.notes].join(' ')
         const matched = expandedTokens.some((t) => hay.includes(t))
         if (!matched) return { ok: false, score: 0 }
       }
-
       return { ok: true, score }
     }
 
@@ -721,6 +722,41 @@ export default function HomePage() {
     scored.sort((a, b) => b.s.score - a.s.score)
     return scored.map((x) => x.it)
   }, [galleryItemsShuffled, productById, searchText, selectedTags])
+
+  // Tokenization cache (ref to avoid re-creating in scoring loop)
+  const [tokenMapState, setTokenMapState] = useState<Record<string, string[]>>({})
+  const tokenMapRef = useRef<Record<string, string[]>>(tokenMapState)
+  useEffect(() => { tokenMapRef.current = tokenMapState }, [tokenMapState])
+
+  // Build token cache for items and products asynchronously
+  useEffect(() => {
+    let cancelled = false
+    const items = galleryItemsShuffled || []
+    const prods = products || []
+    const newMap: Record<string, string[]> = {}
+    ;(async () => {
+      try {
+        // tokenize products first
+        for (const p of prods) {
+          try {
+            const txt = `${p.title || ''} ${p.slug || ''} ${(p.tags || []).join(' ')} ${p.shortDescription || p.short_description || ''} ${p.body || ''} ${p.notes || ''}`
+            const toks = await tokenize(txt)
+            newMap[`prod-${p.id}`] = toks
+          } catch {}
+        }
+        for (const it of items) {
+          try {
+            const prod = products.find((pp) => String(pp.id) === String(it.productId))
+            const txt = `${it.title || ''} ${it.slug || ''} ${(it.tags || []).join(' ')} ${prod?.shortDescription || prod?.short_description || ''} ${prod?.body || ''} ${prod?.notes || ''}`
+            const toks = await tokenize(txt)
+            newMap[it.id] = toks
+          } catch {}
+        }
+        if (!cancelled) setTokenMapState((prev) => ({ ...prev, ...newMap }))
+      } catch (e) { }
+    })()
+    return () => { cancelled = true }
+  }, [galleryItemsShuffled, products])
 
   useEffect(() => {
     const node = sentinelRef.current
