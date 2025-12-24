@@ -76,6 +76,51 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
       }
     }
 
+    // Collect productIds referenced by pins or embedded recipe items so we can fetch them in bulk
+    const allProductIdsSet = new Set<string>()
+    try {
+      // from pins data
+      if (Object.keys(pinsMap).length > 0) {
+        for (const arr of Object.values(pinsMap)) {
+          for (const p of arr) {
+            const pid = p?.product_id ?? p?.productId ?? null
+            if (pid) allProductIdsSet.add(String(pid))
+          }
+        }
+      }
+      // from recipes data (embedded items or legacy fields)
+      for (const r of data) {
+        if (!r) continue
+        // possible shapes: r.items = [{ product_id | id | productId }]
+        if (Array.isArray(r.items)) {
+          for (const it of r.items) {
+            const pid = it?.product_id ?? it?.id ?? it?.productId ?? null
+            if (pid) allProductIdsSet.add(String(pid))
+          }
+        }
+        // legacy: recipes may include pins in join (we already processed pinsMap) or recipe_items elsewhere
+      }
+    } catch (e) {
+      // ignore collection errors
+    }
+
+    // Bulk fetch products referenced by any recipe (limit to owner and published)
+    let productsMap: Record<string, any> = {}
+    if (allProductIdsSet.size > 0) {
+      try {
+        const ids = Array.from(allProductIdsSet)
+        const prodRes = await supabase.from('products').select('*').in('id', ids).eq('user_id', ownerId)
+        const prodData: any[] = prodRes.data || []
+        productsMap = prodData.reduce((acc: Record<string, any>, p: any) => {
+          if (!p) return acc
+          acc[String(p.id)] = p
+          return acc
+        }, {})
+      } catch (e) {
+        productsMap = {}
+      }
+    }
+
     // Normalize images and enforce recipe_image_keys constraints (max 1)
     const out: any[] = []
     for (const r of data) {
@@ -188,6 +233,35 @@ export async function fetchPublicRecipes(env: any, params: { limit?: number | nu
           rec.pins = Array.isArray(fromJoin) ? fromJoin.map((p: any) => transformPin(p)).filter(Boolean) : []
         } catch {
           rec.pins = []
+        }
+
+        // Build `items` for this recipe by resolving productIds found in pins or recipe.items
+        try {
+          const recipeProductIds = new Set<string>()
+          // from pins
+          if (Array.isArray(rec.pins)) {
+            for (const pin of rec.pins) {
+              if (!pin) continue
+              const pid = pin.productId ?? null
+              if (pid) recipeProductIds.add(String(pid))
+            }
+          }
+          // from embedded recipe items (if any)
+          if (Array.isArray(r.items)) {
+            for (const it of r.items) {
+              const pid = it?.product_id ?? it?.id ?? it?.productId ?? null
+              if (pid) recipeProductIds.add(String(pid))
+            }
+          }
+
+          const itemsOut: any[] = []
+          for (const pid of Array.from(recipeProductIds)) {
+            const prod = productsMap[String(pid)] || null
+            if (prod) itemsOut.push(prod)
+          }
+          rec.items = itemsOut
+        } catch {
+          try { rec.items = [] } catch {}
         }
 
         out.push(rec)

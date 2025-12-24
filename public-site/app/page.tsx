@@ -645,7 +645,11 @@ export default function HomePage() {
                   const pins = recipe.pins || []
                   if (!recipe.imageDataUrl && !recipe.imageUrl) return null
                   const linkedProductIds = [...new Set(pins.map((pin: any) => pin.productId).filter(Boolean))]
-                  const linkedProducts = products.filter((p) => linkedProductIds.includes(p.id))
+                  const linkedProducts = linkedProductIds.map((id) => {
+                    const byMap = productById.get(String(id))
+                    if (byMap) return byMap
+                    return products.find((p) => String(p.id) === String(id)) || null
+                  }).filter(Boolean) as any[]
                   const isEvenIndex = index % 2 === 0
                   const imageFirst = isEvenIndex
                   return (
