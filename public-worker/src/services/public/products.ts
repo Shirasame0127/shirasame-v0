@@ -15,6 +15,27 @@ function parseKeysField(val: any): string[] {
   } catch (e) { return [] }
 }
 
+function parseAffiliateField(val: any): Array<{ label: string | null; url: string | null }> {
+  try {
+    if (!val) return []
+    if (Array.isArray(val)) return val.map((v: any) => ({ label: v.label || v.text || null, url: v.url || null })).filter((a: any) => a && a.url)
+    if (typeof val === 'string') {
+      const s = val.trim()
+      if (s.startsWith('[')) {
+        const parsed = JSON.parse(s)
+        if (Array.isArray(parsed)) return parsed.map((v: any) => ({ label: v.label || v.text || null, url: v.url || null })).filter((a: any) => a && a.url)
+        return []
+      }
+      // single URL string
+      return [{ label: null, url: s }]
+    }
+    if (typeof val === 'object') return [{ label: val.label || val.text || null, url: val.url || null }].filter((a: any) => a && a.url)
+    return []
+  } catch {
+    return []
+  }
+}
+
 function normalizeRawKey(raw?: string | null, env?: any): string | null {
   try {
     if (!raw) return null
@@ -100,6 +121,11 @@ export async function fetchPublicProducts(env: any, params: { limit?: number | n
               height: typeof img.height !== 'undefined' ? img.height : null,
               aspect: img.aspect || null,
               role: img.role || null,
+          // normalize affiliate links (support jsonb array, stringified json, or single string)
+          try {
+            const rawAff = (p.affiliate_links || p.affiliateLinks || null)
+            p.affiliateLinks = parseAffiliateField(rawAff)
+          } catch { p.affiliateLinks = [] }
             }
           })
         } else {
@@ -234,6 +260,7 @@ export async function fetchPublicOwnerProductBySlug(env: any, slug?: string | nu
       show_price: typeof p.show_price !== 'undefined' ? p.show_price : null,
       related_links: p.related_links || null,
       notes: p.notes || null,
+      affiliateLinks: parseAffiliateField(p.affiliate_links || p.affiliateLinks || null),
       main_image: mainResp ? { src: mainResp.src || null, srcSet: mainResp.srcSet || null } : null,
       attachment_images,
       // Note: do not include legacy `images` array here — detail API must return only
