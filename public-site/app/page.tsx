@@ -238,7 +238,7 @@ export default function HomePage() {
           } catch {}
         }
         const imgs: HTMLImageElement[] = []
-        toPreload.forEach((u) => { try { const im = new Image(); im.src = u; imgs.push(im) } catch {} })
+        toPreload.forEach((u) => { try { const im = document.createElement('img') as HTMLImageElement; im.src = u; imgs.push(im) } catch {} })
         // no cleanup necessary beyond letting images be garbage collected
       }
     } catch {}
