@@ -142,13 +142,19 @@ export async function fetchPublicProducts(env: any, params: { limit?: number | n
         }
         // Provide URL-only main_image and attachment_images fields and remove raw key fields
         try {
-          p.main_image = p.images && p.images.length > 0 ? (p.images.find((i: any) => i.role === 'main')?.src || p.images[0]?.src || null) : null
+          if (p.images && p.images.length > 0) {
+            const mainImg = p.images.find((i: any) => i.role === 'main') || p.images[0]
+            p.main_image = { src: mainImg?.src || null, srcSet: mainImg?.srcSet || null }
+          } else {
+            p.main_image = null
+          }
         } catch { p.main_image = null }
         try {
-          p.attachment_images = Array.isArray(p.images) ? p.images.filter((i: any) => i.role === 'attachment').map((i: any) => i.src).filter(Boolean) : []
+          p.attachment_images = Array.isArray(p.images) ? p.images.filter((i: any) => i.role === 'attachment').map((i: any) => ({ src: i.src, srcSet: i.srcSet })) : []
         } catch { p.attachment_images = [] }
-        // Remove any raw key fields to avoid exposing storage keys
+        // Remove any raw key fields to avoid exposing storage keys and strip internal timestamps
         delete p.main_image_key; delete p.mainImageKey; delete p.attachment_image_keys; delete p.attachmentImageKeys
+        try { delete p.created_at; delete p.updated_at } catch {}
       } catch {}
     }
     return { data, meta: undefined }
@@ -185,8 +191,6 @@ export async function fetchPublicOwnerProducts(env: any) {
           show_price: typeof p.show_price !== 'undefined' ? p.show_price : null,
           main_image: mainResp ? { src: mainResp.src || null, srcSet: mainResp.srcSet || null } : null,
           attachment_images,
-          created_at: p.created_at || null,
-          updated_at: p.updated_at || null,
         }
       } catch (e) {
         return { id: p.id || null }
