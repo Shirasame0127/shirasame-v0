@@ -535,7 +535,7 @@ export default function HomePage() {
       if (typeof window !== 'undefined' && preloadUrl) {
         await new Promise((resolve) => {
           try {
-            const img = new Image()
+            const img = document.createElement('img') as HTMLImageElement
             img.onload = () => resolve(true)
             img.onerror = () => resolve(true)
             img.src = String(preloadUrl)
