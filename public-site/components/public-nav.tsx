@@ -169,15 +169,6 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
               )}
             </div>
           </div>
-
-          <div className="pt-6 border-t">
-            <Link href={ADMIN_BASE}>
-              <Button variant="default" className="w-full">
-                <Sparkles className="w-4 h-4 mr-2" />
-                管理画面へ
-              </Button>
-            </Link>
-          </div>
         </nav>
       </div>
 

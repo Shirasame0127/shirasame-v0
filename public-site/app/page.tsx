@@ -166,11 +166,11 @@ export default function HomePage() {
   const [isLoaded, setIsLoaded] = useState(false)
   const [displayMode, setDisplayMode] = useState<'normal' | 'gallery'>('normal')
   const [isTransitioning, setIsTransitioning] = useState(false)
-  const [shuffleKey, setShuffleKey] = useState(0)
   const [galleryFlatItems, setGalleryFlatItems] = useState<any[]>([])
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isModalPreparing, setIsModalPreparing] = useState(false)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [gridColumns, setGridColumns] = useState(5)
   const [layoutStyle, setLayoutStyle] = useState<"masonry" | "square">("masonry")
@@ -263,7 +263,8 @@ export default function HomePage() {
         const profileJson = profileRes.status === 'fulfilled' ? await profileRes.value.json().catch(() => null) : null
         const apiProductsFlattened: any[] = Array.isArray(prodJson.data) ? prodJson.data : []
         // store flattened gallery items for client-side filtering
-        setGalleryFlatItems(apiProductsFlattened)
+        // Shuffle only on initial load and store shuffled order
+        setGalleryFlatItems(shuffleArray(apiProductsFlattened))
         // Convert flattened gallery items back into a product-like collection for initial page state
         const grouped: Record<string, any> = {}
         for (const it of apiProductsFlattened) {
@@ -404,8 +405,7 @@ export default function HomePage() {
         setSaleSchedules(apiSchedules)
         setUser(loadedUser || null)
         setIsLoaded(true)
-        // Shuffle gallery on initial load so order differs each page visit
-        setShuffleKey((k) => k + 1)
+        // initial load order already shuffled above
 
         // Build active sale map { productId -> saleName }
         try {
@@ -510,27 +510,51 @@ export default function HomePage() {
   }, [])
 
   const handleProductClick = async (product: Product, imageUrl?: string) => {
+    setIsModalPreparing(true)
     // Prefer API-provided main_image.src for modal initial image
     let initial = imageUrl || null
     try {
       const apiMain = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
       if (!initial && apiMain) initial = apiMain
     } catch {}
-    setSelectedProduct(product)
-    setSelectedImageUrl(initial)
-    setIsModalOpen(true)
-    ;(async () => {
-      try {
-        // Use owner-products detail API (returns { data: object | null })
-        const slug = (product as any)?.slug || product.id
-        const res = await apiFetch(`/owner-products/${encodeURIComponent(String(slug || ''))}`)
-        if (res.ok) {
-          const js = await res.json().catch(() => ({ data: null }))
-          const full = js.data || null
-          if (full) { setSelectedProduct(full) }
-        }
-      } catch (e) { console.error('[public] failed to load full product for modal', e) }
-    })()
+
+    try {
+      // Fetch full product data first
+      const slug = (product as any)?.slug || product.id
+      const res = await apiFetch(`/owner-products/${encodeURIComponent(String(slug || ''))}`)
+      let full: any = null
+      if (res.ok) {
+        const js = await res.json().catch(() => ({ data: null }))
+        full = js.data || null
+      }
+
+      const finalProduct = full || product
+
+      // Preload chosen image to avoid content shift when modal opens
+      const preloadUrl = initial || (finalProduct as any)?.main_image?.src || ((finalProduct as any)?.images && finalProduct.images[0]?.url) || null
+      if (typeof window !== 'undefined' && preloadUrl) {
+        await new Promise((resolve) => {
+          try {
+            const img = new Image()
+            img.onload = () => resolve(true)
+            img.onerror = () => resolve(true)
+            img.src = String(preloadUrl)
+          } catch { resolve(true) }
+        })
+      }
+
+      setSelectedProduct(finalProduct)
+      setSelectedImageUrl(initial || (finalProduct as any)?.main_image?.src || null)
+      setIsModalOpen(true)
+    } catch (e) {
+      console.error('[public] failed to prepare product modal', e)
+      // fallback: open modal with provided product immediately
+      setSelectedProduct(product)
+      setSelectedImageUrl(initial)
+      setIsModalOpen(true)
+    } finally {
+      setIsModalPreparing(false)
+    }
   }
 
   const toggleTag = (tag: string) => { setSelectedTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])) }
@@ -619,10 +643,8 @@ export default function HomePage() {
       return [{ id: it.id || `${it.productId}__${idx}`, productId: it.productId || null, image: it.image || it.src || it.url || null, aspect: it.aspect || null, title: it.title || null, href: it.slug ? `/products/${it.slug}` : null }]
     })
 
-    // if shuffleKey changed and there's no search terms, shuffle results
-    if ((!searchText || searchText.trim() === '') && shuffleKey) return shuffleArray(mapped)
     return mapped
-  }, [shuffleKey, galleryFlatItems, displayMode, searchText, selectedTags])
+  }, [galleryFlatItems, displayMode, searchText, selectedTags])
 
   const productById = useMemo(() => { const m = new Map<string, Product>(); for (const p of products) m.set(p.id, p); return m }, [products])
   const saleNameFor = (productId: string): string | null => activeSaleMap.get(productId) || null
@@ -672,7 +694,7 @@ export default function HomePage() {
     setIsTransitioning(true)
     setTimeout(() => {
       setDisplayMode(mode)
-      if (mode === 'gallery') { setViewMode('grid'); setLayoutStyle('masonry'); setShuffleKey((k) => k + 1) }
+      if (mode === 'gallery') { setViewMode('grid'); setLayoutStyle('masonry') }
       if (mode === 'normal') { setViewMode('grid'); setLayoutStyle('square') }
       setIsTransitioning(false)
     }, 250)
@@ -710,7 +732,7 @@ export default function HomePage() {
 
               <div className={`transition-opacity duration-250 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
                 {galleryItems.length > 0 ? (
-                  <ProductMasonry key={`global-gallery-${shuffleKey}`} items={galleryItems} className="gap-3" fullWidth={true} columns={gridColumns} onItemClick={(id: string) => { const item: any = galleryItems.find((gi: any) => gi.id === id); const p = item ? products.find((pr) => pr.id === item.productId) : undefined; if (p) handleProductClick(p, item?.image) }} />
+                  <ProductMasonry key={`global-gallery-${galleryFlatItems.length}`} items={galleryItems} className="gap-3" fullWidth={true} columns={gridColumns} onItemClick={(id: string) => { const item: any = galleryItems.find((gi: any) => gi.id === id); const p = item ? products.find((pr) => pr.id === item.productId) : undefined; if (p) handleProductClick(p) }} />
                 ) : (
                   <p className="text-center text-muted-foreground py-16">そのワードに関連するものはまだないな...</p>
                 )}
@@ -824,7 +846,7 @@ export default function HomePage() {
           )}
 
           <div ref={sentinelRef as any} className="w-full flex items-center justify-center py-4">
-            {loadingMore ? (<div className="text-sm text-muted-foreground">読み込み中...</div>) : !hasMore ? (<div className="text-sm text-muted-foreground">ここまで</div>) : null}
+            {loadingMore ? (<div className="text-sm text-muted-foreground">読み込み中...</div>) : null}
           </div>
 
           <section id="profile" className="mb-16 scroll-mt-20">
@@ -839,6 +861,7 @@ export default function HomePage() {
       <footer className="border-t mt-16 py-8">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs sm:text-sm text-muted-foreground">
           <p>© 2025 {user?.displayName || "User"}. All rights reserved.</p>
+          <p className="mt-2">このサイトはAmazonアソシエイトを利用しています。リンクを経由して商品が購入された場合、紹介料を受け取ることがあります。</p>
         </div>
       </footer>
 
