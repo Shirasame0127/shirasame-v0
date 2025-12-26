@@ -35,7 +35,7 @@ export default function InitialLoading() {
   const timeoutsRef = useRef<number[]>([])
   const wrapperRef = useRef<HTMLDivElement | null>(null)
   const [word, setWord] = useState(LATIN)
-  const [phase, setPhase] = useState<'random' | 'locked' | 'toHira' | 'hira' | 'toKanji' | 'kanji' | 'done'>('random')
+  const [phase, setPhase] = useState<'random' | 'locked' | 'toHira' | 'hira' | 'toKanji' | 'kanji' | 'toWelcome' | 'welcome' | 'done'>('random')
 
   // total animation duration used to keep loading visible
   const totalAnimationDuration = LATIN.length * LOCK_INTERVAL + SPIN_DURATION + SHAKE_DURATION + SPIN_DURATION
@@ -179,33 +179,38 @@ export default function InitialLoading() {
     if (phase !== 'done') return
     // ensure KANJI is shown at 'done'
     setWord(KANJI)
-    // after short delay, show 'welcome!' then slide up after 0.5s
-    const welcomeDelay = 200 // ms before showing welcome (so KANJI is visible briefly)
+    // after short delay, perform a spin-to-'welcome!' using same animation
+    const welcomeDelay = 200 // ms before starting the spin-to-welcome
     const welcomeDuration = 500 // show welcome for 500ms as requested
 
-    const tWelcome = window.setTimeout(() => {
-      setWord('welcome!')
+    const tStart = window.setTimeout(() => {
+      // start the spin/drop animation to welcome
+      setPhase('toWelcome')
+      // at half spin, swap the word to 'welcome!'
+      const tSwap = window.setTimeout(() => {
+        setWord('welcome!')
+        setPhase('welcome')
+        // after showing welcome for welcomeDuration, slide up
+        const tSlide = window.setTimeout(() => {
+          setSlideUp(true)
+          setFadeOut(true)
+          const tUnmount = window.setTimeout(() => {
+            setMountedVisible(false)
+            try {
+              ;(window as any).__v0_initial_loading = false
+              window.dispatchEvent(new CustomEvent('v0-initial-loading', { detail: false }))
+            } catch {}
+          }, SLIDE_DURATION)
+          timeoutsRef.current.push(tUnmount)
+        }, welcomeDuration)
+        timeoutsRef.current.push(tSlide)
+      }, SPIN_DURATION / 2)
+      timeoutsRef.current.push(tSwap)
     }, welcomeDelay)
-    timeoutsRef.current.push(tWelcome)
-
-    const tSlide = window.setTimeout(() => {
-      setSlideUp(true)
-      setFadeOut(true)
-      // unmount after slide transition completes (700ms)
-      const tUnmount = window.setTimeout(() => {
-        setMountedVisible(false)
-        try {
-          ;(window as any).__v0_initial_loading = false
-          window.dispatchEvent(new CustomEvent('v0-initial-loading', { detail: false }))
-        } catch {}
-      }, SLIDE_DURATION)
-      timeoutsRef.current.push(tUnmount)
-    }, welcomeDelay + welcomeDuration)
-    timeoutsRef.current.push(tSlide)
+    timeoutsRef.current.push(tStart)
 
     return () => {
-      try { window.clearTimeout(tWelcome) } catch {}
-      try { window.clearTimeout(tSlide) } catch {}
+      try { window.clearTimeout(tStart) } catch {}
     }
   }, [phase])
 
@@ -238,8 +243,9 @@ export default function InitialLoading() {
       .shika-word.spin .word-inner { transform: rotateX(80deg); }
       .shika-word.toHira .word-inner { animation: spinForward ${SPIN_DURATION}ms forwards; }
       .shika-word.toKanji .word-inner { animation: spinForward ${SPIN_DURATION}ms forwards; }
+      .shika-word.toWelcome .word-inner { animation: spinForward ${SPIN_DURATION}ms forwards; }
       /* dropDown moves the translated wrapper down while spin runs */
-      .shika-word.toHira .word-translate, .shika-word.toKanji .word-translate { animation: dropDown ${SPIN_DURATION}ms forwards; }
+      .shika-word.toHira .word-translate, .shika-word.toKanji .word-translate, .shika-word.toWelcome .word-translate { animation: dropDown ${SPIN_DURATION}ms forwards; }
       @keyframes dropDown { 0% { transform: translateY(0); } 80% { transform: translateY(12px); } 100% { transform: translateY(12px); } }
       @keyframes spinForward { 0% { transform: rotateX(0deg); } 50% { transform: rotateX(90deg); } 100% { transform: rotateX(0deg); } }
       .shika-word.shake .word-translate { animation: shake  ${SHAKE_DURATION}ms; }
@@ -261,7 +267,7 @@ export default function InitialLoading() {
                   {slots.map((ch, i) => (<span key={i} className={`slot-char ${lockedSlots[i] ? 'slot-locked' : ''}`}>{ch || '\u00A0'}</span>))}
                 </div>
           ) : (
-            <div className={`shika-word ${phase === 'toHira' ? 'toHira' : ''} ${phase === 'toKanji' ? 'toKanji' : ''} ${phase === 'hira' ? 'shake' : ''}`} ref={wrapperRef} style={{ fontSize: 48 }}>
+            <div className={`shika-word ${phase === 'toHira' ? 'toHira' : ''} ${phase === 'toKanji' ? 'toKanji' : ''} ${phase === 'toWelcome' ? 'toWelcome' : ''} ${(phase === 'hira' || phase === 'kanji' || phase === 'welcome') ? 'shake' : ''}`} ref={wrapperRef} style={{ fontSize: 48 }}>
               <span className="word-translate"><span className="word-inner">{word}</span></span>
             </div>
           )
