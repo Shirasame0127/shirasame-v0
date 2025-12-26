@@ -22,6 +22,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
   useEffect(() => { document.body.style.overflow = isOpen ? 'hidden' : 'unset'; return () => { document.body.style.overflow = 'unset' } }, [isOpen])
   const leftImageRef = useRef<HTMLDivElement | null>(null)
   const [modalMinHeight, setModalMinHeight] = useState<number | undefined>(undefined)
+  const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null)
   useEffect(() => {
     function updateHeight() {
       const isDesktop = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(min-width: 1024px)').matches
@@ -78,15 +79,26 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
   const rightSideElementCount = [hasTags, hasShortDescription, hasPrice, hasBody, hasAffiliateLinks, hasNotes, hasAttachments, hasRelatedLinks].filter(Boolean).length
   const useVerticalLayout = rightSideElementCount <= 1
 
+  // 調整可能なテキスト間隔（必要に応じて数値を変更してください）
+  const textSpacing = {
+    titleMarginBottom: '0.2rem',
+    shortDescriptionMarginBottom: '0.5rem',
+    sectionRowGap: '1rem'
+  }
+
   const modalClassName = useVerticalLayout
     ? 'relative w-[90%] sm:w-1/2 sm:max-w-[400px] h-auto max-h-[85vh] bg-white dark:bg-slate-900 rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-auto flex flex-col'
     : 'relative w-[95%] sm:w-[85%] lg:w-[75%] max-w-5xl h-auto max-h-[80vh] sm:h-[40vh] bg-white dark:bg-slate-900 rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-auto sm:overflow-hidden flex flex-col sm:flex-row'
 
   const leftImageClassName = useVerticalLayout ? 'flex-shrink-0 w-full p-4 flex items-center justify-center' : 'flex-shrink-0 sm:w-1/2 p-6 sm:border-r flex items-center justify-center sm:h-full'
+  const isSquareImage = imageAspectRatio ? imageAspectRatio > 0.95 && imageAspectRatio < 1.05 : false
+  // When square images are detected, add aspect-square but also constrain max-height
+  // and allow width to auto-adjust so the square won't overflow a short parent container.
+  const squareModifiers = isSquareImage ? 'aspect-square max-h-full w-auto h-auto' : ''
   const innerImageClassName = useVerticalLayout
-    ? 'relative w-full max-w-sm aspect-square mx-auto rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm'
-    : 'relative w-full max-w-[640px] aspect-square rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center'
-  const rightContentClassName = useVerticalLayout ? 'flex-1 p-6 space-y-4 text-left [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2 overflow-auto' : 'flex-1 p-6 space-y-4 text-left sm:overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2'
+    ? `relative w-full max-w-sm mx-auto rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center ${squareModifiers}`
+    : `relative w-full max-w-[640px] rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center ${squareModifiers}`
+  const rightContentClassName = useVerticalLayout ? 'flex-1 pt-4 pb-6 px-6 space-y-4 text-left [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2 overflow-auto' : 'flex-1 pt-4 pb-6 px-6 space-y-4 text-left sm:overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -104,7 +116,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                   (() => {
                     const displaySrc = mainImage?.src || "/placeholder.svg"
                     const displaySrcSet = mainImage?.srcSet || undefined
-                    return <img src={displaySrc} srcSet={displaySrcSet} alt={product.title || '商品画像'} className="w-full h-full object-cover" />
+                    return <img src={displaySrc} srcSet={displaySrcSet} alt={product.title || '商品画像'} className="max-w-full max-h-full object-contain" onLoad={(e) => { const t = e.currentTarget as HTMLImageElement; setImageAspectRatio(t.naturalWidth / t.naturalHeight); }} />
                   })()
                 }
             {saleName && (
@@ -117,7 +129,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
           </div>
         </div>
 
-        <div className={rightContentClassName}>
+        <div className={rightContentClassName} style={{ rowGap: textSpacing.sectionRowGap }}>
           {hasTags && (
             <div className="flex flex-wrap gap-2">
               {product.tags.map((tag: any) => (
@@ -126,10 +138,10 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
             </div>
           )}
 
-          <h1 className="text-xl font-bold">{product.title}</h1>
+          <h1 className="text-xl font-bold" style={{ marginBottom: textSpacing.titleMarginBottom }}>{product.title}</h1>
 
           {hasShortDescription && (
-            <p className="text-sm text-muted-foreground">{product.shortDescription}</p>
+            <p className="text-sm text-muted-foreground" style={{ marginBottom: textSpacing.shortDescriptionMarginBottom }}>{product.shortDescription}</p>
           )}
 
           {hasPrice ? (

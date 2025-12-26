@@ -702,6 +702,38 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen" style={appliedStyle}>
+      {/* animated contour-like background (fixed, behind content) */}
+      <div className="fixed inset-0 -z-10 pointer-events-none">
+        <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+          <defs>
+            <linearGradient id="bgg" x1="0%" x2="100%" y1="0%" y2="100%">
+              <stop offset="0%" stopColor="#f8fafc" stopOpacity="1" />
+              <stop offset="50%" stopColor="#f1f5f9" stopOpacity="1" />
+              <stop offset="100%" stopColor="#eef2ff" stopOpacity="1" />
+            </linearGradient>
+
+            <filter id="contourFilter" x="-20%" y="-20%" width="140%" height="140%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="3" seed="5" result="noise">
+                <animate attributeName="baseFrequency" values="0.014;0.022;0.014" dur="14s" repeatCount="indefinite" />
+              </feTurbulence>
+              <feColorMatrix type="saturate" values="0" />
+              <feComponentTransfer result="bands">
+                <feFuncR type="discrete" tableValues="0 0 1 1 0 0 1" />
+                <feFuncG type="discrete" tableValues="0 0 1 1 0 0 1" />
+                <feFuncB type="discrete" tableValues="0 0 1 1 0 0 1" />
+              </feComponentTransfer>
+              <feGaussianBlur in="bands" stdDeviation="0.6" result="softBands" />
+              <feBlend in="SourceGraphic" in2="softBands" mode="overlay" />
+            </filter>
+          </defs>
+
+          {/* background gradient */}
+          <rect width="100" height="100" fill="url(#bgg)" />
+
+          {/* contour overlay */}
+          <rect width="100" height="100" fill="transparent" style={{ mixBlendMode: 'overlay' }} filter="url(#contourFilter)" />
+        </svg>
+      </div>
       <InitialLoading />
       <main className="min-h-screen pt-16 pb-20 relative">
         <PublicNav siteName={user?.displayName || ""} />

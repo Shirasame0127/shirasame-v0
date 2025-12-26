@@ -43,12 +43,65 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
 
   if (!isLoaded) {
     return (
-      <div className="relative w-full bg-muted animate-pulse" style={{ minHeight: 200, aspectRatio: 16 / 9 }} />
+      <div className="relative w-full bg-muted animate-pulse aspect-square sm:aspect-[16/9] h-auto" />
     )
   }
 
   return (
-    <div className="relative overflow-hidden w-full" style={{ aspectRatio: 16 / 9 }}>
+    <div className="relative overflow-hidden w-full aspect-square sm:aspect-[16/9] h-auto">
+      {/* decorative pastel floating circles (visual only) */}
+      <div aria-hidden className="pointer-events-none">
+        <div
+          style={{
+            position: 'absolute',
+            left: '6%',
+            top: '8%',
+            width: 84,
+            height: 84,
+            borderRadius: 9999,
+            background: 'rgba(255,183,197,0.62)',
+            filter: 'blur(18px)',
+            transform: 'translateZ(0)',
+            animation: 'floaty 6s ease-in-out infinite',
+            animationDelay: '0s',
+          }}
+        />
+
+        <div
+          style={{
+            position: 'absolute',
+            right: '6%',
+            top: '28%',
+            width: 120,
+            height: 120,
+            borderRadius: 9999,
+            background: 'rgba(179,229,252,0.48)',
+            filter: 'blur(22px)',
+            transform: 'translateZ(0)',
+            animation: 'floaty 8s ease-in-out infinite',
+            animationDelay: '1.2s',
+          }}
+        />
+
+        <div
+          style={{
+            position: 'absolute',
+            left: '52%',
+            bottom: '10%',
+            width: 64,
+            height: 64,
+            borderRadius: 9999,
+            background: 'rgba(212,237,218,0.6)',
+            filter: 'blur(16px)',
+            transform: 'translateZ(0)',
+            animation: 'floaty 7s ease-in-out infinite',
+            animationDelay: '0.6s',
+          }}
+        />
+      </div>
+
+      <style>{`@keyframes floaty { 0% { transform: translateY(0px) translateX(0px); } 50% { transform: translateY(-12px) translateX(6px); } 100% { transform: translateY(0px) translateX(0px); } }`}</style>
+
       {images.length > 0 ? (
         <div className="absolute inset-0">
           {images.map((image, index) => (
@@ -56,7 +109,7 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
               <img
                 src={image || "/placeholder.svg"}
                 alt={`ヘッダー画像 ${index + 1}`}
-                className="w-full h-full object-cover no-download"
+                className="w-full h-full object-cover object-top no-download"
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
                 onContextMenu={(e) => e.preventDefault()}
