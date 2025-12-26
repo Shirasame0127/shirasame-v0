@@ -767,7 +767,7 @@ export default function HomePage() {
                         <h3 className="font-heading text-lg sm:text-xl font-semibold text-center mb-4">{collection.title}</h3>
                         {collection.description && (<p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">{collection.description}</p>)}
                         {collectionProducts.length > 0 ? (
-                          <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 z-30">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 z-30">
                             {collectionProducts.map((product) => {
                               const cardImage = (() => {
                                 try {
