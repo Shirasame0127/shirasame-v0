@@ -184,6 +184,23 @@ export default function HomePage() {
   const [isGallerySearchSticky, setIsGallerySearchSticky] = useState(false)
   const [isAllOverlayOpen, setIsAllOverlayOpen] = useState(false)
 
+  // Prevent image context menu / long-press save on public pages (best-effort)
+  useEffect(() => {
+    const onContext = (e: Event) => {
+      try {
+        const ev = e as MouseEvent
+        const target = ev.target as HTMLElement | null
+        if (!target) return
+        // if the target is an <img> or inside an <img> (SVG), prevent the context menu
+        if (target.tagName === 'IMG' || target.closest && target.closest('img')) {
+          e.preventDefault()
+        }
+      } catch {}
+    }
+    document.addEventListener('contextmenu', onContext)
+    return () => document.removeEventListener('contextmenu', onContext)
+  }, [])
+
   const PAGE_DEFAULT_LIMIT = 24
   const [pageLimit] = useState<number>(PAGE_DEFAULT_LIMIT)
   const [pageOffset, setPageOffset] = useState<number>(0)

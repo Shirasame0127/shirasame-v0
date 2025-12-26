@@ -74,5 +74,8 @@
     user-select: none;
     -webkit-user-select: none;
     touch-action: manipulation;
+    /* iOS Safari long-press / callout suppression */
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
   }
 }
