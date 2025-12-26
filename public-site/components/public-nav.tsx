@@ -114,7 +114,20 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
     <>
       <header className="fixed top-0 left-0 right-0 z-50 bg-transparent">
         <div className="relative flex h-16 items-center justify-center px-2">
-             <div className="absolute right-2 flex items-center gap-2">
+          <Link href="/" className="absolute left-1/2 -translate-x-1/2 flex items-center">
+              <div className="relative h-14 w-auto sm:h-12">
+                {/* prefer provided PNG (attached), fallback to SVG */}
+                <img
+                  src={logoUrl || '/images/shirasame-logo.png'}
+                  alt={siteName}
+                  width={220}
+                  height={56}
+                  className="h-14 sm:h-10 w-auto object-contain"
+                  onError={(e) => { try { (e.target as HTMLImageElement).src = '/images/shirasame-logo.svg' } catch {} }}
+                />
+              </div>
+          </Link>
+          <div className="absolute right-2 flex items-center gap-2">
             <Button
               data-hamburger-button
               variant="ghost"
