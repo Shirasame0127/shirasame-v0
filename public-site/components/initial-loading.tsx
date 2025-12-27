@@ -256,10 +256,39 @@ export default function InitialLoading() {
     `}</style>
   )
 
+  // Add lines CSS (sparkles removed)
+  const linesStyle = (
+    <style>{`
+      /* vertical lines (sparkles removed) */
+      .shika-lines { position: absolute; inset: 0; pointer-events: none; z-index: 20; }
+      .shika-line { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.9); opacity: 0.9; }
+      /* left positions */
+      .shika-line.left-0 { left: 6%; }
+      .shika-line.left-1 { left: 10%; }
+      .shika-line.left-2 { left: 14%; }
+      /* right positions */
+      .shika-line.right-0 { right: 6%; }
+      .shika-line.right-1 { right: 10%; }
+      .shika-line.right-2 { right: 14%; }
+    `}</style>
+  )
+
+  // Sparkle effect removed: no dynamic sparkles will be spawned
+
   return (
     <div className={`fixed inset-0 flex items-center justify-center shika-overlay ${slideUp ? 'slide-up' : ''} ${fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} style={{ zIndex: 99999, ...(bgStyle || { backgroundColor: 'rgba(0,0,0,0.4)' }) }}>
       {styleTag}
+      {linesStyle}
       {/* Always render the custom slot-style animation */}
+      {/* vertical lines for sparkle effect */}
+      <div className="shika-lines" aria-hidden>
+        <div className="shika-line left-0" data-line-index="0" />
+        <div className="shika-line left-1" data-line-index="1" />
+        <div className="shika-line left-2" data-line-index="2" />
+        <div className="shika-line right-0" data-line-index="3" />
+        <div className="shika-line right-1" data-line-index="4" />
+        <div className="shika-line right-2" data-line-index="5" />
+      </div>
       <div className="shika-loading">
         {showCustomAnim ? (
           phase === 'random' || phase === 'locked' ? (
@@ -285,3 +314,4 @@ export default function InitialLoading() {
 }
 
 // (end of file)
+

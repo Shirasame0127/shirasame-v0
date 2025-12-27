@@ -102,7 +102,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in-0" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-in fade-in-0" onClick={onClose} />
 
       <div className={modalClassName} style={!useVerticalLayout && modalMinHeight ? { minHeight: `${modalMinHeight}px` } : undefined}>
         <button onClick={onClose} className="absolute right-3 top-3 rounded-sm opacity-90 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10 bg-white/95 dark:bg-black/70 p-1.5">
@@ -138,11 +138,11 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
             </div>
           )}
 
-          <h1 className="text-xl font-bold" style={{ marginBottom: textSpacing.titleMarginBottom }}>{product.title}</h1>
-
           {hasShortDescription && (
-            <p className="text-sm text-muted-foreground" style={{ marginBottom: textSpacing.shortDescriptionMarginBottom }}>{product.shortDescription}</p>
+            <p className="text-sm text-muted-foreground" style={{ marginBottom: '0em' }}>{product.shortDescription}</p>
           )}
+
+          <h1 className="text-xl font-bold" style={{ marginBottom: textSpacing.titleMarginBottom }}>{product.title}</h1>
 
           {hasPrice ? (
             <div className="flex items-center gap-3">
@@ -224,7 +224,10 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
               <div className="space-y-4">
                 {(product.relatedLinks || []).map((link: string, index: number) => (
                   <div key={index}>
-                    <EmbeddedLink url={link} />
+                    <EmbeddedLink
+                      url={link}
+                      buttonClassName={`w-full flex items-center justify-between gap-3 rounded-xl py-3 px-4 text-sm font-semibold text-slate-800 bg-gradient-to-r from-sky-50 to-sky-100 border border-sky-100 shadow-md transform-gpu transition duration-200 hover:scale-[1.01] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-200`}
+                    />
                   </div>
                 ))}
               </div>

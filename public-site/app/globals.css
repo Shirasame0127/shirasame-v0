@@ -126,6 +126,7 @@
   .slide-in-from-left { animation: slide-in-from-left 320ms cubic-bezier(.22,.9,.29,1) both; }
   .slide-out-to-left { animation: slide-out-to-left 260ms cubic-bezier(.22,.9,.29,1) both; }
   .slide-in-from-top-2 { animation: slide-in-from-top 300ms cubic-bezier(.22,.9,.29,1) both; }
+  .slide-out-to-top { animation: slide-out-to-top 300ms cubic-bezier(.22,.9,.29,1) both; }
   .slide-in-from-bottom-2 { animation: slide-in-from-bottom 300ms cubic-bezier(.22,.9,.29,1) both; }
 }
 
@@ -143,5 +144,55 @@
 @keyframes slide-in-from-left { from { transform: translateX(-16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @keyframes slide-out-to-left { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-16px); opacity: 0; } }
 @keyframes slide-in-from-top { from { transform: translateY(-12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes slide-out-to-top { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-12px); opacity: 0; } }
 @keyframes slide-in-from-bottom { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* Attribute-targeted animations for Radix Sheet (fallback if Tailwind variants are not built) */
+[data-slot="sheet-overlay"][data-state="open"] {
+  animation: anim-in 260ms cubic-bezier(.22,.9,.29,1) both;
+}
+[data-slot="sheet-overlay"][data-state="closed"] {
+  animation: anim-out 200ms cubic-bezier(.22,.9,.29,1) both;
+}
+
+[data-slot="sheet-content"][data-state="open"] {
+  animation: anim-in 320ms cubic-bezier(.22,.9,.29,1) both;
+}
+[data-slot="sheet-content"][data-state="closed"] {
+  animation: anim-out 260ms cubic-bezier(.22,.9,.29,1) both;
+}
+
+/* Slide directions for sheet content based on data-side attribute */
+[data-slot="sheet-content"][data-side="right"][data-state="open"] {
+  animation: slide-in-from-right 320ms cubic-bezier(.22,.9,.29,1) both;
+}
+[data-slot="sheet-content"][data-side="right"][data-state="closed"] {
+  animation: slide-out-to-right 260ms cubic-bezier(.22,.9,.29,1) both;
+}
+
+[data-slot="sheet-content"][data-side="left"][data-state="open"] {
+  animation: slide-in-from-left 320ms cubic-bezier(.22,.9,.29,1) both;
+}
+[data-slot="sheet-content"][data-side="left"][data-state="closed"] {
+  animation: slide-out-to-left 260ms cubic-bezier(.22,.9,.29,1) both;
+}
+
+[data-slot="sheet-content"][data-side="top"][data-state="open"] {
+  animation: slide-in-from-top 300ms cubic-bezier(.22,.9,.29,1) both;
+}
+[data-slot="sheet-content"][data-side="bottom"][data-state="open"] {
+  animation: slide-in-from-bottom 300ms cubic-bezier(.22,.9,.29,1) both;
+}
+
+/* When All Items overlay is open, hide other main children so only overlay + footer remain */
+/* When All Items is open, hide the entire main element */
+.allitems-open main {
+  display: none !important;
+}
+
+/* Ensure the All Items view is visible and above page content; footer remains visible below it. */
+.allitems-open #all-items-view {
+  display: block !important;
+  z-index: 60;
+}
 

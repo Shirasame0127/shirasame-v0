@@ -22,6 +22,16 @@ function extractYouTubeId(url: string): string | null {
   return null
 }
 
+function extractTikTokId(url: string): string | null {
+  // matches: https://www.tiktok.com/@user/video/1234567890
+  let m = url.match(/tiktok\.com\/@[^\/]+\/video\/(\d+)/)
+  if (m) return m[1]
+  // matches some mobile URLs like /v/12345.html
+  m = url.match(/\/v\/(\d+)\.html/)
+  if (m) return m[1]
+  return null
+}
+
 function extractTwitchInfo(url: string) {
   let m = url.match(/clips\.twitch\.tv\/([^\/\?#]+)/)
   if (m) return { kind: 'clip', id: m[1] }
@@ -32,10 +42,14 @@ function extractTwitchInfo(url: string) {
   return null
 }
 
-export function EmbeddedLink({ url }: { url: string }) {
+export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClassName?: string }) {
   const type = detectLinkType(url)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [loading, setLoading] = useState(true)
+  const [embedFailed, setEmbedFailed] = useState(false)
+  const createdRef = useRef(false)
+  const _tweetIdMatch = url.match(/(?:twitter\.com|x\.com)\/[^\/]+\/status\/(\d+)/)
+  const tweetId = _tweetIdMatch ? _tweetIdMatch[1] : null
 
   useEffect(() => {
     let mounted = true
@@ -50,7 +64,9 @@ export function EmbeddedLink({ url }: { url: string }) {
     }
 
     if (type === 'twitter') {
-      const s = loadScript('https://platform.twitter.com/widgets.js')
+      // avoid adding script multiple times
+      let s: HTMLScriptElement | null = document.querySelector('script[src="https://platform.twitter.com/widgets.js"]') as HTMLScriptElement | null
+      if (!s) s = loadScript('https://platform.twitter.com/widgets.js')
       if (containerRef.current) {
         obs = new MutationObserver((mutations) => {
           for (const m of mutations) {
@@ -64,9 +80,39 @@ export function EmbeddedLink({ url }: { url: string }) {
         })
         obs.observe(containerRef.current, { childList: true, subtree: true })
       }
-      s.onload = () => {
-        try { (window as any).twttr && (window as any).twttr.widgets && (window as any).twttr.widgets.load(containerRef.current) } catch {}
+      const tryCreate = () => {
+        try {
+          const tw = (window as any).twttr
+          if (tw && tw.widgets) {
+            if (tweetId && containerRef.current && !createdRef.current) {
+              // clear container to avoid duplicates
+              try { containerRef.current.innerHTML = '' } catch {}
+              createdRef.current = true
+              try {
+                tw.widgets.createTweet(tweetId, containerRef.current, { theme: 'light' })
+                  .then(() => mounted && setLoading(false))
+                  .catch(() => mounted && setLoading(false))
+              } catch { createdRef.current = false }
+            } else if (!tweetId && containerRef.current && !createdRef.current) {
+              // no id: try processing any blockquotes
+              try { tw.widgets.load(containerRef.current); createdRef.current = true } catch { createdRef.current = false }
+            }
+          }
+        } catch {}
       }
+      s.onload = tryCreate
+      // in case script already present
+      tryCreate()
+      // fallback: if embed not injected within timeout, show fallback button
+      const t = setTimeout(() => {
+        if (!containerRef.current) return
+        const hasChildren = containerRef.current.children.length > 0
+        if (!hasChildren) {
+          setEmbedFailed(true)
+          setLoading(false)
+        }
+      }, 2000)
+      ;(window as any).__embedded_link_cleanup = () => clearTimeout(t)
     }
     if (type === 'instagram') {
       const s = loadScript('https://www.instagram.com/embed.js')
@@ -90,7 +136,39 @@ export function EmbeddedLink({ url }: { url: string }) {
       if ((window as any).instgrm && (window as any).instgrm.Embeds) try { (window as any).instgrm.Embeds.process() } catch {}
     }
 
-    return () => { mounted = false; obs?.disconnect() }
+    if (type === 'tiktok') {
+      // try to render tiktok embed by leaving a blockquote and loading the embed script
+      let s: HTMLScriptElement | null = document.querySelector('script[src="https://www.tiktok.com/embed.js"]') as HTMLScriptElement | null
+      if (!s) s = loadScript('https://www.tiktok.com/embed.js')
+      if (containerRef.current) {
+        obs = new MutationObserver((mutations) => {
+          for (const m of mutations) {
+            if (!mounted) return
+            const iframe = containerRef.current?.querySelector('iframe') as HTMLIFrameElement | null
+            if (iframe) {
+              iframe.addEventListener('load', () => mounted && setLoading(false))
+              obs?.disconnect()
+            }
+          }
+        })
+        obs.observe(containerRef.current, { childList: true, subtree: true })
+      }
+      s.onload = () => {
+        try { /* tiktok script auto-processes blockquotes */ } catch {}
+      }
+      // fallback timeout
+      const tt = setTimeout(() => {
+        if (!containerRef.current) return
+        const hasChildren = containerRef.current.children.length > 0
+        if (!hasChildren) {
+          setEmbedFailed(true)
+          setLoading(false)
+        }
+      }, 2000)
+      ;(window as any).__embedded_link_tiktok_cleanup = () => clearTimeout(tt)
+    }
+
+    return () => { mounted = false; obs?.disconnect(); try { (window as any).__embedded_link_cleanup && (window as any).__embedded_link_cleanup(); (window as any).__embedded_link_tiktok_cleanup && (window as any).__embedded_link_tiktok_cleanup() } catch {} }
   }, [type, url])
 
   const Spinner = () => (
@@ -114,11 +192,33 @@ export function EmbeddedLink({ url }: { url: string }) {
   }
 
   if (type === 'tiktok') {
+    const tiktokId = extractTikTokId(url)
+    if (tiktokId) {
+      if (embedFailed) {
+        return (
+          <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+              <ExternalLink className="w-3 h-3" />
+              <span className="truncate">TikTokで見る</span>
+            </a>
+          </Button>
+        )
+      }
+      return (
+        <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
+          <blockquote className="tiktok-embed" cite={url} data-video-id={tiktokId}>
+            <section>
+              <a href={url}>TikTokで見る</a>
+            </section>
+          </blockquote>
+        </div>
+      )
+    }
     return (
-      <Button asChild variant="outline" size="sm" className="w-full justify-start text-xs">
+      <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
         <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-          <span className="truncate">TikTokで見る</span>
           <ExternalLink className="w-3 h-3" />
+          <span className="truncate">TikTokで見る</span>
         </a>
       </Button>
     )
@@ -149,13 +249,20 @@ export function EmbeddedLink({ url }: { url: string }) {
   }
 
   if (type === 'twitter') {
-    const tweetIdMatch = url.match(/(?:twitter\.com|x\.com)\/[^\/]+\/status\/(\d+)/)
-    if (tweetIdMatch) {
+    if (tweetId) {
+      if (embedFailed) {
+        return (
+          <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+              <ExternalLink className="w-3 h-3" />
+              <span className="truncate">ツイートを見る</span>
+            </a>
+          </Button>
+        )
+      }
       return (
         <div className="flex justify-center">
-          <blockquote className="twitter-tweet" data-theme="light">
-            <a href={url}>ツイートを見る</a>
-          </blockquote>
+          <div ref={containerRef} className="w-full max-w-[540px]" />
         </div>
       )
     }
@@ -175,7 +282,7 @@ export function EmbeddedLink({ url }: { url: string }) {
   }
 
   return (
-    <Button asChild variant="outline" size="sm" className="w-full justify-start text-xs">
+    <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
       <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
         <ExternalLink className="w-3 h-3" />
         <span className="truncate">{url}</span>

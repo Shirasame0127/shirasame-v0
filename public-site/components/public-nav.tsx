@@ -20,8 +20,6 @@ interface PublicNavProps {
 
 export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const [reveal, setReveal] = useState(false)
-  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   const [overlayHeight, setOverlayHeight] = useState<number | null>(null)
   const [collections, setCollections] = useState<Collection[]>([])
@@ -59,29 +57,6 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
     try { window.addEventListener('v0-initial-loading', handler as EventListener) } catch {}
     return () => { try { window.removeEventListener('v0-initial-loading', handler as EventListener) } catch {} }
   }, [])
-
-  // reveal animation control (clip-path) when opening
-  useEffect(() => {
-    let t: number | null = null
-    if (isMenuOpen) {
-      // compute hamburger button center as percentage of viewport
-      try {
-        const btn = document.querySelector('[data-hamburger-button]') as HTMLElement | null
-        if (btn) {
-          const r = btn.getBoundingClientRect()
-          const x = ((r.left + r.width / 2) / (window.innerWidth || 1)) * 100
-          const y = ((r.top + r.height / 2) / (window.innerHeight || 1)) * 100
-          setAnchor({ x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) })
-        }
-      } catch {}
-      // start from small, then trigger reveal in next tick for transition
-      setReveal(false)
-      t = window.setTimeout(() => setReveal(true), 20)
-    } else {
-      setReveal(false)
-    }
-    return () => { if (t) window.clearTimeout(t) }
-  }, [isMenuOpen])
 
   // measure menu height to limit overlay to only necessary area
   useEffect(() => {
@@ -143,15 +118,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
 
       <div
         ref={menuRef}
-        className={`fixed top-0 right-0 w-80 max-h-[90vh] overflow-auto bg-white border-l shadow-2xl z-60 transition-transform duration-300 ease-in-out rounded-l-xl ${isMenuOpen ? "translate-x-0" : "translate-x-full"}`}
-        // clip-path animates from the hamburger button center when available
-        style={{
-          clipPath: (() => {
-            const pos = anchor ? `${anchor.x}% ${anchor.y}%` : '96% 4%'
-            return isMenuOpen ? (reveal ? `circle(160% at ${pos})` : `circle(0px at ${pos})`) : `circle(0px at ${pos})`
-          })(),
-          transition: 'clip-path 900ms cubic-bezier(.22,.9,.29,1), transform 300ms ease-in-out',
-        }}
+        className={`fixed top-0 right-0 w-80 max-h-[90vh] overflow-auto bg-white border-l shadow-2xl z-60 rounded-l-xl menu-slide ${isMenuOpen ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
       >
         <nav className="p-6 space-y-4">
           <div className="space-y-2">
@@ -233,42 +200,17 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
         </nav>
       </div>
 
+      {/* overlay always present to allow smooth fade */}
+      <div className={`fixed inset-0 bg-black/20 backdrop-blur-sm z-50 menu-overlay-fade ${isMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsMenuOpen(false)} />
       {isMenuOpen && (
-        <>
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50" onClick={() => setIsMenuOpen(false)} />
-          {/* Ripple SVG: anchored near top-right (96,4 in viewBox coords) */}
-          <svg className="fixed inset-0 pointer-events-none z-51 w-screen h-screen" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <defs>
-              <filter id="turb" x="-20%" y="-20%" width="140%" height="140%">
-                <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="2" result="t" />
-                <feDisplacementMap in="SourceGraphic" in2="t" scale="10" />
-              </filter>
-            </defs>
-            <g filter="url(#turb)">
-              {/* multiple expanding circles with staggered durations for a natural water spread */}
-                <circle cx={String(anchor?.x ?? 96)} cy={String(anchor?.y ?? 4)} r="0" stroke="rgba(255,255,255,0.12)" strokeWidth="0.6" fill="none">
-                  <animate attributeName="r" from="0" to="200" dur="1200ms" begin="0s" fill="freeze" />
-                  <animate attributeName="opacity" from="0.9" to="0" dur="1200ms" begin="0s" fill="freeze" />
-                </circle>
-                <circle cx={String(anchor?.x ?? 96)} cy={String(anchor?.y ?? 4)} r="0" stroke="rgba(255,255,255,0.08)" strokeWidth="0.8" fill="none">
-                  <animate attributeName="r" from="0" to="230" dur="1500ms" begin="200ms" fill="freeze" />
-                  <animate attributeName="opacity" from="0.7" to="0" dur="1500ms" begin="200ms" fill="freeze" />
-                </circle>
-                <circle cx={String(anchor?.x ?? 96)} cy={String(anchor?.y ?? 4)} r="0" stroke="rgba(255,255,255,0.06)" strokeWidth="1" fill="none">
-                  <animate attributeName="r" from="0" to="280" dur="2000ms" begin="400ms" fill="freeze" />
-                  <animate attributeName="opacity" from="0.6" to="0" dur="2000ms" begin="400ms" fill="freeze" />
-                </circle>
-            </g>
-          </svg>
-          <Button
-            variant="ghost"
-            size="icon-lg"
-            className="fixed right-2 top-2 rounded-full bg-white/10 dark:bg-black/20 backdrop-blur-sm shadow-lg ring-1 ring-white/10 dark:ring-black/20 w-12 h-12 p-2 z-70"
-            onClick={() => setIsMenuOpen(false)}
-          >
-            <X className="w-8 h-8" />
-          </Button>
-        </>
+        <Button
+          variant="ghost"
+          size="icon-lg"
+          className="fixed right-2 top-2 rounded-full bg-white/10 dark:bg-black/20 backdrop-blur-sm shadow-lg ring-1 ring-white/10 dark:ring-black/20 w-12 h-12 p-2 z-70"
+          onClick={() => setIsMenuOpen(false)}
+        >
+          <X className="w-8 h-8" />
+        </Button>
       )}
     </>
   )

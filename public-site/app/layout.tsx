@@ -1,7 +1,7 @@
 import type React from "react"
 import type { Metadata } from "next"
 import { AppInitializer } from "@/components/app-initializer"
-import InitialLoading from "@/components/initial-loading"
+import InitialLoading from "@/components/initial-loading-client"
 import "./globals.css"
 
 export const metadata: Metadata = {

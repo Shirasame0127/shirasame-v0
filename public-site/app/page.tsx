@@ -12,13 +12,12 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Grid3x3, List, Filter, SortAsc, X } from "lucide-react"
+import { Grid3x3, List, Filter, SortAsc, X, ArrowLeft } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Input } from "@/components/ui/input"
 import { PublicNav } from "@/components/public-nav"
-import InitialLoading from '@/components/initial-loading'
 import { ProfileHeader } from "@/components/profile-header"
 import { apiFetch } from "@/lib/api-client"
 import type { Product, Collection, User, AmazonSaleSchedule } from "@shared/types"
@@ -64,41 +63,43 @@ function FilterContent({ isMobile = false, searchText, setSearchText, viewMode, 
 
   return (
     <div className={`space-y-8 ${isMobile ? 'text-sm' : ''}`}>
-      <div className="space-y-2">
-        <Label className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold`}>テキスト検索</Label>
-        <Input placeholder="商品名・説明文で検索" value={localQuery} onChange={(e: any) => setLocalQuery(e.target.value)} onCompositionStart={handleCompositionStart} onCompositionEnd={handleCompositionEnd} onKeyDown={(e: any) => { if (e.key === 'Enter') { e.preventDefault(); setSearchText(localQuery) } }} className={isMobile ? 'text-xs h-9' : ''} />
-      </div>
+      {!isMobile && (
+        <div className="space-y-2">
+          <Label className={`${isMobile ? 'text-[18px]' : 'text-[1.2rem]'} font-semibold`}>テキスト検索</Label>
+          <Input placeholder="商品名・説明文で検索" value={localQuery} onChange={(e: any) => setLocalQuery(e.target.value)} onCompositionStart={handleCompositionStart} onCompositionEnd={handleCompositionEnd} onKeyDown={(e: any) => { if (e.key === 'Enter') { e.preventDefault(); setSearchText(localQuery) } }} className={isMobile ? 'text-xs h-9' : ''} />
+        </div>
+      )}
       {viewMode === 'grid' && (
         <div className="space-y-2">
-          <Label className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold`}>列数</Label>
+          <Label className={`${isMobile ? 'text-[18px]' : 'text-[1.2rem]'} font-semibold`}>列数</Label>
           <Select value={String(gridColumns)} onValueChange={(v) => setGridColumns(Number(v))}>
             <SelectTrigger className={`w-24 ${isMobile ? 'text-xs h-8' : ''}`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {isMobile ? (
-                <>
-                  <SelectItem value="2">2列</SelectItem>
-                  <SelectItem value="3">3列</SelectItem>
-                </>
-              ) : (
-                <>
-                  <SelectItem value="4">4列</SelectItem>
-                  <SelectItem value="5">5列</SelectItem>
-                </>
-              )}
-            </SelectContent>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-white">
+                {isMobile ? (
+                  <>
+                    <SelectItem value="2">2列</SelectItem>
+                    <SelectItem value="3">3列</SelectItem>
+                  </>
+                ) : (
+                  <>
+                    <SelectItem value="4">4列</SelectItem>
+                    <SelectItem value="5">5列</SelectItem>
+                  </>
+                )}
+              </SelectContent>
           </Select>
         </div>
       )}
       <div className="space-y-2">
-        <Label className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold`}>並び替え</Label>
+        <Label className={`${isMobile ? 'text-[18px]' : 'text-[1.2rem]'} font-semibold`}>並び替え</Label>
         <Select value={sortMode} onValueChange={(v: any) => setSortMode(v)}>
           <SelectTrigger className={`w-full ${isMobile ? 'text-xs h-9' : ''}`}>
             <SortAsc className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} mr-2`} />
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="bg-white">
             <SelectItem value="newest">新しい順</SelectItem>
             <SelectItem value="clicks">クリック数順</SelectItem>
             <SelectItem value="price-asc">価格が安い順</SelectItem>
@@ -108,11 +109,11 @@ function FilterContent({ isMobile = false, searchText, setSearchText, viewMode, 
       </div>
       {Object.keys(tagGroups).length > 0 && (
         <div className="space-y-2">
-          <Label className={`${isMobile ? 'text-xs' : 'text-sm'} font-semibold`}>タグで絞り込み</Label>
+          <Label className={`${isMobile ? 'text-[18px]' : 'text-[1.2rem]'} font-semibold`}>タグで絞り込み</Label>
           {selectedTags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 p-2 bg-muted rounded-lg">
               {selectedTags.map((tag) => (
-                <Badge key={tag} variant="default" className={`cursor-pointer ${isMobile ? 'text-[10px] px-2 py-0.5' : ''}`} onClick={() => toggleTag(tag)}>
+                <Badge key={tag} variant="default" className={`border border-gray-200 rounded-full cursor-pointer font-normal ${isMobile ? 'text-[15px] px-3 py-1' : 'text-base px-3 py-1.5'}`} onClick={() => toggleTag(tag)}>
                   {tag} <X className="w-3 h-3 ml-1" />
                 </Badge>
               ))}
@@ -121,8 +122,8 @@ function FilterContent({ isMobile = false, searchText, setSearchText, viewMode, 
           <div className={`${isMobile ? 'max-h-[38vh] overflow-y-auto pr-1 -mr-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded' : ''}`}>
             <Accordion type="multiple" className="w-full" value={openGroups} onValueChange={(v) => setOpenGroups(Array.isArray(v) ? v : [v])}>
               {Object.entries(tagGroups).map(([groupName, tags]) => (
-                <AccordionItem key={groupName} value={groupName}>
-                  <AccordionTrigger className={isMobile ? 'text-xs py-2' : 'text-sm'}>
+                  <AccordionItem key={groupName} value={groupName}>
+                  <AccordionTrigger className={isMobile ? 'text-sm py-2' : 'text-lg'}>
                     {groupName}
                     {selectedTags.some((t) => tags.includes(t)) && (
                       <Badge variant="secondary" className={`ml-2 ${isMobile ? 'text-[10px] px-1.5 py-0' : ''}`}>
@@ -133,7 +134,7 @@ function FilterContent({ isMobile = false, searchText, setSearchText, viewMode, 
                   <AccordionContent>
                     <div className="flex flex-wrap gap-1.5 pt-2">
                       {tags.map((tag) => (
-                        <Badge key={tag} variant={selectedTags.includes(tag) ? 'default' : 'secondary'} className={`cursor-pointer hover:scale-105 transition-transform ${isMobile ? 'text-[10px] px-2 py-0.5' : ''}`} onClick={() => toggleTag(tag)}>
+                        <Badge key={tag} variant={selectedTags.includes(tag) ? 'default' : 'secondary'} className={`border border-gray-200 rounded-full cursor-pointer font-normal hover:scale-105 transition-transform ${isMobile ? 'text-[15px] px-3 py-1' : 'text-base px-3 py-1.5'}`} onClick={() => toggleTag(tag)}>
                           {tag}
                         </Badge>
                       ))}
@@ -183,6 +184,7 @@ export default function HomePage() {
   const [searchText, setSearchText] = useState("")
   const [isGallerySearchSticky, setIsGallerySearchSticky] = useState(false)
   const [isAllOverlayOpen, setIsAllOverlayOpen] = useState(false)
+  const [isAllOverlayClosing, setIsAllOverlayClosing] = useState(false)
 
   // Prevent image context menu / long-press save on public pages (best-effort)
   useEffect(() => {
@@ -704,7 +706,7 @@ export default function HomePage() {
     return () => obs.disconnect()
   }, [loadingMore, hasMore, pageOffset])
 
-  if (!isLoaded) { return <InitialLoading /> }
+  if (!isLoaded) { return null }
 
   const changeDisplayMode = (mode: 'normal' | 'gallery') => {
     if (mode === displayMode) return
@@ -718,16 +720,15 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen" style={appliedStyle}>
-      <InitialLoading />
+    <div className={`min-h-screen ${isAllOverlayOpen ? 'allitems-open' : ''}`} style={appliedStyle}>
       <main className="min-h-screen pt-16 pb-20 relative">
         <PublicNav siteName={user?.displayName || ""} />
         {user && <ProfileHeader user={user as any} />}
 
-        <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className={`max-w-7xl mx-auto px-4 py-8 ${isAllOverlayOpen ? 'all-items-overlay' : ''}`}>
           <div className="mb-8 flex justify-center">
             <div className="relative inline-flex items-center bg-muted p-1 rounded-full shadow-sm" style={{ width: 280 }}>
-              <div className={`absolute top-1 left-1 h-8 w-1/2 rounded-full transition-transform duration-300 ease-in-out ${displayMode === 'gallery' ? 'translate-x-full' : 'translate-x-0'} bg-sky-400`} style={{ marginTop: '3px' , width: '137px' }} aria-hidden />
+              <div className={`absolute top-1 left-1 h-8 w-1/2 rounded-full transition-transform duration-300 ease-in-out ${displayMode === 'gallery' ? 'translate-x-full' : 'translate-x-0'} bg-sky-300`} style={{ marginTop: '3px' , width: '137px' }} aria-hidden />
               <button onClick={() => changeDisplayMode('normal')} aria-pressed={displayMode === 'normal'} className={`relative z-10 flex-1 text-sm font-semibold px-4 py-2 text-center rounded-full ${displayMode === 'normal' ? 'text-white' : 'text-foreground/70'}`}>Normal</button>
               <button onClick={() => changeDisplayMode('gallery')} aria-pressed={displayMode === 'gallery'} className={`relative z-10 flex-1 text-sm font-semibold px-4 py-2 text-center rounded-full ${displayMode === 'gallery' ? 'text-white' : 'text-foreground/70'}`}>Gallery</button>
             </div>
@@ -738,11 +739,33 @@ export default function HomePage() {
             <section id="global-gallery" className="mb-16">
               <div className="gallery-search-viewport" style={{ position: 'sticky', top: '74px', boxSizing: 'border-box', display: 'flex', justifyContent: 'center', zIndex: isModalOpen ? 0 : 30 }}>
                 <div id="global-gallery-search" className={`${isModalOpen ? 'z-0' : 'z-40'} mb-6 ${isGallerySearchSticky ? 'bg-white rounded-b-2xl shadow-md' : ''}`} style={{ width: 'calc(100dvw - 10px)', maxWidth: '80rem', boxSizing: 'border-box', marginInline: 'auto' }}>
-                  <div className="relative rounded-full border bg-background/80 backdrop-blur-sm shadow-sm overflow-hidden" role="search" aria-label="ギャラリー検索" style={{ width: 'calc(100% - 10px)', marginInline: 'auto', maxWidth: '80rem' }}>
+                  <div className="relative rounded-full border bg-white shadow-sm overflow-hidden" role="search" aria-label="ギャラリー検索" style={{ width: 'calc(100% - 10px)', marginInline: 'auto', maxWidth: '80rem' }}>
                     <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-muted-foreground">
                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                     </div>
-                    <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setSearchText((e.target as HTMLInputElement).value) } }} placeholder="キーワードで検索" className="w-full bg-transparent py-3 pr-5 pl-10 text-sm outline-none placeholder:text-muted-foreground" />
+                    <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setSearchText((e.target as HTMLInputElement).value) } }} placeholder="キーワードで検索" className="w-full bg-transparent py-3 pr-10 pl-10 text-sm outline-none placeholder:text-muted-foreground" />
+                    <button type="button" onClick={() => { if (typeof window !== 'undefined' && window.innerWidth < 640) { setIsFilterSheetOpen(true) } else { setShowFilters(!showFilters) } }} aria-label="フィルタを開く" className="absolute inset-y-0 right-3 flex items-center justify-center text-muted-foreground hover:text-foreground">
+                      <Filter className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="mt-2 flex justify-center">
+                      <div className="flex items-center gap-2">
+                      <Sheet open={isFilterSheetOpen} onOpenChange={setIsFilterSheetOpen}>
+                          <SheetContent side="right" className="bg-white h-full max-w-[360px] w-[min(360px,90vw)] rounded-l-2xl px-4 pb-0 flex flex-col">
+                          <SheetHeader className="pb-4 border-b">
+                            <SheetTitle className="text.base">絞り込み・並び替え</SheetTitle>
+                          </SheetHeader>
+                          <div className="flex-1 overflow-y-auto py-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                            <div className="mx-auto w-full max-w-md px-1">
+                              <FilterContent isMobile={true} searchText={searchText} setSearchText={setSearchText} viewMode={viewMode} setViewMode={setViewMode} gridColumns={gridColumns} setGridColumns={setGridColumns} layoutStyle={layoutStyle} setLayoutStyle={setLayoutStyle} sortMode={sortMode} setSortMode={setSortMode} tagGroups={tagGroups} selectedTags={selectedTags} toggleTag={(t) => toggleTag(t)} openGroups={openGroups} setOpenGroups={setOpenGroups} setSelectedTags={setSelectedTags} />
+                            </div>
+                          </div>
+                          <div className="py-4 border-t bg-white sticky bottom-0">
+                            <Button className="w-full h-10 text-sm bg-sky-400 text-white rounded-md hover:bg-sky-300 focus:outline-none" onClick={() => setIsFilterSheetOpen(false)}>適用する</Button>
+                          </div>
+                        </SheetContent>
+                      </Sheet>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -758,13 +781,13 @@ export default function HomePage() {
           ) : (
             collections.length > 0 && (
               <section id="collections" className="mb-16">
-                <h2 className="font-heading text-2xl sm:text-3xl font-bold text-center mb-8 heading-with-vertical">Collection</h2>
+                <h2 className="font-heading text-4xl sm:text-4xl font-bold text-center mb-8 heading-with-vertical">Collection</h2>
                 <div className="space-y-12">
                   {collections.map((collection: any) => {
                     const collectionProducts = getProductsForCollection(collection.id)
                     return (
                       <div key={collection.id} id={`collection-${collection.id}`} className="mb-12 scroll-mt-20">
-                        <h3 className="font-heading text-lg sm:text-xl font-semibold text-center mb-4">{collection.title}</h3>
+                        <h3 className="font-heading text-lg sm:text-lg font-semibold text-center mb-4">{collection.title}</h3>
                         {collection.description && (<p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">{collection.description}</p>)}
                         {collectionProducts.length > 0 ? (
                           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 z-30">
@@ -793,18 +816,18 @@ export default function HomePage() {
 
           {displayMode !== 'gallery' && (
             <section id="all-products" className="mb-16 scroll-mt-20">
-              <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-6 text-center heading-with-vertical">
+              <h2 className="font-heading text-4xl sm:text-4xl font-bold mb-6 text-center heading-with-vertical">
                 <button onClick={() => setIsAllOverlayOpen(true)} className="underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded px-2">All Items</button>
               </h2>
-              <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">クリックで一覧をスライド表示します</p>
+              <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">いままで紹介したすべての商品を表示します</p>
 
               {/* 通常ビューではグリッドは表示せず、オーバーレイで初回画像ロード */}
             </section>
-          )}
+          )} 
 
           {recipes.length > 0 && displayMode !== 'gallery' && (
             <section id="recipes" className="mb-16 scroll-mt-20">
-              <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-6 text-center">Recipe</h2>
+              <h2 className="font-heading text-4xl sm:text-4xl font-bold mb-6 text-center">Recipe</h2>
               <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">実際のデスク環境と使用アイテムを紹介します</p>
               <div className="space-y-12">
                 {recipes.map((recipe: any, index: number) => {
@@ -829,7 +852,7 @@ export default function HomePage() {
                   const imageFirst = isEvenIndex
                   return (
                     <div key={recipe.id} className="p-3 md:p-6 bg-card shadow-md rounded-t-md rounded-b-md bg-linear-to-b from-card to-transparent">
-                      <h3 className="font-heading text-xl sm:text-2xl font-semibold mb-6 text-center">{recipe.title}</h3>
+                      <h3 className="font-heading text-lg sm:text-lg font-semibold mb-6 text-center">{recipe.title}</h3>
                       <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-start bg-transparent">
                         <div className={`w-full md:w-1/2 ${imageFirst ? "md:order-1" : "md:order-2"}`}>
                           <RecipeDisplay recipeId={recipe.id} recipeTitle={recipe.title} imageDataUrl={recipe.imageDataUrl} imageUrl={recipe.imageUrl} imageWidth={recipe.imageWidth} imageHeight={recipe.imageHeight} pins={pins} products={products} items={recipe.items || []} onProductClick={handleProductClick as any} />
@@ -873,41 +896,35 @@ export default function HomePage() {
           </section>
           </div>
         </div>
+
+        
       </main>
 
-      <footer className="border-t mt-16 py-8">
-        <div className="max-w-7xl mx-auto px-4 text-center text-xs sm:text-sm text-muted-foreground">
-          <p>© 2025 {user?.displayName || "User"}. All rights reserved.</p>
-          <p className="mt-2">このサイトはAmazonアソシエイトを利用しています。リンクを経由して商品が購入された場合、紹介料を受け取ることがあります。</p>
-        </div>
-      </footer>
-
-      <ProductDetailModal product={selectedProduct} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialImageUrl={selectedImageUrl ?? undefined} saleName={selectedProduct ? saleNameFor(selectedProduct.id) : null} />
-
-      {/* All Items Overlay */}
-      <div className={`fixed inset-0 z-40 pointer-events-none ${isAllOverlayOpen ? '' : ''}`} aria-hidden={!isAllOverlayOpen}>
-          <div className={`absolute inset-0 bg-white transition-transform duration-300 ease-out ${isAllOverlayOpen ? 'translate-x-0' : 'translate-x-full'} pointer-events-auto`}>
-          <button aria-label="閉じる" className="absolute top-20 right-4 text-gray-800 hover:text-gray-900 text-2xl font-semibold bg-white/70 rounded-full w-10 h-10 flex items-center justify-center shadow" onClick={() => setIsAllOverlayOpen(false)}>
-            ×
-          </button>
-          <div className="max-w-7xl mx-auto px-4 pt-16 pb-10">
+      {/* All Items - inline replacement view (replaces main content like gallery) */}
+      {isAllOverlayOpen && (
+        <section id="all-items-view" className={`mb-16 relative z-60 duration-300 ${isAllOverlayClosing ? 'animate-out fade-out-0 slide-out-to-top' : 'animate-in fade-in slide-in-from-top-2'}`}>
+          <div className="max-w-7xl mx-auto px-4 pt-16 pb-10 bg-white">
+            <button aria-label="閉じる" className="absolute top-4 left-4 sm:left-auto sm:right-4 text-gray-800 hover:text-gray-900 bg-white rounded-full w-10 h-10 flex items-center justify-center shadow" onClick={() => { setIsAllOverlayClosing(true); setTimeout(() => { setIsAllOverlayOpen(false); setIsAllOverlayClosing(false) }, 300) }}>
+              <ArrowLeft className="w-5 h-5" />
+            </button>
             <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-4 text-center">All Items</h2>
             <div className="mb-6">
               <div className="flex justify-center">
-                <Button variant="outline" size="lg" onClick={() => setShowFilters(!showFilters)} className="gap-2 hidden sm:flex bg-white/70">
+                <Button variant="outline" size="lg" onClick={() => setShowFilters(!showFilters)} className="gap-2 hidden sm:flex bg-white/70 border text-foreground">
                   <Filter className="w-4 h-4" />
                   Sort
                   {selectedTags.length > 0 && (<Badge variant="secondary" className="ml-2">{selectedTags.length}件</Badge>)}
                 </Button>
                 <Sheet open={isFilterSheetOpen} onOpenChange={setIsFilterSheetOpen}>
                   <SheetTrigger asChild>
-                    <Button variant="outline" size="lg" className="gap-2 sm:hidden bg-white/70">
+                    <Button variant="outline" size="lg" className="gap-2 sm:hidden bg-white/70 border text-foreground">
                       <Filter className="w-4 h-4" />
                       Sort
                       {selectedTags.length > 0 && (<Badge variant="secondary" className="ml-2">{selectedTags.length}件</Badge>)}
                     </Button>
                   </SheetTrigger>
-                  <SheetContent side="bottom" className="h-auto max-h-[80vh] rounded-t-2xl px-4 pb-0 flex flex-col">
+
+                  <SheetContent side="right" className="bg-white h-full max-w-[360px] w-[min(360px,90vw)] rounded-l-2xl px-4 pb-0 flex flex-col">
                     <SheetHeader className="pb-4 border-b">
                       <SheetTitle className="text.base">絞り込み・並び替え</SheetTitle>
                     </SheetHeader>
@@ -916,14 +933,14 @@ export default function HomePage() {
                         <FilterContent isMobile={true} searchText={searchText} setSearchText={setSearchText} viewMode={viewMode} setViewMode={setViewMode} gridColumns={gridColumns} setGridColumns={setGridColumns} layoutStyle={layoutStyle} setLayoutStyle={setLayoutStyle} sortMode={sortMode} setSortMode={setSortMode} tagGroups={tagGroups} selectedTags={selectedTags} toggleTag={(t) => toggleTag(t)} openGroups={openGroups} setOpenGroups={setOpenGroups} setSelectedTags={setSelectedTags} />
                       </div>
                     </div>
-                    <div className="py-4 border-t bg-background sticky bottom-0">
-                      <Button className="w-full h-10 text-sm" onClick={() => setIsFilterSheetOpen(false)}>適用する</Button>
+                    <div className="py-4 border-t bg-white sticky bottom-0">
+                      <Button className="w-full h-10 text-sm bg-sky-400 text-white rounded-md hover:bg-sky-300 focus:outline-none" onClick={() => setIsFilterSheetOpen(false)}>適用する</Button>
                     </div>
                   </SheetContent>
                 </Sheet>
               </div>
               {showFilters && (
-                <div className="mt-4 border rounded-lg p-6 bg-white/70 backdrop-blur animate-in fade-in slide-in-from-top-2 duration-300 hidden sm:block">
+                <div className="mt-4 border rounded-lg p-6 bg-white backdrop-blur animate-in fade-in slide-in-from-top-2 duration-300 hidden sm:block">
                   <FilterContent searchText={searchText} setSearchText={setSearchText} viewMode={viewMode} setViewMode={setViewMode} gridColumns={gridColumns} setGridColumns={setGridColumns} layoutStyle={layoutStyle} setLayoutStyle={setLayoutStyle} sortMode={sortMode} setSortMode={setSortMode} tagGroups={tagGroups} selectedTags={selectedTags} toggleTag={toggleTag} openGroups={openGroups} setOpenGroups={setOpenGroups} setSelectedTags={setSelectedTags} />
                 </div>
               )}
@@ -934,7 +951,6 @@ export default function HomePage() {
                 {filteredAndSortedProducts.map((product) => {
                   const sale = saleNameFor(product.id)
                   const sizes = "(max-width: 768px) 100vw, 400px"
-                  // prefer top-level main_image, fallback to legacy images
                   const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
                   const img0: any = product.images?.[0] || null
                   const mainLegacyUrl = img0?.url || null
@@ -943,7 +959,6 @@ export default function HomePage() {
                   return (
                     <div key={product.id} className="group relative aspect-square overflow-hidden rounded-lg cursor-pointer transform transition-transform duration-300 ease-out motion-safe:will-change-transform hover:scale-[1.02] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => handleProductClick(product)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleProductClick(product) } }} aria-label={product.title}>
                       <img src={src} srcSet={srcSet || undefined} sizes={srcSet ? sizes : undefined} alt={product.title} className="object-cover rounded-lg w-full h-full no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg'; e.currentTarget.srcset = '' } catch {} }} />
-                      
                       {sale && (
                         <div className="absolute left-2 top-2 z-10">
                           <span className="inline-flex items-center rounded-full bg-pink-600 text-white text-[10px] font-semibold px-2 py-0.5 shadow-sm">{sale}</span>
@@ -967,7 +982,6 @@ export default function HomePage() {
                     <div key={product.id} className="flex gap-4 p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer bg-white/70" onClick={() => handleProductClick(product)}>
                       <div className="relative w-24 h-24 shrink-0">
                         <img src={src} srcSet={srcSet || undefined} sizes={srcSet ? sizes : undefined} alt={product.title} className="object-cover rounded w-24 h-24 no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg'; e.currentTarget.srcset = '' } catch {} }} />
-                        
                         {sale && (
                           <div className="absolute left-1 top-1 z-10">
                             <span className="inline-flex items-center rounded bg-pink-600 text-white text-[9px] font-semibold px-1.5 py-0.5 shadow">{sale}</span>
@@ -987,8 +1001,18 @@ export default function HomePage() {
 
             {filteredAndSortedProducts.length === 0 && (<p className="text-center text-muted-foreground py-16">そのワードに関連するものはまだないな...</p>)}
           </div>
+        </section>
+      )}
+      
+ <ProductDetailModal product={selectedProduct} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialImageUrl={selectedImageUrl ?? undefined} saleName={selectedProduct ? saleNameFor(selectedProduct.id) : null} />
+      <footer className="border-t mt-16 py-8 relative z-50">
+        <div className="max-w-7xl mx-auto px-4 text-center text-xs sm:text-sm text-muted-foreground">
+          <p>© 2025 {user?.displayName || "User"}. All rights reserved.</p>
+          <p className="mt-2">このサイトはAmazonアソシエイトを利用しています。リンクを経由して商品が購入された場合、紹介料を受け取ることがあります。</p>
         </div>
-      </div>
+      </footer>
+
+      
     </div>
   )
 }
