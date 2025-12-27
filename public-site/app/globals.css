@@ -78,6 +78,10 @@
     -webkit-touch-callout: none;
     -webkit-user-drag: none;
   }
+  
+  /* Menu slide animation helper: transform + opacity for smooth in/out */
+  .menu-slide { will-change: transform, opacity; transition: transform 360ms cubic-bezier(.22,.9,.29,1), opacity 260ms ease; }
+  .menu-overlay-fade { transition: opacity 260ms ease; }
 }
 
 /* Ensure elements explicitly using black are rendered as #2b2b2b on public pages */
@@ -102,4 +106,42 @@
 
 /* Console/build-time artifacts sometimes inject #000000 in inline CSS; target common patterns */
 [style*="#000000"] { color: #2b2b2b !important; }
+
+/* Floating decorative circles removed */
+
+/* Animation utilities (fallbacks for missing Tailwind animation plugin) */
+@layer utilities {
+  .animate-in { animation: anim-in 300ms cubic-bezier(.22,.9,.29,1) both; }
+  .animate-out { animation: anim-out 200ms cubic-bezier(.22,.9,.29,1) both; }
+
+  .fade-in { animation: fade-in 220ms ease both; }
+  .fade-out-0 { animation: fade-out 180ms ease both; }
+  .fade-in-0 { animation: fade-in 160ms ease both; }
+
+  .zoom-in-95 { animation: zoom-in 220ms cubic-bezier(.22,.9,.29,1) both; }
+  .zoom-out-95 { animation: zoom-out 200ms cubic-bezier(.22,.9,.29,1) both; }
+
+  .slide-in-from-right { animation: slide-in-from-right 320ms cubic-bezier(.22,.9,.29,1) both; }
+  .slide-out-to-right { animation: slide-out-to-right 260ms cubic-bezier(.22,.9,.29,1) both; }
+  .slide-in-from-left { animation: slide-in-from-left 320ms cubic-bezier(.22,.9,.29,1) both; }
+  .slide-out-to-left { animation: slide-out-to-left 260ms cubic-bezier(.22,.9,.29,1) both; }
+  .slide-in-from-top-2 { animation: slide-in-from-top 300ms cubic-bezier(.22,.9,.29,1) both; }
+  .slide-in-from-bottom-2 { animation: slide-in-from-bottom 300ms cubic-bezier(.22,.9,.29,1) both; }
+}
+
+@keyframes anim-in { from { opacity: 0; transform: translateZ(0) scale(.99); } to { opacity: 1; transform: translateZ(0) scale(1); } }
+@keyframes anim-out { from { opacity: 1; transform: translateZ(0) scale(1); } to { opacity: 0; transform: translateZ(0) scale(.99); } }
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+
+@keyframes zoom-in { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+@keyframes zoom-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(.95); } }
+
+@keyframes slide-in-from-right { from { transform: translateX(16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes slide-out-to-right { from { transform: translateX(0); opacity: 1; } to { transform: translateX(16px); opacity: 0; } }
+@keyframes slide-in-from-left { from { transform: translateX(-16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes slide-out-to-left { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-16px); opacity: 0; } }
+@keyframes slide-in-from-top { from { transform: translateY(-12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes slide-in-from-bottom { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
