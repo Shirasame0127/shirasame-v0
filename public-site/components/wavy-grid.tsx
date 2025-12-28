@@ -67,7 +67,8 @@ export default function WavyGrid() {
       // 小さなゆがみ（正弦波）を加える: x/y方向に別周波数で重畳
       float a = sin((uv.x + uv.y) * 6.2831 + t) * 0.5;
       float b = cos((uv.x * 1.7 - uv.y * 1.3) * 6.2831 + t * 1.2) * 0.5;
-      vec2 disp = vec2(a, b) * u_distort;
+      // ゆがみの向きを微調整（ここを反転してデプロイ差の向きを修正）
+      vec2 disp = vec2(-a, b) * u_distort;
       q += disp;
 
       // 格子セル内の位置を取り出す
@@ -165,9 +166,10 @@ export default function WavyGrid() {
         scaleVal = pixW / Math.max(1, cellPx)
       } catch {}
 
-      // 線の太さはセル内の正規化単位で指定: thickness = linePx / cellPx
-      // ただし極端に大きくならないよう上限を設定
-      let thicknessVal = Math.max(0.0005, Math.min(0.12, linePx / Math.max(1, cellPx)))
+      // 線の太さはセル内の正規化単位で指定: thickness = (linePx / cellPx) * 0.5
+      // （シェーダ側の edgeDist が 0..0.5 を使うため半分にスケール）
+      // 上下限でクリップして極端な値を防ぐ
+      let thicknessVal = Math.max(0.0005, Math.min(0.5, (linePx / Math.max(1, cellPx)) * 0.5))
 
       if (u_scale) glCtx.uniform1f(u_scale, scaleVal)
       if (u_amp) glCtx.uniform1f(u_amp, thicknessVal)
