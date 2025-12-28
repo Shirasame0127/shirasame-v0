@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Grid3x3, List, Filter, SortAsc, X, ArrowLeft } from "lucide-react"
+import WavyGrid from '@/components/wavy-grid'
 import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
@@ -721,6 +722,7 @@ export default function HomePage() {
 
   return (
     <div className={`min-h-screen animated-grid-bg ${isAllOverlayOpen ? 'allitems-open' : ''}`} style={appliedStyle}>
+      <WavyGrid />
       <main className="min-h-screen pt-16 pb-20 relative">
         <PublicNav siteName={user?.displayName || ""} />
         {user && <ProfileHeader user={user as any} />}
