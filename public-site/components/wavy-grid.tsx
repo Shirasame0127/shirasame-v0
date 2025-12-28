@@ -34,25 +34,27 @@ export default function WavyGrid() {
     uniform float u_time;
     uniform vec2 u_res;
     uniform float u_scale;
-    uniform float u_amp;
+    uniform float u_thickness;
 
-    // simple diagonal-wavy displacement + checkerboard
+    // animated grid lines (diagonal motion)
     void main(){
       vec2 uv = v_uv;
       float aspect = u_res.x / u_res.y;
       uv.x *= aspect;
-      float s = u_scale;
-      float t = u_time * 0.5;
-      vec2 p = uv * s;
-      float dx = sin(p.y * 2.0 + t) * 0.02 + sin(p.y * 4.0 + t * 1.3) * 0.01;
-      float dy = sin(p.x * 2.0 + t * 1.2) * 0.02;
-      vec2 d = vec2(dx, dy) * u_amp;
-      vec2 q = uv + d;
-      vec2 c = floor(q * s + 0.0);
-      float checker = mod(c.x + c.y, 2.0);
+      float s = max(1.0, u_scale);
+      float t = u_time * 0.3;
+      vec2 q = uv * s + vec2(t, t * 0.6);
+
+      vec2 fq = fract(q);
+      float dx = min(fq.x, 1.0 - fq.x);
+      float dy = min(fq.y, 1.0 - fq.y);
+      float edgeDist = min(dx, dy);
+      float thickness = clamp(u_thickness, 0.001, 0.2);
+      float line = 1.0 - smoothstep(thickness, thickness + 0.01, edgeDist);
+
       vec3 bg = vec3(0.980, 0.984, 0.992);
-      vec3 line = vec3(0.92, 0.92, 0.93);
-      vec3 color = mix(bg, line, checker);
+      vec3 lineCol = vec3(0.92, 0.92, 0.93);
+      vec3 color = mix(bg, lineCol, line);
       gl_FragColor = vec4(color, 1.0);
     }`;
 
@@ -98,8 +100,12 @@ export default function WavyGrid() {
       resize()
       const t = (performance.now() - start) / 1000
       if (u_time) glCtx.uniform1f(u_time, t)
-      if (u_scale) glCtx.uniform1f(u_scale, 6.0)
-      if (u_amp) glCtx.uniform1f(u_amp, 1.0)
+      if (u_scale) glCtx.uniform1f(u_scale, 10.0)
+      // use u_amp as thickness fallback if u_thickness uniform exists
+      const thickness = 0.035
+      if (u_amp) glCtx.uniform1f(u_amp, thickness)
+      // also set u_thickness if available
+      try { const loc = glCtx.getUniformLocation(prog, 'u_thickness'); if (loc) glCtx.uniform1f(loc, thickness) } catch {}
       glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
       rafRef.current = requestAnimationFrame(draw)
     }
