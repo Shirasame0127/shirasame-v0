@@ -12,8 +12,9 @@ export default function WavyGrid() {
   // - dataset: <canvas data-wavy-scale="4" data-wavy-thickness="0.003" data-wavy-distortion="0.02">
   // - CSS変数: :root { --wavy-scale: 4; --wavy-thickness: 0.003; --wavy-distortion: 0.02 }
   // デフォルトは「小さめ・細めの格子」に設定（ユーザー要望に合わせて1/5に縮小済）
-  const DEFAULT_U_SCALE = 4.0
-  const DEFAULT_THICKNESS = 0.003
+  // デフォルト: セル間隔 = 10px、線の太さ = 3px（ユーザー要望）
+  const DEFAULT_CELL_PX = 10
+  const DEFAULT_LINE_PX = 3
   const DEFAULT_DISTORTION = 0.02 // 線がゆがむ強さ（小さめ）
   // ---------------------------------------------------------------------------
 
@@ -134,25 +135,36 @@ export default function WavyGrid() {
       if (u_time) glCtx.uniform1f(u_time, t)
 
       // Resolve user-overridable values (dataset -> CSS var -> default)
-      let scaleVal = DEFAULT_U_SCALE
+      // セル幅(px) と 線幅(px) が設定されていれば、それを優先して u_scale / thickness を算出する
+      let cellPx = DEFAULT_CELL_PX
       try {
         const ds = canvasEl.dataset
-        if (ds && ds.wavyScale) scaleVal = parseFloat(ds.wavyScale) || scaleVal
+        if (ds && ds.wavyCellsize) cellPx = parseFloat(ds.wavyCellsize) || cellPx
         else {
-          const cssScale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-scale') || '')
-          if (!isNaN(cssScale) && cssScale > 0) scaleVal = cssScale
+          const cssCell = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-cellsize') || '')
+          if (!isNaN(cssCell) && cssCell > 0) cellPx = cssCell
         }
       } catch {}
 
-      let thicknessVal = DEFAULT_THICKNESS
+      let linePx = DEFAULT_LINE_PX
       try {
         const ds = canvasEl.dataset
-        if (ds && ds.wavyThickness) thicknessVal = parseFloat(ds.wavyThickness) || thicknessVal
+        if (ds && ds.wavyLinepx) linePx = parseFloat(ds.wavyLinepx) || linePx
         else {
-          const cssTh = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-thickness') || '')
-          if (!isNaN(cssTh) && cssTh > 0) thicknessVal = cssTh
+          const cssLine = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-linepx') || '')
+          if (!isNaN(cssLine) && cssLine >= 0) linePx = cssLine
         }
       } catch {}
+
+      // canvas の幅を使って u_scale を算出（セルあたりのピクセル数を基準に）
+      let scaleVal = DEFAULT_CELL_PX // fallback numeric
+      try {
+        const clientW = Math.max(1, canvasEl.clientWidth)
+        scaleVal = clientW / Math.max(1, cellPx)
+      } catch {}
+
+      // 線の太さはセル内の正規化単位で指定: thickness = linePx / cellPx
+      let thicknessVal = Math.max(0.0005, linePx / Math.max(1, cellPx))
 
       if (u_scale) glCtx.uniform1f(u_scale, scaleVal)
       if (u_amp) glCtx.uniform1f(u_amp, thicknessVal)
