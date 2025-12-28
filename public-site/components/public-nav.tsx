@@ -105,7 +105,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
           <div className="absolute right-2 flex items-center gap-2">
             <Link href="/contact" className="inline-flex">
               <Button
-                variant="solid"
+                variant="default"
                 size="sm"
                 className="rounded-full bg-sky-400 text-white hover:bg-sky-500 focus:ring-2 focus:ring-sky-300"
               >
