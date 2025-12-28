@@ -12,9 +12,8 @@ export default function WavyGrid() {
   // - dataset: <canvas data-wavy-scale="4" data-wavy-thickness="0.003" data-wavy-distortion="0.02">
   // - CSS変数: :root { --wavy-scale: 4; --wavy-thickness: 0.003; --wavy-distortion: 0.02 }
   // デフォルトは「小さめ・細めの格子」に設定（ユーザー要望に合わせて1/5に縮小済）
-  // デフォルト: セル間隔 = 10px、線の太さ = 3px（ユーザー要望）
-  const DEFAULT_CELL_PX = 10
-  const DEFAULT_LINE_PX = 3
+  const DEFAULT_U_SCALE = 4.0
+  const DEFAULT_THICKNESS = 0.003
   const DEFAULT_DISTORTION = 0.02 // 線がゆがむ強さ（小さめ）
   // ---------------------------------------------------------------------------
 
@@ -111,6 +110,9 @@ export default function WavyGrid() {
     const u_thickness = glCtx.getUniformLocation(prog, 'u_thickness')
     const u_distort = glCtx.getUniformLocation(prog, 'u_distort')
 
+    // 最後に計算したキャンバス解像度（CSSピクセル単位）を保持
+    let lastResW = 0
+    let lastResH = 0
     function resize() {
       const canvasEl = canvasRef.current
       if (!canvasEl) return
@@ -122,7 +124,12 @@ export default function WavyGrid() {
         canvasEl.height = h
         glCtx.viewport(0, 0, w, h)
       }
-      if (u_res) glCtx.uniform2f(u_res, w / dpr, h / dpr)
+      // u_res には CSS ピクセル単位の幅／高さを渡す（ブラウザでの見た目ピクセル数）
+      const cssW = w / dpr
+      const cssH = h / dpr
+      lastResW = cssW
+      lastResH = cssH
+      if (u_res) glCtx.uniform2f(u_res, cssW, cssH)
     }
 
     let start = performance.now()
@@ -135,40 +142,48 @@ export default function WavyGrid() {
       if (u_time) glCtx.uniform1f(u_time, t)
 
       // Resolve user-overridable values (dataset -> CSS var -> default)
-      // セル幅(px) と 線幅(px) が設定されていれば、それを優先して u_scale / thickness を算出する
-      let cellPx = DEFAULT_CELL_PX
+      let scaleVal = DEFAULT_U_SCALE
       try {
         const ds = canvasEl.dataset
-        if (ds && ds.wavyCellsize) cellPx = parseFloat(ds.wavyCellsize) || cellPx
+        if (ds && ds.wavyScale) scaleVal = parseFloat(ds.wavyScale) || scaleVal
         else {
-          const cssCell = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-cellsize') || '')
-          if (!isNaN(cssCell) && cssCell > 0) cellPx = cssCell
+          const cssScale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-scale') || '')
+          if (!isNaN(cssScale) && cssScale > 0) scaleVal = cssScale
         }
       } catch {}
 
-      let linePx = DEFAULT_LINE_PX
+      let thicknessVal = DEFAULT_THICKNESS
       try {
         const ds = canvasEl.dataset
-        if (ds && ds.wavyLinepx) linePx = parseFloat(ds.wavyLinepx) || linePx
+        if (ds && ds.wavyThickness) thicknessVal = parseFloat(ds.wavyThickness) || thicknessVal
         else {
-          const cssLine = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-linepx') || '')
-          if (!isNaN(cssLine) && cssLine >= 0) linePx = cssLine
+          const cssTh = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-thickness') || '')
+          if (!isNaN(cssTh) && cssTh > 0) thicknessVal = cssTh
         }
       } catch {}
 
-      // canvas の幅を使って u_scale を算出（セルあたりのピクセル数を基準に）
-      let scaleVal = DEFAULT_CELL_PX // fallback numeric
-      try {
-        const clientW = Math.max(1, canvasEl.clientWidth)
-        scaleVal = clientW / Math.max(1, cellPx)
-      } catch {}
+      // cell サイズをピクセルで指定している場合（例: 10）には、それを元にシェーダで使う scale を計算する
+      // 例えば: desiredCellPx = 10 の場合、シェーダ側の scale = (canvasWidthInCssPx / desiredCellPx)
+      let effectiveScale = scaleVal
+      let desiredCellPx = 0
+      if (scaleVal > 0 && scaleVal <= 200) {
+        // scaleVal を「ピクセル間隔」として扱う
+        desiredCellPx = scaleVal
+        if (lastResW > 0) {
+          effectiveScale = Math.max(1, lastResW / desiredCellPx)
+        }
+      }
 
-      // 線の太さはセル内の正規化単位で指定: thickness = linePx / cellPx
-      let thicknessVal = Math.max(0.0005, linePx / Math.max(1, cellPx))
+      // 線の太さ: 指定が 1 以上の場合は「ピクセル幅」として扱い、正規化して u_thickness に渡す
+      let thicknessNormalized = thicknessVal
+      if (thicknessVal >= 1 && desiredCellPx > 0) {
+        // シェーダ内での太さは (px / (2 * cellSizePx)) として渡す (edgeDist は半分に広がるため)
+        thicknessNormalized = thicknessVal / (2 * desiredCellPx)
+      }
 
-      if (u_scale) glCtx.uniform1f(u_scale, scaleVal)
-      if (u_amp) glCtx.uniform1f(u_amp, thicknessVal)
-      if (u_thickness) glCtx.uniform1f(u_thickness, thicknessVal)
+      if (u_scale) glCtx.uniform1f(u_scale, effectiveScale)
+      if (u_amp) glCtx.uniform1f(u_amp, thicknessNormalized)
+      if (u_thickness) glCtx.uniform1f(u_thickness, thicknessNormalized)
 
       // ゆがみパラメータの解決（dataset / CSS var / default）
       let distortVal = DEFAULT_DISTORTION
