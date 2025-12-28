@@ -180,15 +180,7 @@ export default function WavyGrid() {
           if (!isNaN(cssD) && cssD >= 0) distortVal = cssD
         }
       } catch {}
-      // distortVal が >= 1 の場合はピクセル単位で指定されたと見なし、セル幅で正規化する
-      let finalDist = distortVal
-      try {
-        // cellPx が定義されていればピクセルベースの正規化が可能
-        if (distortVal >= 1) {
-          finalDist = distortVal / Math.max(1, cellPx)
-        }
-      } catch {}
-      if (u_distort) glCtx.uniform1f(u_distort, finalDist)
+      if (u_distort) glCtx.uniform1f(u_distort, distortVal)
 
       glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
       rafRef.current = requestAnimationFrame(draw)
