@@ -77,12 +77,14 @@ export default function WavyGrid() {
     const u_amp = gl.getUniformLocation(prog, 'u_amp')
 
     function resize() {
+      const canvasEl = canvasRef.current
+      if (!canvasEl) return
       const dpr = Math.max(1, window.devicePixelRatio || 1)
-      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr))
-      const h = Math.max(1, Math.floor(canvas.clientHeight * dpr))
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w
-        canvas.height = h
+      const w = Math.max(1, Math.floor(canvasEl.clientWidth * dpr))
+      const h = Math.max(1, Math.floor(canvasEl.clientHeight * dpr))
+      if (canvasEl.width !== w || canvasEl.height !== h) {
+        canvasEl.width = w
+        canvasEl.height = h
         gl.viewport(0, 0, w, h)
       }
       if (u_res) gl.uniform2f(u_res, w / dpr, h / dpr)
@@ -90,6 +92,8 @@ export default function WavyGrid() {
 
     let start = performance.now()
     function draw() {
+      // ensure canvas still exists before drawing
+      if (!canvasRef.current) return
       resize()
       const t = (performance.now() - start) / 1000
       if (u_time) gl.uniform1f(u_time, t)
