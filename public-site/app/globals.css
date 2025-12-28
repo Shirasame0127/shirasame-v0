@@ -216,8 +216,10 @@
   animation: gridScroll 8s linear infinite;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* apply an SVG turbulence+displacement filter via inline SVG (defined in DOM) to create wavy distortion */
-  filter: url(#grid-wavy);
+  /* apply an SVG turbulence+displacement filter via data URI to create wavy distortion
+     - make the animation slower and displacement smaller to reduce CPU on mobile
+  */
+  filter: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='w'><feTurbulence type='fractalNoise' baseFrequency='0.02' numOctaves='2' seed='3'><animate attributeName='baseFrequency' dur='12s' values='0.02;0.04;0.02' repeatCount='indefinite'/></feTurbulence><feDisplacementMap in='SourceGraphic' scale='10' xChannelSelector='R' yChannelSelector='G'/></filter></svg>#w");
 }
 
 @keyframes gridScroll {
@@ -228,6 +230,22 @@
 
 @media (prefers-reduced-motion: reduce) {
   .animated-grid-bg::before { animation: none; filter: none; }
+}
+
+/* Mobile: disable expensive SVG displacement and use a cheap transform-based wobble for smoothness */
+@media (max-width: 640px) {
+  .animated-grid-bg::before {
+    filter: none !important;
+    /* keep the diagonal scroll but add a subtle transform animation which is GPU-accelerated */
+    animation: gridScroll 8s linear infinite, smoothShift 6s ease-in-out infinite;
+    transform: translate3d(0,0,0);
+  }
+
+  @keyframes smoothShift {
+    0% { transform: translate3d(0,0,0) rotate(0.01deg); }
+    50% { transform: translate3d(8px,8px,0) rotate(0.02deg); }
+    100% { transform: translate3d(0,0,0) rotate(0.01deg); }
+  }
 }
 
 /* Profile and recipe card backgrounds: force white on public pages */

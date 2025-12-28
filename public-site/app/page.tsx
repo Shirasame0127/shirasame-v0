@@ -721,15 +721,6 @@ export default function HomePage() {
 
   return (
     <div className={`min-h-screen animated-grid-bg ${isAllOverlayOpen ? 'allitems-open' : ''}`} style={appliedStyle}>
-      {/* Inline SVG filter for checkerboard displacement — improves mobile browser support */}
-      <svg aria-hidden="true" width="0" height="0" style={{ position: 'absolute' }}>
-        <defs>
-          <filter id="grid-wavy" x="-50%" y="-50%" width="200%" height="200%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="2" result="turb" />
-            <feDisplacementMap in="SourceGraphic" in2="turb" scale="18" xChannelSelector="R" yChannelSelector="G" />
-          </filter>
-        </defs>
-      </svg>
       <main className="min-h-screen pt-16 pb-20 relative">
         <PublicNav siteName={user?.displayName || ""} />
         {user && <ProfileHeader user={user as any} />}
