@@ -41,7 +41,7 @@ export default function WavyGrid() {
 
     const vs = `attribute vec2 a_pos; varying vec2 v_uv; void main(){ v_uv = a_pos * 0.5 + 0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }`;
 
-    const fs = `precision mediump float;
+    const fs = `precision highp float;
     // 日本語コメント: フラグメントシェーダーで格子線を描画し、時間で斜め移動させつつ
     // 小さな正弦波によるゆがみを加えて線をほんの少し波打たせます。
     varying vec2 v_uv;
@@ -78,7 +78,9 @@ export default function WavyGrid() {
 
       // 線の太さ
       float thickness = clamp(u_thickness, 0.0005, 0.2);
-      float line = 1.0 - smoothstep(thickness, thickness + 0.005, edgeDist);
+      // エッジスムージングを厚めにしてチカチカを抑制
+      float edgePad = max(0.01, thickness * 3.0);
+      float line = 1.0 - smoothstep(thickness, thickness + edgePad, edgeDist);
 
       // 背景・線色
       vec3 bg = vec3(0.980, 0.984, 0.992);
@@ -118,8 +120,9 @@ export default function WavyGrid() {
       const canvasEl = canvasRef.current
       if (!canvasEl) return
       const dpr = Math.max(1, window.devicePixelRatio || 1)
-      const w = Math.max(1, Math.floor(canvasEl.clientWidth * dpr))
-      const h = Math.max(1, Math.floor(canvasEl.clientHeight * dpr))
+      // 四捨五入にしてサブピクセルのジッターを抑制
+      const w = Math.max(1, Math.round(canvasEl.clientWidth * dpr))
+      const h = Math.max(1, Math.round(canvasEl.clientHeight * dpr))
       if (canvasEl.width !== w || canvasEl.height !== h) {
         canvasEl.width = w
         canvasEl.height = h
@@ -134,6 +137,8 @@ export default function WavyGrid() {
     }
 
     let start = performance.now()
+    // 前フレームのゆがみ値を保存して平滑化（チカチカ対策）
+    const prevDistortRef = { value: DEFAULT_DISTORTION }
     function draw() {
       // ensure canvas still exists before drawing
       const canvasEl = canvasRef.current
@@ -203,6 +208,16 @@ export default function WavyGrid() {
           distortVal = distortVal * DEFAULT_MOBILE_DISTORTION_MULTIPLIER
         }
       } catch {}
+
+      // JS側でゆがみを平滑化してチカチカを軽減（線が細いときの位相ノイズ対策）
+      try {
+        const prev = prevDistortRef.value || distortVal
+        // lerp: 旧値を強めに保持してノイズを抑える
+        const smoothed = prev * 0.85 + distortVal * 0.15
+        prevDistortRef.value = smoothed
+        distortVal = smoothed
+      } catch {}
+
       if (u_distort) glCtx.uniform1f(u_distort, distortVal)
 
       glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
