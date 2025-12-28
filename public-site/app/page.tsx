@@ -1007,7 +1007,7 @@ export default function HomePage() {
       )}
       
  <ProductDetailModal product={selectedProduct} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialImageUrl={selectedImageUrl ?? undefined} saleName={selectedProduct ? saleNameFor(selectedProduct.id) : null} />
-      <footer className="border-t mt-16 py-8 relative z-50">
+      <footer className="border-t mt-16 py-8 relative z-50 bg-white">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs sm:text-sm text-muted-foreground">
           <p>© 2025 {user?.displayName || "User"}. All rights reserved.</p>
           <p className="mt-2">このサイトはAmazonアソシエイトを利用しています。リンクを経由して商品が購入された場合、紹介料を受け取ることがあります。</p>
