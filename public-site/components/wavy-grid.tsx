@@ -156,15 +156,18 @@ export default function WavyGrid() {
         }
       } catch {}
 
-      // canvas の幅を使って u_scale を算出（セルあたりのピクセル数を基準に）
+      // canvas のピクセル幅（device pixels）を利用して u_scale を算出
+      // これによりローカルとデプロイでの DPI/スケーリング差を吸収します。
       let scaleVal = DEFAULT_CELL_PX // fallback numeric
       try {
-        const clientW = Math.max(1, canvasEl.clientWidth)
-        scaleVal = clientW / Math.max(1, cellPx)
+        // canvasEl.width は resize() で devicePixelRatio に基づくピクセル幅を設定済
+        const pixW = Math.max(1, canvasEl.width || Math.floor(canvasEl.clientWidth * (window.devicePixelRatio || 1)))
+        scaleVal = pixW / Math.max(1, cellPx)
       } catch {}
 
       // 線の太さはセル内の正規化単位で指定: thickness = linePx / cellPx
-      let thicknessVal = Math.max(0.0005, linePx / Math.max(1, cellPx))
+      // ただし極端に大きくならないよう上限を設定
+      let thicknessVal = Math.max(0.0005, Math.min(0.12, linePx / Math.max(1, cellPx)))
 
       if (u_scale) glCtx.uniform1f(u_scale, scaleVal)
       if (u_amp) glCtx.uniform1f(u_amp, thicknessVal)
