@@ -14,14 +14,15 @@ export default function WavyGrid() {
     if (!canvas) return
     const gl = canvas.getContext('webgl', { antialias: true })
     if (!gl) return
+    const glCtx = gl as WebGLRenderingContext
 
     // helpers
     const compile = (src: string, type: number) => {
-      const s = gl.createShader(type)!
-      gl.shaderSource(s, src)
-      gl.compileShader(s)
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        console.error(gl.getShaderInfoLog(s))
+      const s = glCtx.createShader(type)!
+      glCtx.shaderSource(s, src)
+      glCtx.compileShader(s)
+      if (!glCtx.getShaderParameter(s, glCtx.COMPILE_STATUS)) {
+        console.error(glCtx.getShaderInfoLog(s))
       }
       return s
     }
@@ -55,26 +56,26 @@ export default function WavyGrid() {
       gl_FragColor = vec4(color, 1.0);
     }`;
 
-    const vshader = compile(vs, gl.VERTEX_SHADER)
-    const fshader = compile(fs, gl.FRAGMENT_SHADER)
-    const prog = gl.createProgram()!
-    gl.attachShader(prog, vshader)
-    gl.attachShader(prog, fshader)
-    gl.linkProgram(prog)
-    gl.useProgram(prog)
+    const vshader = compile(vs, glCtx.VERTEX_SHADER)
+    const fshader = compile(fs, glCtx.FRAGMENT_SHADER)
+    const prog = glCtx.createProgram()!
+    glCtx.attachShader(prog, vshader)
+    glCtx.attachShader(prog, fshader)
+    glCtx.linkProgram(prog)
+    glCtx.useProgram(prog)
 
-    const pos = gl.getAttribLocation(prog, 'a_pos')
-    const buf = gl.createBuffer()!
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf)
+    const pos = glCtx.getAttribLocation(prog, 'a_pos')
+    const buf = glCtx.createBuffer()!
+    glCtx.bindBuffer(glCtx.ARRAY_BUFFER, buf)
     // two triangles covering clipspace
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW)
-    gl.enableVertexAttribArray(pos)
-    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0)
+    glCtx.bufferData(glCtx.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), glCtx.STATIC_DRAW)
+    glCtx.enableVertexAttribArray(pos)
+    glCtx.vertexAttribPointer(pos, 2, glCtx.FLOAT, false, 0, 0)
 
-    const u_time = gl.getUniformLocation(prog, 'u_time')
-    const u_res = gl.getUniformLocation(prog, 'u_res')
-    const u_scale = gl.getUniformLocation(prog, 'u_scale')
-    const u_amp = gl.getUniformLocation(prog, 'u_amp')
+    const u_time = glCtx.getUniformLocation(prog, 'u_time')
+    const u_res = glCtx.getUniformLocation(prog, 'u_res')
+    const u_scale = glCtx.getUniformLocation(prog, 'u_scale')
+    const u_amp = glCtx.getUniformLocation(prog, 'u_amp')
 
     function resize() {
       const canvasEl = canvasRef.current
@@ -85,9 +86,9 @@ export default function WavyGrid() {
       if (canvasEl.width !== w || canvasEl.height !== h) {
         canvasEl.width = w
         canvasEl.height = h
-        gl.viewport(0, 0, w, h)
+        glCtx.viewport(0, 0, w, h)
       }
-      if (u_res) gl.uniform2f(u_res, w / dpr, h / dpr)
+      if (u_res) glCtx.uniform2f(u_res, w / dpr, h / dpr)
     }
 
     let start = performance.now()
@@ -96,10 +97,10 @@ export default function WavyGrid() {
       if (!canvasRef.current) return
       resize()
       const t = (performance.now() - start) / 1000
-      if (u_time) gl.uniform1f(u_time, t)
-      if (u_scale) gl.uniform1f(u_scale, 6.0)
-      if (u_amp) gl.uniform1f(u_amp, 1.0)
-      gl.drawArrays(gl.TRIANGLES, 0, 6)
+      if (u_time) glCtx.uniform1f(u_time, t)
+      if (u_scale) glCtx.uniform1f(u_scale, 6.0)
+      if (u_amp) glCtx.uniform1f(u_amp, 1.0)
+      glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
       rafRef.current = requestAnimationFrame(draw)
     }
 
@@ -109,7 +110,7 @@ export default function WavyGrid() {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       try { window.removeEventListener('resize', resize) } catch {}
-      try { gl.deleteProgram(prog); gl.deleteShader(vshader); gl.deleteShader(fshader); } catch {}
+      try { glCtx.deleteProgram(prog); glCtx.deleteShader(vshader); glCtx.deleteShader(fshader); } catch {}
     }
   }, [])
 
