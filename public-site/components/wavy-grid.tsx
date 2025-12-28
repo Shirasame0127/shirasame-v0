@@ -12,10 +12,11 @@ export default function WavyGrid() {
   // - dataset: <canvas data-wavy-scale="4" data-wavy-thickness="0.003" data-wavy-distortion="0.02">
   // - CSS変数: :root { --wavy-scale: 4; --wavy-thickness: 0.003; --wavy-distortion: 0.02 }
   // デフォルトは「小さめ・細めの格子」に設定（ユーザー要望に合わせて1/5に縮小済）
-  const DEFAULT_U_SCALE = 4.0
+  // デフォルトのセル間隔（ピクセル換算で扱われることが多い）
+  // 以前は小さめだったため、ここを大きめにして間隔を広げる
+  const DEFAULT_U_SCALE = 16.0
   const DEFAULT_THICKNESS = 0.003
   const DEFAULT_DISTORTION = 0.02 // 線がゆがむ強さ（小さめ）
-  const DEFAULT_MOBILE_DISTORTION_MULTIPLIER = 6.0 // モバイルでは歪みを強める倍率（必要に応じて調整）
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -41,7 +42,7 @@ export default function WavyGrid() {
 
     const vs = `attribute vec2 a_pos; varying vec2 v_uv; void main(){ v_uv = a_pos * 0.5 + 0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }`;
 
-    const fs = `precision highp float;
+    const fs = `precision mediump float;
     // 日本語コメント: フラグメントシェーダーで格子線を描画し、時間で斜め移動させつつ
     // 小さな正弦波によるゆがみを加えて線をほんの少し波打たせます。
     varying vec2 v_uv;
@@ -65,9 +66,8 @@ export default function WavyGrid() {
       vec2 q = uv * s + vec2(t, t * 0.6);
 
       // 小さなゆがみ（正弦波）を加える: x/y方向に別周波数で重畳
-      // 周波数を下げて高周波ノイズを削減（チカチカの原因を減らす）
-      float a = sin((uv.x + uv.y) * 3.1415 + t) * 0.45;
-      float b = cos((uv.x * 1.4 - uv.y * 1.1) * 3.1415 + t * 0.9) * 0.45;
+      float a = sin((uv.x + uv.y) * 6.2831 + t) * 0.5;
+      float b = cos((uv.x * 1.7 - uv.y * 1.3) * 6.2831 + t * 1.2) * 0.5;
       vec2 disp = vec2(a, b) * u_distort;
       q += disp;
 
@@ -79,10 +79,7 @@ export default function WavyGrid() {
 
       // 線の太さ
       float thickness = clamp(u_thickness, 0.0005, 0.2);
-      // エッジスムージングを厚めにしてチカチカを抑制
-      // エッジスムージングを広めに設定して、細線のちらつきを軽減
-      float edgePad = max(0.01, thickness * 4.0);
-      float line = 1.0 - smoothstep(thickness, thickness + edgePad, edgeDist);
+      float line = 1.0 - smoothstep(thickness, thickness + 0.005, edgeDist);
 
       // 背景・線色
       vec3 bg = vec3(0.980, 0.984, 0.992);
@@ -122,9 +119,8 @@ export default function WavyGrid() {
       const canvasEl = canvasRef.current
       if (!canvasEl) return
       const dpr = Math.max(1, window.devicePixelRatio || 1)
-      // 四捨五入にしてサブピクセルのジッターを抑制
-      const w = Math.max(1, Math.round(canvasEl.clientWidth * dpr))
-      const h = Math.max(1, Math.round(canvasEl.clientHeight * dpr))
+      const w = Math.max(1, Math.floor(canvasEl.clientWidth * dpr))
+      const h = Math.max(1, Math.floor(canvasEl.clientHeight * dpr))
       if (canvasEl.width !== w || canvasEl.height !== h) {
         canvasEl.width = w
         canvasEl.height = h
@@ -139,8 +135,6 @@ export default function WavyGrid() {
     }
 
     let start = performance.now()
-    // 前フレームのゆがみ値を保存して平滑化（チカチカ対策）
-    const prevDistortRef = { value: DEFAULT_DISTORTION }
     function draw() {
       // ensure canvas still exists before drawing
       const canvasEl = canvasRef.current
@@ -187,9 +181,6 @@ export default function WavyGrid() {
       if (thicknessVal >= 1 && desiredCellPx > 0) {
         // シェーダ内での太さは (px / (2 * cellSizePx)) として渡す (edgeDist は半分に広がるため)
         thicknessNormalized = thicknessVal / (2 * desiredCellPx)
-        // 最低1ピクセル幅に満たない場合は最小値を保証
-        const minNorm = 1 / (2 * desiredCellPx)
-        if (thicknessNormalized < minNorm) thicknessNormalized = minNorm
       }
 
       if (u_scale) glCtx.uniform1f(u_scale, effectiveScale)
@@ -206,33 +197,6 @@ export default function WavyGrid() {
           if (!isNaN(cssD) && cssD >= 0) distortVal = cssD
         }
       } catch {}
-      // モバイル判定: 画面幅が 640px 未満ならモバイル扱い
-      let isMobile = false
-      try {
-        isMobile = (typeof window !== 'undefined') && window.innerWidth < 640
-        if (isMobile) {
-          distortVal = distortVal * DEFAULT_MOBILE_DISTORTION_MULTIPLIER
-        }
-      } catch {}
-
-      // JS側でゆがみを平滑化してチカチカを軽減（線が細いときの位相ノイズ対策）
-      try {
-        const prev = prevDistortRef.value || distortVal
-        // モバイルならより強く平滑化（チカチカ抑制）
-        const alpha = isMobile ? 0.95 : 0.85
-        const smoothed = prev * alpha + distortVal * (1 - alpha)
-        prevDistortRef.value = smoothed
-        distortVal = smoothed
-      } catch {}
-
-      // モバイル時は時間スケールを遅くして高速ノイズを抑える
-      try {
-        if (u_time) {
-          const timeScale = isMobile ? 0.55 : 1.0
-          glCtx.uniform1f(u_time, t * timeScale)
-        }
-      } catch {}
-
       if (u_distort) glCtx.uniform1f(u_distort, distortVal)
 
       glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
