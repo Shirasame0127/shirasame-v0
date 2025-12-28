@@ -78,6 +78,7 @@ export default function WavyGrid() {
     const u_res = glCtx.getUniformLocation(prog, 'u_res')
     const u_scale = glCtx.getUniformLocation(prog, 'u_scale')
     const u_amp = glCtx.getUniformLocation(prog, 'u_amp')
+    const u_thickness = glCtx.getUniformLocation(prog, 'u_thickness')
 
     function resize() {
       const canvasEl = canvasRef.current
@@ -100,12 +101,12 @@ export default function WavyGrid() {
       resize()
       const t = (performance.now() - start) / 1000
       if (u_time) glCtx.uniform1f(u_time, t)
-      if (u_scale) glCtx.uniform1f(u_scale, 10.0)
-      // use u_amp as thickness fallback if u_thickness uniform exists
-      const thickness = 0.035
+      // increase scale to make grid cells smaller
+      if (u_scale) glCtx.uniform1f(u_scale, 20.0)
+      // set a thinner line thickness
+      const thickness = 0.015
       if (u_amp) glCtx.uniform1f(u_amp, thickness)
-      // also set u_thickness if available
-      try { const loc = glCtx.getUniformLocation(prog, 'u_thickness'); if (loc) glCtx.uniform1f(loc, thickness) } catch {}
+      if (u_thickness) glCtx.uniform1f(u_thickness, thickness)
       glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
       rafRef.current = requestAnimationFrame(draw)
     }
