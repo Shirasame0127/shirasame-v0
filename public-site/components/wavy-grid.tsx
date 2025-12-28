@@ -15,7 +15,8 @@ export default function WavyGrid() {
   // デフォルト: セル間隔 = 10px、線の太さ = 3px（ユーザー要望）
   const DEFAULT_CELL_PX = 10
   const DEFAULT_LINE_PX = 3
-  const DEFAULT_DISTORTION = 0.02 // 線がゆがむ強さ（小さめ）
+  // デフォルトのゆがみ量はピクセル単位で指定します（後でセル幅で正規化して u_distort に設定）
+  const DEFAULT_DISTORTION_PX = 1.0 // 既定で1pxのゆがみ
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -67,8 +68,7 @@ export default function WavyGrid() {
       // 小さなゆがみ（正弦波）を加える: x/y方向に別周波数で重畳
       float a = sin((uv.x + uv.y) * 6.2831 + t) * 0.5;
       float b = cos((uv.x * 1.7 - uv.y * 1.3) * 6.2831 + t * 1.2) * 0.5;
-      // X方向の符号を反転してデプロイ側の向きに合わせる
-      vec2 disp = vec2(-a, b) * u_distort;
+      vec2 disp = vec2(a, b) * u_distort;
       q += disp;
 
       // 格子セル内の位置を取り出す
@@ -123,9 +123,7 @@ export default function WavyGrid() {
         canvasEl.height = h
         glCtx.viewport(0, 0, w, h)
       }
-      // u_res を CSS ピクセル（clientWidth/clientHeight）で設定する
-      // これによりデバイス間の DPR 差でシェーダー挙動が変わる問題を軽減します。
-      if (u_res) glCtx.uniform2f(u_res, canvasEl.clientWidth, canvasEl.clientHeight)
+      if (u_res) glCtx.uniform2f(u_res, w / dpr, h / dpr)
     }
 
     let start = performance.now()
@@ -159,33 +157,35 @@ export default function WavyGrid() {
         }
       } catch {}
 
-      // canvas のピクセル幅（device pixels）を利用して u_scale を算出
-      // これによりローカルとデプロイでの DPI/スケーリング差を吸収します。
+      // canvas の幅を使って u_scale を算出（セルあたりのピクセル数を基準に）
       let scaleVal = DEFAULT_CELL_PX // fallback numeric
       try {
-        // canvasEl.width は resize() で devicePixelRatio に基づくピクセル幅を設定済
-        const pixW = Math.max(1, canvasEl.width || Math.floor(canvasEl.clientWidth * (window.devicePixelRatio || 1)))
-        scaleVal = pixW / Math.max(1, cellPx)
+        const clientW = Math.max(1, canvasEl.clientWidth)
+        scaleVal = clientW / Math.max(1, cellPx)
       } catch {}
 
       // 線の太さはセル内の正規化単位で指定: thickness = linePx / cellPx
-      // ただし極端に大きくならないよう上限を設定
-      let thicknessVal = Math.max(0.0005, Math.min(0.12, linePx / Math.max(1, cellPx)))
+      let thicknessVal = Math.max(0.0005, linePx / Math.max(1, cellPx))
 
       if (u_scale) glCtx.uniform1f(u_scale, scaleVal)
       if (u_amp) glCtx.uniform1f(u_amp, thicknessVal)
       if (u_thickness) glCtx.uniform1f(u_thickness, thicknessVal)
 
       // ゆがみパラメータの解決（dataset / CSS var / default）
-      let distortVal = DEFAULT_DISTORTION
+      // ユーザーが指定する値はピクセル単位で扱うのが分かりやすいため、
+      // data-wavy-distortion / --wavy-distortion-px は "px" 相当の値を受け取り、
+      // シェーダの u_distort にはセル幅で正規化した値を渡します。
+      let distortPx = DEFAULT_DISTORTION_PX
       try {
         const ds = canvasEl.dataset
-        if (ds && ds.wavyDistortion) distortVal = parseFloat(ds.wavyDistortion) || distortVal
+        if (ds && ds.wavyDistortion) distortPx = parseFloat(ds.wavyDistortion) || distortPx
         else {
-          const cssD = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-distortion') || '')
-          if (!isNaN(cssD) && cssD >= 0) distortVal = cssD
+          const cssD = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-distortion-px') || '')
+          if (!isNaN(cssD) && cssD >= 0) distortPx = cssD
         }
       } catch {}
+      // 正規化: シェーダ内での単位に合わせるため、ピクセル値をセル幅で割る
+      const distortVal = distortPx / Math.max(1, cellPx)
       if (u_distort) glCtx.uniform1f(u_distort, distortVal)
 
       glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
