@@ -1,0 +1,1 @@
+Placeholder favicon text — renamed to avoid conflict with app route. Replace with real .ico binary if needed.
