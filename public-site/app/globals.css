@@ -216,8 +216,8 @@
   animation: gridScroll 8s linear infinite;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* apply an SVG turbulence+displacement filter via data URI to create wavy distortion */
-  filter: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='w'><feTurbulence type='fractalNoise' baseFrequency='0.02' numOctaves='2' seed='3'><animate attributeName='baseFrequency' dur='8s' values='0.02;0.06;0.02' repeatCount='indefinite'/></feTurbulence><feDisplacementMap in='SourceGraphic' scale='18' xChannelSelector='R' yChannelSelector='G'/></filter></svg>#w");
+  /* apply an SVG turbulence+displacement filter via inline SVG (defined in DOM) to create wavy distortion */
+  filter: url(#grid-wavy);
 }
 
 @keyframes gridScroll {
