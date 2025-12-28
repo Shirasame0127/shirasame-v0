@@ -3,7 +3,7 @@
 
 :root {
   --background: oklch(0.99 0.002 264);
-  --foreground: oklch(0.15 0.01 264);
+  --foreground: oklch(33.265% 0.0038 264.586);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.15 0.01 264);
   --popover: oklch(1 0 0);
@@ -100,10 +100,7 @@
 [style*="color:rgb(0,0,0)"],
 [style*="color: rgba(0, 0, 0"],
 [style*="color: rgba(0,0,0"],
-[style*="color: rgba(0,0,0)"] {
-  color: #2b2b2b !important;
-}
-
+[style*="color: rgba(0,0,0)"] 
 /* Console/build-time artifacts sometimes inject #000000 in inline CSS; target common patterns */
 [style*="#000000"] { color: #2b2b2b !important; }
 
@@ -195,4 +192,61 @@
   display: block !important;
   z-index: 60;
 }
+
+/* Animated checkerboard background for public pages (stronger + single-direction scroll) */
+.animated-grid-bg {
+  position: relative;
+  overflow: hidden;
+}
+
+/* draw the checkerboard in a ::before layer so we can apply an SVG displacement filter */
+.animated-grid-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--background);
+  background-image:
+    linear-gradient(90deg, rgba(0,0,0,0.06) 0 2px, transparent 2px 100%),
+    linear-gradient(rgba(0,0,0,0.06) 0 2px, transparent 2px 100%);
+  background-size: 42px 42px;
+  background-position: 0 0, 21px 21px;
+  /* move grid slowly to the right */
+  animation: gridScroll 8s linear infinite;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* apply an SVG turbulence+displacement filter via data URI to create wavy distortion */
+  filter: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='w'><feTurbulence type='fractalNoise' baseFrequency='0.02' numOctaves='2' seed='3'><animate attributeName='baseFrequency' dur='8s' values='0.02;0.06;0.02' repeatCount='indefinite'/></feTurbulence><feDisplacementMap in='SourceGraphic' scale='18' xChannelSelector='R' yChannelSelector='G'/></filter></svg>#w");
+}
+
+@keyframes gridScroll {
+  from { background-position: 0 0, 21px 21px; }
+  /* move both layers diagonally down-right */
+  to   { background-position: 84px 84px, 105px 105px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-grid-bg::before { animation: none; filter: none; }
+}
+
+/* Profile and recipe card backgrounds: force white on public pages */
+.profile-card, .bg-card {
+  background-color: #ffffff !important;
+  /* ensure readable text */
+  color: var(--card-foreground) !important;
+}
+
+/* If specific recipe card component uses a different class name, cover common patterns */
+.recipe-card, .RecipeCard, [class*="recipe"] { background-color: #ffffff !important; }
+
+/* Gallery display toggle (pill) — make background white for better contrast */
+.max-w-7xl .inline-flex.items-center.bg-muted.p-1.rounded-full.shadow-sm,
+.gallery-toggle {
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06) !important;
+}
+
+/* Ensure the sliding indicator remains visible on white background */
+.gallery-toggle .absolute { background-clip: padding-box; }
 

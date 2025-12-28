@@ -261,15 +261,16 @@ export default function InitialLoading() {
     <style>{`
       /* vertical lines (sparkles removed) */
       .shika-lines { position: absolute; inset: 0; pointer-events: none; z-index: 20; }
-      .shika-line { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.9); opacity: 0.9; }
-      /* left positions */
-      .shika-line.left-0 { left: 6%; }
-      .shika-line.left-1 { left: 10%; }
-      .shika-line.left-2 { left: 14%; }
-      /* right positions */
-      .shika-line.right-0 { right: 6%; }
-      .shika-line.right-1 { right: 10%; }
-      .shika-line.right-2 { right: 14%; }
+      /* double thickness (increased from 2px -> 4px) */
+      .shika-line { position: absolute; top: 0; bottom: 0; width: 3px; background: rgba(255,255,255,0.95); opacity: 0.95; }
+      /* left positions: moved outward and evenly spaced */
+      .shika-line.left-0 { left: 2%; }
+      .shika-line.left-1 { left: 5%; }
+      .shika-line.left-2 { left: 8%; }
+      /* right positions: moved outward and evenly spaced */
+      .shika-line.right-0 { right: 2%; }
+      .shika-line.right-1 { right: 5%; }
+      .shika-line.right-2 { right: 8%; }
     `}</style>
   )
 
