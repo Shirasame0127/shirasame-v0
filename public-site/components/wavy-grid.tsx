@@ -15,6 +15,7 @@ export default function WavyGrid() {
   const DEFAULT_U_SCALE = 4.0
   const DEFAULT_THICKNESS = 0.003
   const DEFAULT_DISTORTION = 0.02 // 線がゆがむ強さ（小さめ）
+  const DEFAULT_MOBILE_DISTORTION_MULTIPLIER = 6.0 // モバイルでは歪みを強める倍率（必要に応じて調整）
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -193,6 +194,13 @@ export default function WavyGrid() {
         else {
           const cssD = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-distortion') || '')
           if (!isNaN(cssD) && cssD >= 0) distortVal = cssD
+        }
+      } catch {}
+      // モバイル判定: 画面幅が 640px 未満ならモバイル扱い
+      try {
+        const isMobile = (typeof window !== 'undefined') && window.innerWidth < 640
+        if (isMobile) {
+          distortVal = distortVal * DEFAULT_MOBILE_DISTORTION_MULTIPLIER
         }
       } catch {}
       if (u_distort) glCtx.uniform1f(u_distort, distortVal)
