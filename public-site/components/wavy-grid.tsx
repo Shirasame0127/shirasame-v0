@@ -6,6 +6,15 @@ export default function WavyGrid() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rafRef = useRef<number | null>(null)
 
+  // --- Adjustable parameters (edit here or via canvas dataset / CSS vars) ---
+  // Overview:
+  // - You can edit these defaults directly in this file.
+  // - Or set data attributes on the canvas element: `data-wavy-scale="10"` / `data-wavy-thickness="0.02"`
+  // - Or define CSS custom properties on :root: `--wavy-scale` and `--wavy-thickness`.
+  const DEFAULT_U_SCALE = 4.0 // one-fifth of previous 20.0
+  const DEFAULT_THICKNESS = 0.003 // one-fifth of previous 0.015
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (window.innerWidth >= 640) return // only enable on mobile
@@ -97,16 +106,37 @@ export default function WavyGrid() {
     let start = performance.now()
     function draw() {
       // ensure canvas still exists before drawing
-      if (!canvasRef.current) return
+      const canvasEl = canvasRef.current
+      if (!canvasEl) return
       resize()
       const t = (performance.now() - start) / 1000
       if (u_time) glCtx.uniform1f(u_time, t)
-      // increase scale to make grid cells smaller
-      if (u_scale) glCtx.uniform1f(u_scale, 20.0)
-      // set a thinner line thickness
-      const thickness = 0.015
-      if (u_amp) glCtx.uniform1f(u_amp, thickness)
-      if (u_thickness) glCtx.uniform1f(u_thickness, thickness)
+
+      // Resolve user-overridable values (dataset -> CSS var -> default)
+      let scaleVal = DEFAULT_U_SCALE
+      try {
+        const ds = canvasEl.dataset
+        if (ds && ds.wavyScale) scaleVal = parseFloat(ds.wavyScale) || scaleVal
+        else {
+          const cssScale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-scale') || '')
+          if (!isNaN(cssScale) && cssScale > 0) scaleVal = cssScale
+        }
+      } catch {}
+
+      let thicknessVal = DEFAULT_THICKNESS
+      try {
+        const ds = canvasEl.dataset
+        if (ds && ds.wavyThickness) thicknessVal = parseFloat(ds.wavyThickness) || thicknessVal
+        else {
+          const cssTh = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-thickness') || '')
+          if (!isNaN(cssTh) && cssTh > 0) thicknessVal = cssTh
+        }
+      } catch {}
+
+      if (u_scale) glCtx.uniform1f(u_scale, scaleVal)
+      if (u_amp) glCtx.uniform1f(u_amp, thicknessVal)
+      if (u_thickness) glCtx.uniform1f(u_thickness, thicknessVal)
+
       glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
       rafRef.current = requestAnimationFrame(draw)
     }
