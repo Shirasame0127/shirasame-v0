@@ -171,36 +171,24 @@ export default function WavyGrid() {
       if (u_thickness) glCtx.uniform1f(u_thickness, thicknessVal)
 
       // ゆがみパラメータの解決（dataset / CSS var / default）
-      // NOTE: 入力値が "ピクセル単位" で与えられている可能性があるため
-      //       値が >= 1 の場合は cellPx で割って正規化します（例: 2px -> 2 / cellPx）。
       let distortVal = DEFAULT_DISTORTION
       try {
         const ds = canvasEl.dataset
-        let raw = undefined as number | undefined
-        if (ds && ds.wavyDistortion) raw = parseFloat(ds.wavyDistortion) || undefined
+        if (ds && ds.wavyDistortion) distortVal = parseFloat(ds.wavyDistortion) || distortVal
         else {
           const cssD = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-distortion') || '')
-          if (!isNaN(cssD)) raw = cssD
+          if (!isNaN(cssD) && cssD >= 0) distortVal = cssD
         }
-        if (typeof raw === 'number' && !isNaN(raw)) distortVal = raw
       } catch {}
-
-      // raw がピクセル指定（>=1）だった場合はセル幅で正規化
+      // distortVal が >= 1 の場合はピクセル単位で指定されたと見なし、セル幅で正規化する
+      let finalDist = distortVal
       try {
+        // cellPx が定義されていればピクセルベースの正規化が可能
         if (distortVal >= 1) {
-          // cellPx に基づいて比率に変換
-          const ds = canvasEl.dataset
-          let cellPxLocal = DEFAULT_CELL_PX
-          if (ds && ds.wavyCellsize) cellPxLocal = parseFloat(ds.wavyCellsize) || cellPxLocal
-          else {
-            const cssCell = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-cellsize') || '')
-            if (!isNaN(cssCell) && cssCell > 0) cellPxLocal = cssCell
-          }
-          if (cellPxLocal > 0) distortVal = distortVal / cellPxLocal
+          finalDist = distortVal / Math.max(1, cellPx)
         }
       } catch {}
-
-      if (u_distort) glCtx.uniform1f(u_distort, distortVal)
+      if (u_distort) glCtx.uniform1f(u_distort, finalDist)
 
       glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
       rafRef.current = requestAnimationFrame(draw)
