@@ -12,16 +12,15 @@ export default function WavyGrid() {
   // - dataset: <canvas data-wavy-scale="4" data-wavy-thickness="0.003" data-wavy-distortion="0.02">
   // - CSS変数: :root { --wavy-scale: 4; --wavy-thickness: 0.003; --wavy-distortion: 0.02 }
   // デフォルトは「小さめ・細めの格子」に設定（ユーザー要望に合わせて1/5に縮小済）
-  // デフォルトのセル間隔（ピクセル換算で扱われることが多い）
-  // 以前は小さめだったため、ここを大きめにして間隔を広げる
-  const DEFAULT_U_SCALE = 16.0
+  const DEFAULT_U_SCALE = 4.0
   const DEFAULT_THICKNESS = 0.003
   const DEFAULT_DISTORTION = 0.02 // 線がゆがむ強さ（小さめ）
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    if (window.innerWidth >= 640) return // only enable on mobile
+    // モバイル（幅 < 640px）のみ有効にする
+    if (window.innerWidth >= 640) return
 
     const canvas = canvasRef.current
     if (!canvas) return
@@ -69,7 +68,7 @@ export default function WavyGrid() {
       float a = sin((uv.x + uv.y) * 6.2831 + t) * 0.5;
       float b = cos((uv.x * 1.7 - uv.y * 1.3) * 6.2831 + t * 1.2) * 0.5;
       vec2 disp = vec2(a, b) * u_distort;
-      q += disp;
+      q += disp / s;
 
       // 格子セル内の位置を取り出す
       vec2 fq = fract(q);
@@ -166,38 +165,42 @@ export default function WavyGrid() {
 
       // cell サイズをピクセルで指定している場合（例: 10）には、それを元にシェーダで使う scale を計算する
       // 例えば: desiredCellPx = 10 の場合、シェーダ側の scale = (canvasWidthInCssPx / desiredCellPx)
-      let effectiveScale = scaleVal
-      let desiredCellPx = 0
-      if (scaleVal > 0 && scaleVal <= 200) {
-        // scaleVal を「ピクセル間隔」として扱う
-        desiredCellPx = scaleVal
-        if (lastResW > 0) {
-          effectiveScale = Math.max(1, lastResW / desiredCellPx)
-        }
-      }
+      // ===== セル間隔・線幅を px 基準で固定 =====
+        const CELL_PX = 10        // ← 格子間隔（px）
+        const LINE_PX = 3         // ← 線の太さ（px）
 
-      // 線の太さ: 指定が 1 以上の場合は「ピクセル幅」として扱い、正規化して u_thickness に渡す
-      let thicknessNormalized = thicknessVal
-      if (thicknessVal >= 1 && desiredCellPx > 0) {
-        // シェーダ内での太さは (px / (2 * cellSizePx)) として渡す (edgeDist は半分に広がるため)
-        thicknessNormalized = thicknessVal / (2 * desiredCellPx)
-      }
+        // canvas の CSS px 幅から scale を計算
+        const effectiveScale =
+        lastResW > 0 ? lastResW / CELL_PX : DEFAULT_U_SCALE
+
+        // thickness はセルサイズ比
+        const thicknessNormalized = LINE_PX / CELL_PX
+
+
 
       if (u_scale) glCtx.uniform1f(u_scale, effectiveScale)
       if (u_amp) glCtx.uniform1f(u_amp, thicknessNormalized)
       if (u_thickness) glCtx.uniform1f(u_thickness, thicknessNormalized)
 
       // ゆがみパラメータの解決（dataset / CSS var / default）
-      let distortVal = DEFAULT_DISTORTION
-      try {
+        let distortVal = DEFAULT_DISTORTION
+        try {
         const ds = canvasEl.dataset
         if (ds && ds.wavyDistortion) distortVal = parseFloat(ds.wavyDistortion) || distortVal
         else {
-          const cssD = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-distortion') || '')
-          if (!isNaN(cssD) && cssD >= 0) distortVal = cssD
+            const cssD = parseFloat(
+            getComputedStyle(document.documentElement).getPropertyValue('--wavy-distortion') || ''
+            )
+            if (!isNaN(cssD) && cssD >= 0) distortVal = cssD
         }
-      } catch {}
-      if (u_distort) glCtx.uniform1f(u_distort, distortVal)
+        } catch {}
+
+        // ★ 追加：DPR 補正（これが本質）
+        const dpr = Math.max(1, window.devicePixelRatio || 1)
+        distortVal *= dpr
+
+        if (u_distort) glCtx.uniform1f(u_distort, distortVal)
+
 
       glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
       rafRef.current = requestAnimationFrame(draw)
