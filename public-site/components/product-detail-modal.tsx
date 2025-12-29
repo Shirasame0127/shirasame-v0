@@ -101,7 +101,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
   const rightContentClassName = useVerticalLayout ? 'flex-1 pt-4 pb-6 px-6 space-y-4 text-left [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2 overflow-auto' : 'flex-1 pt-4 pb-6 px-6 space-y-4 text-left sm:overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-80 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-in fade-in-0" onClick={onClose} />
 
       <div className={modalClassName} style={!useVerticalLayout && modalMinHeight ? { minHeight: `${modalMinHeight}px` } : undefined}>
