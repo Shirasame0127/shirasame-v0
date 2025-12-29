@@ -14,14 +14,12 @@ export default function WavyGrid() {
   // デフォルトは「小さめ・細めの格子」に設定（ユーザー要望に合わせて1/5に縮小済）
   const DEFAULT_U_SCALE = 4.0
   const DEFAULT_THICKNESS = 0.003
-  // ゆがみのデフォルトはピクセル単位で指定（mobile で視認しやすい値に調整）
-  const DEFAULT_DISTORTION = 1.5 // ゆがみの強さ（px）
+  const DEFAULT_DISTORTION = 0.02 // 線がゆがむ強さ（小さめ）
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    // モバイル（幅 < 640px）のみ有効にする
-    if (window.innerWidth >= 640) return
+    if (window.innerWidth >= 0) return // only enable on mobile
 
     const canvas = canvasRef.current
     if (!canvas) return
@@ -42,7 +40,7 @@ export default function WavyGrid() {
 
     const vs = `attribute vec2 a_pos; varying vec2 v_uv; void main(){ v_uv = a_pos * 0.5 + 0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }`;
 
-    const fs = `precision highp float;
+    const fs = `precision mediump float;
     // 日本語コメント: フラグメントシェーダーで格子線を描画し、時間で斜め移動させつつ
     // 小さな正弦波によるゆがみを加えて線をほんの少し波打たせます。
     varying vec2 v_uv;
@@ -68,12 +66,8 @@ export default function WavyGrid() {
       // 小さなゆがみ（正弦波）を加える: x/y方向に別周波数で重畳
       float a = sin((uv.x + uv.y) * 6.2831 + t) * 0.5;
       float b = cos((uv.x * 1.7 - uv.y * 1.3) * 6.2831 + t * 1.2) * 0.5;
-      // disp はピクセル単位のゆがみ量（u_distort）を想定しているので
-      // シェーダ内でセル単位に変換して加算する。
-      // cell_px = u_res.x / u_scale なので、disp_in_cells = disp_px * u_scale / u_res.x
-      vec2 disp = vec2(a, b);
-      vec2 disp_cells = disp * (u_distort * u_scale / max(1.0, u_res.x));
-      q += disp_cells;
+      vec2 disp = vec2(a, b) * u_distort;
+      q += disp / s;
 
       // 格子セル内の位置を取り出す
       vec2 fq = fract(q);
@@ -172,7 +166,7 @@ export default function WavyGrid() {
       // 例えば: desiredCellPx = 10 の場合、シェーダ側の scale = (canvasWidthInCssPx / desiredCellPx)
       // ===== セル間隔・線幅を px 基準で固定 =====
         const CELL_PX = 10        // ← 格子間隔（px）
-        const LINE_PX = 1         // ← 線の太さ（px）
+        const LINE_PX = 3         // ← 線の太さ（px）
 
         // canvas の CSS px 幅から scale を計算
         const effectiveScale =
