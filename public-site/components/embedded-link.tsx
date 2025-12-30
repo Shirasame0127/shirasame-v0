@@ -179,15 +179,6 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
     </div>
   )
 
-  const ExternalLinkButton = ({ href, label }: { href: string; label?: string }) => (
-    <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
-      <a href={href} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-        <ExternalLink className="w-3 h-3" />
-        <span className="truncate">{label || href}</span>
-      </a>
-    </Button>
-  )
-
   if (type === 'youtube') {
     const videoId = extractYouTubeId(url)
     if (videoId) {
@@ -217,7 +208,10 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
         <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
           <blockquote className="tiktok-embed" cite={url} data-video-id={tiktokId}>
             <section className="text-left">
-              <a href={url} className="inline-block">TikTokで見る</a>
+              <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 w-full justify-start text-xs">
+                <ExternalLink className="w-3 h-3" />
+                <span className="truncate">TikTokで見る</span>
+              </a>
             </section>
           </blockquote>
         </div>
@@ -255,11 +249,19 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
         )
       }
     }
+  }
 
   if (type === 'twitter') {
-      if (tweetId) {
+    if (tweetId) {
       if (embedFailed) {
-        return <ExternalLinkButton href={url} label="ツイートを見る" />
+        return (
+          <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+              <ExternalLink className="w-3 h-3" />
+              <span className="truncate">ツイートを見る</span>
+            </a>
+          </Button>
+        )
       }
       return (
         <div className="flex justify-center">
@@ -282,7 +284,14 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
     }
   }
 
-  return <ExternalLinkButton href={url} label={url} />
+  return (
+    <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
+      <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+        <ExternalLink className="w-3 h-3" />
+        <span className="truncate">{url}</span>
+      </a>
+    </Button>
+  )
 }
 
 export default EmbeddedLink
