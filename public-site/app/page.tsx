@@ -729,10 +729,10 @@ export default function HomePage() {
 
         <div className={`max-w-7xl mx-auto px-4 pt-8 ${isAllOverlayOpen ? 'all-items-overlay' : ''}`}>
           <div className="mb-8 flex justify-center">
-            <div className="relative inline-flex items-center bg-muted p-1 rounded-full shadow-md gallery-toggle" style={{ width: 280 }}>
-              <div className={`absolute inset-1 w-1/2 rounded-full transition-transform duration-300 ease-in-out ${displayMode === 'gallery' ? 'translate-x-full' : 'translate-x-0'} bg-sky-300 shadow-lg`} aria-hidden />
-              <button onClick={() => changeDisplayMode('normal')} aria-pressed={displayMode === 'normal'} className={`relative z-10 flex-1 h-8 flex items-center justify-center text-sm font-semibold px-4 rounded-full ${displayMode === 'normal' ? 'text-white shadow-md' : 'text-foreground/70'}`}>Normal</button>
-              <button onClick={() => changeDisplayMode('gallery')} aria-pressed={displayMode === 'gallery'} className={`relative z-10 flex-1 h-8 flex items-center justify-center text-sm font-semibold px-4 rounded-full ${displayMode === 'gallery' ? 'text-white shadow-md' : 'text-foreground/70'}`}>Gallery</button>
+            <div className="relative inline-flex items-center rounded-full shadow-sm border-2 border-sky-400 bg-white gallery-toggle" style={{ width: 280, padding: '4px' }}>
+              <div className={`absolute inset-1 w-1/2 rounded-full transition-transform duration-300 ease-in-out ${displayMode === 'gallery' ? 'translate-x-full' : 'translate-x-0'} bg-sky-300 shadow-sm`} aria-hidden />
+              <button onClick={() => changeDisplayMode('normal')} aria-pressed={displayMode === 'normal'} className={`relative z-10 flex-1 h-10 flex items-center justify-center text-base font-semibold px-4 rounded-full transition-colors ${displayMode === 'normal' ? 'text-white shadow-md' : 'text-sky-600'}`}>Normal</button>
+              <button onClick={() => changeDisplayMode('gallery')} aria-pressed={displayMode === 'gallery'} className={`relative z-10 flex-1 h-10 flex items-center justify-center text-base font-semibold px-4 rounded-full transition-colors ${displayMode === 'gallery' ? 'text-white shadow-md' : 'text-sky-600'}`}>Gallery</button>
             </div>
           </div>
 
@@ -855,9 +855,9 @@ export default function HomePage() {
                     })()}
                   </div>
                   <div className="mt-4 flex justify-center">
-                    <Button onClick={() => setIsAllOverlayOpen(true)} className="w-44 rounded-full border-2 border-sky-400 bg-white text-sky-600 relative px-4 py-2 shadow-sm hover:bg-sky-50">
+                    <Button onClick={() => setIsAllOverlayOpen(true)} className="w-50 rounded-full border-2 border-sky-400 bg-white text-sky-600 relative mt-3 px-4 py-5 shadow-sm hover:bg-sky-50">
                       <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <span className="text-sm font-medium">続きを表示</span>
+                        <span style={{ fontSize: '1.2em' }} className="font-medium">続きを表示</span>
                       </span>
                       <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 absolute right-3 top-1/2 transform -translate-y-1/2 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
