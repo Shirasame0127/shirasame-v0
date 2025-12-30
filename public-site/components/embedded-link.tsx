@@ -255,7 +255,7 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
     if (tweetId) {
       if (embedFailed) {
         return (
-          <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full text-sm'}`}>
+          <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full text-sm rounded-full'}`}>
             <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 justify-between w-full">
               <span className="truncate">ツイートを見る</span>
               <ExternalLink className="w-3 h-3 text-white" />
@@ -285,7 +285,7 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
   }
 
     return (
-      <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full text-sm'}`}>
+      <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full text-sm rounded-full'}`}>
         <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 justify-between w-full">
           <span className="truncate text-left">{url}</span>
           <ExternalLink className="w-3 h-3 text-white" />
