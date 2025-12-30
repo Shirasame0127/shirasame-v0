@@ -1028,7 +1028,9 @@ export default function HomePage() {
         </footer>
       )}
 
-      
+      {/* ページ最下部で下方向に白くかすませるオーバーレイ（視覚効果のみ） */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-b from-transparent to-white z-40" />
+
     </div>
   )
 }
