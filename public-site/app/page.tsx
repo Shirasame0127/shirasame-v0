@@ -855,9 +855,11 @@ export default function HomePage() {
                     })()}
                   </div>
                   <div className="mt-4 flex justify-center">
-                    <Button onClick={() => setIsAllOverlayOpen(true)} className="w-44 rounded-full border-2 border-sky-400 bg-white text-sky-600 flex items-center justify-between px-4 py-2 shadow-sm hover:bg-sky-50">
-                      <span className="text-sm font-medium">続きを表示</span>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <Button onClick={() => setIsAllOverlayOpen(true)} className="w-44 rounded-full border-2 border-sky-400 bg-white text-sky-600 relative px-4 py-2 shadow-sm hover:bg-sky-50">
+                      <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <span className="text-sm font-medium">続きを表示</span>
+                      </span>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 absolute right-3 top-1/2 transform -translate-y-1/2 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                       </svg>
                     </Button>
