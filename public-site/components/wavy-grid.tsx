@@ -49,6 +49,8 @@ export default function WavyGrid() {
     uniform float u_scale;
     uniform float u_thickness;
     uniform float u_distort; // ゆがみの強さ
+    uniform float u_freq; // 周波数スケール
+    uniform float u_speed; // 時間スケール（速度）
 
     void main(){
       vec2 uv = v_uv;
@@ -57,15 +59,15 @@ export default function WavyGrid() {
 
       // グリッドのスケール（セルサイズ）
       float s = max(1.0, u_scale);
-      // 時間を少し緩めて動かす
-      float t = u_time * 0.35;
+      // 時間スケールを使って動かす
+      float t = u_time * u_speed;
 
       // 基本の格子位置（時間で斜めに移動）
       vec2 q = uv * s + vec2(t, t * 0.6);
 
       // 小さなゆがみ（正弦波）を加える: x/y方向に別周波数で重畳
-      float a = sin((uv.x + uv.y) * 6.2831 + t) * 0.5;
-      float b = cos((uv.x * 1.7 - uv.y * 1.3) * 6.2831 + t * 1.2) * 0.5;
+      float a = sin((uv.x + uv.y) * u_freq + t) * 0.5;
+      float b = cos((uv.x * 1.7 - uv.y * 1.3) * u_freq + t * 1.2) * 0.5;
       vec2 disp = vec2(a, b) * u_distort;
       q += disp / s;
 
@@ -109,6 +111,8 @@ export default function WavyGrid() {
     const u_amp = glCtx.getUniformLocation(prog, 'u_amp')
     const u_thickness = glCtx.getUniformLocation(prog, 'u_thickness')
     const u_distort = glCtx.getUniformLocation(prog, 'u_distort')
+    const u_freq = glCtx.getUniformLocation(prog, 'u_freq')
+    const u_speed = glCtx.getUniformLocation(prog, 'u_speed')
 
     // 最後に計算したキャンバス解像度（CSSピクセル単位）を保持
     let lastResW = 0
@@ -206,6 +210,38 @@ export default function WavyGrid() {
         } catch {}
 
         if (u_distort) glCtx.uniform1f(u_distort, distortVal)
+
+        // 周波数・速度の解決（dataset / CSS var / default）
+        let freqVal = 6.2831
+        try {
+          const ds = canvasEl.dataset
+          if (ds && ds.wavyFreq) freqVal = parseFloat(ds.wavyFreq) || freqVal
+          else {
+            const cssF = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-freq') || '')
+            if (!isNaN(cssF) && cssF > 0) freqVal = cssF
+          }
+        } catch {}
+
+        let speedVal = 0.35
+        try {
+          const ds = canvasEl.dataset
+          if (ds && ds.wavySpeed) speedVal = parseFloat(ds.wavySpeed) || speedVal
+          else {
+            const cssS = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--wavy-speed') || '')
+            if (!isNaN(cssS) && cssS > 0) speedVal = cssS
+          }
+        } catch {}
+
+        // モバイルでの強化: 周波数を10倍、速度を3倍
+        try {
+          if (typeof window !== 'undefined' && window.innerWidth <= 640) {
+            freqVal *= 10.0
+            speedVal *= 3.0
+          }
+        } catch {}
+
+        if (u_freq) glCtx.uniform1f(u_freq, freqVal)
+        if (u_speed) glCtx.uniform1f(u_speed, speedVal)
 
 
       glCtx.drawArrays(glCtx.TRIANGLES, 0, 6)
