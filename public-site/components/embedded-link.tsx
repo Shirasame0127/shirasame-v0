@@ -196,7 +196,7 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
     if (tiktokId) {
       if (embedFailed) {
         return (
-          <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
+          <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs rounded-full'}`}>
             <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 justify-between">
               <span className="truncate">TikTokで見る</span>
               <ExternalLink className="w-3 h-3 text-white" />
@@ -218,7 +218,7 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
       )
     }
     return (
-      <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
+      <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs rounded-full'}`}>
         <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 justify-between">
           <span className="truncate text-left">TikTokで見る</span>
           <ExternalLink className="w-3 h-3 text-white" />
