@@ -379,7 +379,12 @@ app.use('*', async (c, next) => {
       for (const k of Object.keys(ch)) {
         try { res.headers.set(k, (ch as any)[k]) } catch {}
       }
-        try { res.headers.set('X-Served-By', 'public-worker') } catch {}
+      // Remove any Content-Security-Policy report-only headers added by
+      // intermediate tooling (dev servers, wrappers) to avoid noisy
+      // console report-only messages in the browser during local dev.
+      try { res.headers.delete('Content-Security-Policy-Report-Only') } catch {}
+      try { res.headers.delete('Content-Security-Policy') } catch {}
+      try { res.headers.set('X-Served-By', 'public-worker') } catch {}
     } catch {}
     return res
   } catch (e: any) {
