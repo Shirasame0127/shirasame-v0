@@ -846,10 +846,8 @@ export default function HomePage() {
                           <ProductCardSimple product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
                           {overlayFlags[i] && (
                             <div className="absolute inset-0 rounded-b-lg pointer-events-none">
-                              {/* color fade: transparent until 50%, then ramp to white@0.7 at bottom */}
-                              <div className="absolute inset-0 rounded-b-lg pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0) 50%, rgba(255,255,255,0.7) 100%)' }} />
-                              {/* backdrop blur layer masked so blur strength ramps from 0% at 50% to 70% at bottom */}
-                              <div className="absolute inset-0 rounded-b-lg pointer-events-none" style={{ WebkitBackdropFilter: 'blur(12px)', backdropFilter: 'blur(12px)', WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.7) 100%)', maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.7) 100%)' }} />
+                              {/* Replace color fade with masked backdrop blur to produce a mosaic-like blur */}
+                              <div className="absolute inset-0 rounded-b-lg pointer-events-none" style={{ WebkitBackdropFilter: 'blur(18px) saturate(0.9)', backdropFilter: 'blur(18px) saturate(0.9)', WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.7) 100%)', maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.7) 100%)' }} />
                             </div>
                           )}
                         </div>
