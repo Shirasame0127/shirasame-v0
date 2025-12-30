@@ -847,7 +847,7 @@ export default function HomePage() {
                           {overlayFlags[i] && (
                             <div className="absolute inset-0 rounded-b-lg pointer-events-none">
                               {/* Replace color fade with masked backdrop blur to produce a mosaic-like blur */}
-                              <div className="absolute inset-0 rounded-b-lg pointer-events-none" style={{ WebkitBackdropFilter: 'blur(28px) brightness(1.3) saturate(1.05)', backdropFilter: 'blur(28px) brightness(1.3) saturate(1.05)', WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.85) 100%)', maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.85) 100%)' }} />
+                              <div className="absolute inset-0 rounded-b-lg pointer-events-none" style={{ WebkitBackdropFilter: 'blur(28px) brightness(1.8) saturate(1.5)', backdropFilter: 'blur(28px) brightness(5.5) saturate(5.5)', WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.3) 50%, rgba(0,0,0,1.0) 100%)', maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.3) 50%, rgba(0,0,0,1.0) 100%)' }} />
                             </div>
                           )}
                         </div>
@@ -855,7 +855,12 @@ export default function HomePage() {
                     })()}
                   </div>
                   <div className="mt-4 flex justify-center">
-                    <Button onClick={() => setIsAllOverlayOpen(true)} className="w-44">続きを表示</Button>
+                    <Button onClick={() => setIsAllOverlayOpen(true)} className="w-44 rounded-full border-2 border-sky-400 bg-white text-sky-600 flex items-center justify-between px-4 py-2 shadow-sm hover:bg-sky-50">
+                      <span className="text-sm font-medium">続きを表示</span>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </Button>
                   </div>
                 </div>
 
