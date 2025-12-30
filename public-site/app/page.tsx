@@ -906,7 +906,7 @@ export default function HomePage() {
       {isAllOverlayOpen && (
         <section id="all-items-view" className={`mb-16 relative z-60 duration-300 ${isAllOverlayClosing ? 'animate-out fade-out-0 slide-out-to-top' : 'animate-in fade-in slide-in-from-top-2'}`}>
           <div className="max-w-7xl mx-auto px-4 pt-16 pb-10 bg-transparent">
-            <button aria-label="閉じる" className="absolute top-4 left-4 sm:left-auto sm:right-4 text-gray-800 hover:text-gray-900 bg-white rounded-full w-10 h-10 flex items-center justify-center shadow" onClick={() => { setIsAllOverlayClosing(true); setTimeout(() => { setIsAllOverlayOpen(false); setIsAllOverlayClosing(false) }, 300) }}>
+            <button aria-label="閉じる" className="absolute top-4 left-4 text-gray-800 hover:text-gray-900 bg-white rounded-full w-10 h-10 flex items-center justify-center shadow" onClick={() => { setIsAllOverlayClosing(true); setTimeout(() => { setIsAllOverlayOpen(false); setIsAllOverlayClosing(false) }, 300) }}>
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h2 className="font-heading text-2xl sm:text-3xl font-bold mb-4 text-center">All Items</h2>
