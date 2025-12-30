@@ -845,7 +845,12 @@ export default function HomePage() {
                         <div key={product.id} className="relative">
                           <ProductCardSimple product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
                           {overlayFlags[i] && (
-                            <div className="absolute left-0 right-0 bottom-0 h-1/2 rounded-b-lg pointer-events-none bg-gradient-to-b from-transparent via-white/10 to-white/60 backdrop-blur-md" />
+                            <div className="absolute inset-0 rounded-b-lg pointer-events-none">
+                              {/* color fade: transparent until 50%, then ramp to white@0.7 at bottom */}
+                              <div className="absolute inset-0 rounded-b-lg pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0) 50%, rgba(255,255,255,0.7) 100%)' }} />
+                              {/* backdrop blur layer masked so blur strength ramps from 0% at 50% to 70% at bottom */}
+                              <div className="absolute inset-0 rounded-b-lg pointer-events-none" style={{ WebkitBackdropFilter: 'blur(12px)', backdropFilter: 'blur(12px)', WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.7) 100%)', maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.7) 100%)' }} />
+                            </div>
                           )}
                         </div>
                       ))
