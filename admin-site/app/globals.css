@@ -129,4 +129,9 @@
     @apply bg-background text-foreground;
     font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Color Emoji";
   }
+  /* Ensure Tailwind's .font-sans utility uses our CSS variable so
+     behavior is consistent across platforms (iOS/Desktop). */
+  .font-sans {
+    font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Color Emoji";
+  }
 }
