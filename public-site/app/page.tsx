@@ -845,7 +845,7 @@ export default function HomePage() {
                         <div key={product.id} className="relative">
                           <ProductCardSimple product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
                           {overlayFlags[i] && (
-                            <div className="absolute left-0 right-0 bottom-0 h-1/2 rounded-b-lg pointer-events-none bg-gradient-to-b from-transparent to-white/70 backdrop-blur-sm" />
+                            <div className="absolute left-0 right-0 bottom-0 h-1/2 rounded-b-lg pointer-events-none bg-gradient-to-b from-transparent via-white/10 to-white/60 backdrop-blur-md" />
                           )}
                         </div>
                       ))
