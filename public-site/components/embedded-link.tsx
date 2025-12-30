@@ -196,10 +196,10 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
     if (tiktokId) {
       if (embedFailed) {
         return (
-          <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
-            <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-              <ExternalLink className="w-3 h-3" />
+          <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 justify-between">
               <span className="truncate">TikTokで見る</span>
+              <ExternalLink className="w-3 h-3 text-white" />
             </a>
           </Button>
         )
@@ -208,9 +208,9 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
         <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
           <blockquote className="tiktok-embed" cite={url} data-video-id={tiktokId}>
             <section className="text-left">
-              <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 w-full justify-start text-xs">
-                <ExternalLink className="w-3 h-3" />
+              <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 w-full justify-between text-xs">
                 <span className="truncate">TikTokで見る</span>
+                <ExternalLink className="w-3 h-3 text-white" />
               </a>
             </section>
           </blockquote>
@@ -218,10 +218,10 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
       )
     }
     return (
-      <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
-        <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-          <ExternalLink className="w-3 h-3" />
+      <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
+        <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 justify-between">
           <span className="truncate text-left">TikTokで見る</span>
+          <ExternalLink className="w-3 h-3 text-white" />
         </a>
       </Button>
     )
