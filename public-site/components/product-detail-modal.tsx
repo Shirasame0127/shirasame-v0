@@ -184,7 +184,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                     try { const u = new URL(link.url); label = u.hostname.replace('www.', '') } catch (e) { label = '購入リンク' }
                   }
                   const isTikTok = typeof link.url === 'string' && /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com|vm.tiktok.com|vt.tiktok.com)/i.test(link.url)
-                  const commonClass = 'w-full flex items-center justify-center gap-2 rounded-full text-white py-3 text-sm font-medium'
+                  const commonClass = 'w-full flex items-center justify-center gap-2 rounded-md text-white py-3 text-sm font-medium'
                   if (isTikTok) {
                     const tLabel = link.label || 'TikTokで見る'
                     return (
@@ -226,8 +226,8 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                   <div key={index}>
                     <EmbeddedLink
                       url={link}
-                      // use default external styling from EmbeddedLink/button variant
-                      buttonClassName={`w-full`}
+                      // ensure related link buttons are full-width pills
+                      buttonClassName={`w-full rounded-full`}
                     />
                   </div>
                 ))}
