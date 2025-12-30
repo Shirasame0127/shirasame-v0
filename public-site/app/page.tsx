@@ -847,7 +847,7 @@ export default function HomePage() {
                           {overlayFlags[i] && (
                             <div className="absolute inset-0 rounded-b-lg pointer-events-none">
                               {/* Replace color fade with masked backdrop blur to produce a mosaic-like blur */}
-                              <div className="absolute inset-0 rounded-b-lg pointer-events-none" style={{ WebkitBackdropFilter: 'blur(18px) saturate(0.9)', backdropFilter: 'blur(18px) saturate(0.9)', WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.7) 100%)', maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.7) 100%)' }} />
+                              <div className="absolute inset-0 rounded-b-lg pointer-events-none" style={{ WebkitBackdropFilter: 'blur(28px) brightness(1.3) saturate(1.05)', backdropFilter: 'blur(28px) brightness(1.3) saturate(1.05)', WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.85) 100%)', maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.85) 100%)' }} />
                             </div>
                           )}
                         </div>
