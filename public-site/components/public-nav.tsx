@@ -89,25 +89,13 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
     <>
       <header className="fixed top-0 left-0 right-0 z-50 bg-transparent">
         <div className="relative flex h-16 items-center justify-center px-2">
-            <Link href="/" className="absolute left-4 translate-x-0 flex items-center">
-              <div className="relative h-14 w-auto sm:h-12">
-                {/* prefer provided PNG (attached), fallback to SVG */}
-                <img
-                  src={logoUrl || '/images/shirasame-logo.png'}
-                  alt={siteName}
-                  width={220}
-                  height={56}
-                  className="h-10 sm:h-10 w-auto object-contain"
-                  onError={(e) => { try { (e.target as HTMLImageElement).src = '/images/shirasame-logo.svg' } catch {} }}
-                />
-              </div>
-          </Link>
+            
           <div className="absolute right-2 flex items-center gap-2">
-            <Link href="/contact" className="inline-flex">
+            <Link href="#profile" className="inline-flex" onClick={(e) => handleAnchorClick(e as any, "profile")}>
               <Button
                 variant="default"
                 size="sm"
-                className="rounded-full bg-sky-400 text-white hover:bg-sky-500 focus:ring-2 focus:ring-sky-300"
+                className="shadow-gray-800 h-9 w-25 s rounded-full bg-slate-600 text-white hover:bg-sky-500 focus:ring-2 focus:ring-sky-300"
               >
                 Contact
               </Button>

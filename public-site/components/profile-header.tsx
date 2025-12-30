@@ -110,6 +110,7 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
                 src={image || "/placeholder.svg"}
                 alt={`ヘッダー画像 ${index + 1}`}
                 className="w-full h-full object-cover object-top no-download"
+                style={{ filter: 'saturate(0.75)' }}
                 draggable={false}
                 onDragStart={(e) => e.preventDefault()}
                 onContextMenu={(e) => e.preventDefault()}

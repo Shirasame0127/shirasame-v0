@@ -723,16 +723,16 @@ export default function HomePage() {
   return (
     <div className={`min-h-screen animated-grid-bg ${isAllOverlayOpen ? 'allitems-open' : ''}`} style={appliedStyle}>
       <WavyGrid />
-      <main className="min-h-screen pt-16 pb-20 relative">
+      <main className="min-h-screen relative">
         <PublicNav siteName={user?.displayName || ""} />
         {user && <ProfileHeader user={user as any} />}
 
-        <div className={`max-w-7xl mx-auto px-4 py-8 ${isAllOverlayOpen ? 'all-items-overlay' : ''}`}>
+        <div className={`max-w-7xl mx-auto px-4 pt-8 ${isAllOverlayOpen ? 'all-items-overlay' : ''}`}>
           <div className="mb-8 flex justify-center">
-            <div className="relative inline-flex items-center bg-muted p-1 rounded-full shadow-sm gallery-toggle" style={{ width: 280 }}>
-              <div className={`absolute top-1 left-1 h-8 w-1/2 rounded-full transition-transform duration-300 ease-in-out ${displayMode === 'gallery' ? 'translate-x-full' : 'translate-x-0'} bg-sky-300`} style={{ marginTop: '3px' , width: '137px' }} aria-hidden />
-              <button onClick={() => changeDisplayMode('normal')} aria-pressed={displayMode === 'normal'} className={`relative z-10 flex-1 text-sm font-semibold px-4 py-2 text-center rounded-full ${displayMode === 'normal' ? 'text-white' : 'text-foreground/70'}`}>Normal</button>
-              <button onClick={() => changeDisplayMode('gallery')} aria-pressed={displayMode === 'gallery'} className={`relative z-10 flex-1 text-sm font-semibold px-4 py-2 text-center rounded-full ${displayMode === 'gallery' ? 'text-white' : 'text-foreground/70'}`}>Gallery</button>
+            <div className="relative inline-flex items-center bg-muted p-1 rounded-full shadow-md gallery-toggle" style={{ width: 280 }}>
+              <div className={`absolute inset-1 w-1/2 rounded-full transition-transform duration-300 ease-in-out ${displayMode === 'gallery' ? 'translate-x-full' : 'translate-x-0'} bg-sky-300 shadow-lg`} aria-hidden />
+              <button onClick={() => changeDisplayMode('normal')} aria-pressed={displayMode === 'normal'} className={`relative z-10 flex-1 h-8 flex items-center justify-center text-sm font-semibold px-4 rounded-full ${displayMode === 'normal' ? 'text-white shadow-md' : 'text-foreground/70'}`}>Normal</button>
+              <button onClick={() => changeDisplayMode('gallery')} aria-pressed={displayMode === 'gallery'} className={`relative z-10 flex-1 h-8 flex items-center justify-center text-sm font-semibold px-4 rounded-full ${displayMode === 'gallery' ? 'text-white shadow-md' : 'text-foreground/70'}`}>Gallery</button>
             </div>
           </div>
 
@@ -1008,7 +1008,7 @@ export default function HomePage() {
       
  <ProductDetailModal product={selectedProduct} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} initialImageUrl={selectedImageUrl ?? undefined} saleName={selectedProduct ? saleNameFor(selectedProduct.id) : null} />
       {!isAllOverlayOpen && (
-        <footer className="border-t mt-16 py-8 relative z-50 bg-white">
+        <footer className="border-t py-8 relative z-50 bg-white">
           <div className="max-w-7xl mx-auto px-4 text-center text-xs sm:text-sm text-muted-foreground">
             <p>© 2025 {user?.displayName || "User"}. All rights reserved.</p>
             <p className="mt-2">このサイトはAmazonアソシエイトを利用しています。リンクを経由して商品が購入された場合、紹介料を受け取ることがあります。</p>
