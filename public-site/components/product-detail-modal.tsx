@@ -184,21 +184,15 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                     try { const u = new URL(link.url); label = u.hostname.replace('www.', '') } catch (e) { label = '購入リンク' }
                   }
                   const isTikTok = typeof link.url === 'string' && /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com|vm.tiktok.com|vt.tiktok.com)/i.test(link.url)
-                  const commonClass = 'w-full flex items-center justify-center gap-2 rounded-md text-white py-3 text-sm font-medium'
-                  if (isTikTok) {
-                    const tLabel = link.label || 'TikTokで見る'
-                    return (
-                      <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
-                        <span className="truncate">{tLabel}</span>
-                        <ExternalLink className="w-4 h-4" />
-                      </a>
-                    )
-                  }
+                  const unifiedBtnClass = 'w-full justify-between px-4 py-3 text-sm font-medium rounded-full'
+                  const tLabel = isTikTok ? (link.label || 'TikTokで見る') : label
                   return (
-                    <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
-                      <span className="truncate">{label}</span>
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
+                    <Button asChild variant="external" key={index} className={unifiedBtnClass}>
+                      <a href={link.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 w-full">
+                        <span className="truncate">{tLabel}</span>
+                        <ExternalLink className="w-4 h-4 text-white" />
+                      </a>
+                    </Button>
                   )
                 })}
               </div>
