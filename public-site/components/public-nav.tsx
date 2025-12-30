@@ -167,7 +167,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
                     <div className="flex items-baseline justify-between py-2 px-1 hover:bg-accent/50 rounded transition-colors">
                       <span className="text-sm font-semibold group-hover:text-primary transition-colors">{col.title}</span>
                       <span className="flex-1 mx-2 border-b border-dotted border-muted-foreground/30 mb-1" />
-                      <span className="text-xs text-muted-foreground font-mono">{index + 1}</span>
+                      <span className="text-xs text-muted-foreground font-mono">{index + 4}</span>
                     </div>
                   </a>
                 ))
@@ -187,7 +187,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
                     <div className="flex items-baseline justify-between py-2 px-1 hover:bg-accent/50 rounded transition-colors">
                       <span className="text-sm font-semibold group-hover:text-primary transition-colors">{r.title}</span>
                       <span className="flex-1 mx-2 border-b border-dotted border-muted-foreground/30 mb-1" />
-                      <span className="text-xs text-muted-foreground font-mono">{index + 1}</span>
+                      <span className="text-xs text-muted-foreground font-mono">{index + 7}</span>
                     </div>
                   </a>
                 ))

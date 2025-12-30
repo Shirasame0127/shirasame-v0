@@ -265,12 +265,12 @@ export default function InitialLoading() {
       .shika-line { position: absolute; top: 0; bottom: 0; width: 3px; background: rgba(255,255,255,0.95); opacity: 0.95; }
       /* left positions: moved outward and evenly spaced */
       .shika-line.left-0 { left: 2%; }
-      .shika-line.left-1 { left: 5%; }
-      .shika-line.left-2 { left: 8%; }
+      .shika-line.left-1 { left: 4%; }
+      .shika-line.left-2 { left: 6%; }
       /* right positions: moved outward and evenly spaced */
       .shika-line.right-0 { right: 2%; }
-      .shika-line.right-1 { right: 5%; }
-      .shika-line.right-2 { right: 8%; }
+      .shika-line.right-1 { right: 4%; }
+      .shika-line.right-2 { right: 6%; }
     `}</style>
   )
 

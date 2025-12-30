@@ -221,13 +221,13 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
           {hasRelatedLinks && (
             <div>
               <h3 className="font-semibold mb-2 text-sm text-center">関連リンク</h3>
-              <div className="space-y-4">
+              <div className="space-y-2">
                 {(product.relatedLinks || []).map((link: string, index: number) => (
                   <div key={index}>
                     <EmbeddedLink
                       url={link}
                       // ensure related link buttons are full-width pills
-                      buttonClassName={`w-full rounded-full`}
+                      buttonClassName={`w-full rounded-full py-5 bg-sky-400 text-white hover:bg-sky-500 focus-visible:ring-sky-200`}
                     />
                   </div>
                 ))}
