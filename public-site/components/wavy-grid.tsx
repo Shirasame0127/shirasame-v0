@@ -198,6 +198,13 @@ export default function WavyGrid() {
         const dpr = Math.max(1, window.devicePixelRatio || 1)
         distortVal *= dpr
 
+        // ★ 変更：モバイル表示で歪みを10倍にする
+        try {
+          if (typeof window !== 'undefined' && window.innerWidth <= 640) {
+            distortVal *= 10.0
+          }
+        } catch {}
+
         if (u_distort) glCtx.uniform1f(u_distort, distortVal)
 
 
