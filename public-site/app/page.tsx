@@ -825,10 +825,15 @@ export default function HomePage() {
 
                 {/* All Items ボタン下に最新9件プレビュー */}
                 <div className="max-w-4xl mx-auto mt-4">
-                  <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
+                  <div className="relative">
+                    <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
                     {filteredAndSortedProducts.slice(0, 9).map((product) => (
                       <ProductCardSimple key={product.id} product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
                     ))}
+                    </div>
+
+                    {/* 下部に向かって白くかすむフェードオーバーレイ（下行をフェードさせる） */}
+                    <div className="pointer-events-none absolute left-0 right-0 bottom-0 h-20 sm:h-24 bg-gradient-to-b from-transparent to-white" />
                   </div>
                   <div className="mt-4 flex justify-center">
                     <Button onClick={() => setIsAllOverlayOpen(true)} className="w-44">続きを表示</Button>
@@ -1028,9 +1033,7 @@ export default function HomePage() {
         </footer>
       )}
 
-      {/* ページ最下部で下方向に白くかすませるオーバーレイ（視覚効果のみ） */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-b from-transparent to-white z-40" />
-
+      
     </div>
   )
 }
