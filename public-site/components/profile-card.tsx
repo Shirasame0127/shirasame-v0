@@ -32,9 +32,9 @@ export function ProfileCard({ user }: ProfileCardProps) {
           <Image
             src={profileImageUrl || "/placeholder.svg"}
             alt={user.displayName || "Profile image"}
-            width={100}
-            height={100}
-            className="rounded-full border-4 border-background shadow-lg w-[22vw] h-[22vw] md:w-[18vw] md:h-[18vw] max-w-[100px] max-h-[100px]"
+            width={120}
+            height={120}
+            className="rounded-full border-4 border-background shadow-lg w-[26vw] h-[26vw] md:w-[20vw] md:h-[20vw] max-w-[120px] max-h-[120px]"
           />
         </div>
         <h2 className="text-[5.5vw] md:text-xl lg:text-2xl font-bold mb-[2%]">{user.displayName}</h2>
