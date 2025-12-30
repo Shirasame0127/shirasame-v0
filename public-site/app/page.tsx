@@ -824,12 +824,37 @@ export default function HomePage() {
               <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">いままで紹介したすべての商品を表示します</p>
 
                 {/* All Items ボタン下に最新9件プレビュー */}
-                    <PreviewWithOverlay
-                      products={filteredAndSortedProducts}
-                      handleProductClick={handleProductClick}
-                      saleNameFor={saleNameFor}
-                      openAll={() => setIsAllOverlayOpen(true)}
-                    />
+                <div className="max-w-4xl mx-auto mt-4">
+                  <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
+                    {(() => {
+                      const items = filteredAndSortedProducts.slice(0, 9)
+                      const len = items.length
+                      // Determine which indices should receive the fade overlay
+                      const overlayFlags: boolean[] = []
+                      if (len === 9) {
+                        // For 9 items, overlay the 3rd column (index % 3 === 2)
+                        for (let i = 0; i < len; i++) overlayFlags.push(i % 3 === 2)
+                      } else {
+                        // For fewer items, find the oldest displayed item (last in list)
+                        const oldestIdx = Math.max(0, len - 1)
+                        const targetRow = Math.floor(oldestIdx / 3)
+                        for (let i = 0; i < len; i++) overlayFlags.push(Math.floor(i / 3) === targetRow)
+                      }
+
+                      return items.map((product, i) => (
+                        <div key={product.id} className="relative">
+                          <ProductCardSimple product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
+                          {overlayFlags[i] && (
+                            <div className="absolute left-0 right-0 bottom-0 h-1/2 rounded-b-lg pointer-events-none bg-gradient-to-b from-transparent to-white/70 backdrop-blur-sm" />
+                          )}
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                  <div className="mt-4 flex justify-center">
+                    <Button onClick={() => setIsAllOverlayOpen(true)} className="w-44">続きを表示</Button>
+                  </div>
+                </div>
 
               {/* 通常ビューではグリッドは表示せず、オーバーレイで初回画像ロード */}
             </section>
@@ -1025,76 +1050,6 @@ export default function HomePage() {
       )}
 
       
-    </div>
-  )
-}
-
-function PreviewWithOverlay({ products, handleProductClick, saleNameFor, openAll, }: any) {
-  const previewRef = useRef<HTMLDivElement | null>(null)
-  const [overlayRowStart, setOverlayRowStart] = useState<number | null>(null)
-
-  const items = (Array.isArray(products) ? products : []).slice(0, 9)
-
-  useEffect(() => {
-    const compute = () => {
-      try {
-        const container = previewRef.current
-        if (!container) return setOverlayTop(null)
-        const elems = container.querySelectorAll('[data-preview-index]')
-        if (!elems || elems.length === 0) return setOverlayTop(null)
-
-          // find oldest item index in displayed slice
-          let oldestIdx = 0
-          let oldestTime = Infinity
-          for (let i = 0; i < items.length; i++) {
-            const p = items[i]
-            const t = p && p.createdAt ? new Date(p.createdAt).getTime() : Infinity
-            if (t < oldestTime) { oldestTime = t; oldestIdx = i }
-          }
-
-          // compute row start index (3 columns)
-          const cols = 3
-          const rowStart = Math.floor(oldestIdx / cols) * cols
-          setOverlayRowStart(rowStart)
-      } catch (e) { setOverlayTop(null) }
-    }
-
-    compute()
-    const ro = new ResizeObserver(() => compute())
-    if (previewRef.current) ro.observe(previewRef.current)
-    window.addEventListener('resize', compute)
-    // also recompute after images load
-    const imgs = previewRef.current ? previewRef.current.querySelectorAll('img') : []
-    const onImg = () => compute()
-    imgs.forEach((im: any) => im.addEventListener('load', onImg))
-    return () => {
-      try { ro.disconnect() } catch {}
-      window.removeEventListener('resize', compute)
-      imgs.forEach((im: any) => im.removeEventListener('load', onImg))
-    }
-  }, [items.length, JSON.stringify(items.map((p: any) => p && p.createdAt))])
-
-  return (
-    <div className="max-w-4xl mx-auto mt-4 relative">
-      <div ref={previewRef} className="grid grid-cols-3 sm:grid-cols-3 gap-3">
-        {items.map((product: any, idx: number) => {
-          const inOverlayRow = overlayRowStart !== null && idx >= overlayRowStart && idx < (overlayRowStart + 3)
-          return (
-            <div key={product.id} data-preview-index={idx} className="relative">
-              <ProductCardSimple product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
-              {inOverlayRow && (
-                <div aria-hidden className="pointer-events-none absolute left-0 right-0 bottom-0 h-1/2">
-                  <div style={{ height: '100%', background: 'linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.75) 60%, rgba(255,255,255,1) 100%)' }} />
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="mt-4 flex justify-center">
-        <Button onClick={openAll} className="w-44">続きを表示</Button>
-      </div>
     </div>
   )
 }
