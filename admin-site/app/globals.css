@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&display=swap');
 /* tw-animate-cssのインポートを削除してTailwind v4の構文エラーを修正 */
 
 /* @custom-variant構文を削除し、標準的なダークモード設定に変更 */
@@ -78,7 +79,7 @@
 
 /* @theme inlineブロックからcalc()を削除し、具体的な値を直接指定 */
 @theme inline {
-  --font-sans: "Geist", "Geist Fallback";
+  --font-sans: "Noto Sans JP", "Geist", "Geist Fallback";
   --font-mono: "Geist Mono", "Geist Mono Fallback";
   /* Oswald Mediumフォントを見出し用として追加 */
   --font-heading: var(--font-oswald-medium), "Geist", "Geist Fallback";
@@ -126,5 +127,6 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Color Emoji";
   }
 }
