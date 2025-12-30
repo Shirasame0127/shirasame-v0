@@ -255,10 +255,10 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
     if (tweetId) {
       if (embedFailed) {
         return (
-          <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
-            <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-              <ExternalLink className="w-3 h-3" />
+          <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full text-sm'}`}>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 justify-between w-full">
               <span className="truncate">ツイートを見る</span>
+              <ExternalLink className="w-3 h-3 text-white" />
             </a>
           </Button>
         )
@@ -284,14 +284,14 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
     }
   }
 
-  return (
-    <Button asChild variant="outline" size="sm" className={`${buttonClassName || 'w-full justify-start text-xs'}`}>
-      <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
-        <ExternalLink className="w-3 h-3" />
-        <span className="truncate">{url}</span>
-      </a>
-    </Button>
-  )
+    return (
+      <Button asChild variant="external" size="sm" className={`${buttonClassName || 'w-full text-sm'}`}>
+        <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 justify-between w-full">
+          <span className="truncate text-left">{url}</span>
+          <ExternalLink className="w-3 h-3 text-white" />
+        </a>
+      </Button>
+    )
 }
 
 export default EmbeddedLink

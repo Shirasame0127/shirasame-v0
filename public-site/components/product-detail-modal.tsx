@@ -184,15 +184,21 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                     try { const u = new URL(link.url); label = u.hostname.replace('www.', '') } catch (e) { label = '購入リンク' }
                   }
                   const isTikTok = typeof link.url === 'string' && /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com|vm.tiktok.com|vt.tiktok.com)/i.test(link.url)
-                  const unifiedBtnClass = 'w-full justify-between px-4 py-3 text-sm font-medium rounded-full'
-                  const tLabel = isTikTok ? (link.label || 'TikTokで見る') : label
-                  return (
-                    <Button asChild variant="external" key={index} className={unifiedBtnClass}>
-                      <a href={link.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 w-full">
-                        <span className="truncate">{tLabel}</span>
-                        <ExternalLink className="w-4 h-4 text-white" />
+                  const commonClass = 'w-full flex items-center justify-center gap-2 rounded-md text-white py-3 text-sm font-medium'
+                  if (isTikTok) {
+                    const tLabel = link.label || 'TikTokで見る'
+                    return (
+                      <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
+                        <span className="truncate ">{tLabel}</span>
+                        <ExternalLink className="w-4 h-4" />
                       </a>
-                    </Button>
+                    )
+                  }
+                  return (
+                    <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
+                      <span className="truncate">{label}</span>
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
                   )
                 })}
               </div>
@@ -220,7 +226,8 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                   <div key={index}>
                     <EmbeddedLink
                       url={link}
-                      buttonClassName={`w-full flex items-center justify-between gap-3 rounded-xl py-3 px-4 text-sm font-semibold text-slate-800 bg-gradient-to-r from-sky-50 to-sky-100 border border-sky-100 shadow-md transform-gpu transition duration-200 hover:scale-[1.01] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-200`}
+                      // use default external styling from EmbeddedLink/button variant
+                      buttonClassName={`w-full`}
                     />
                   </div>
                 ))}
