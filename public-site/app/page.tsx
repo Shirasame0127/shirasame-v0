@@ -823,6 +823,18 @@ export default function HomePage() {
               </h2>
               <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">いままで紹介したすべての商品を表示します</p>
 
+                {/* All Items ボタン下に最新9件プレビュー */}
+                <div className="max-w-4xl mx-auto mt-4">
+                  <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
+                    {filteredAndSortedProducts.slice(0, 9).map((product) => (
+                      <ProductCardSimple key={product.id} product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
+                    ))}
+                  </div>
+                  <div className="mt-4 flex justify-center">
+                    <Button onClick={() => setIsAllOverlayOpen(true)} className="w-44">続きを表示</Button>
+                  </div>
+                </div>
+
               {/* 通常ビューではグリッドは表示せず、オーバーレイで初回画像ロード */}
             </section>
           )} 
