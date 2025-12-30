@@ -8,6 +8,7 @@ import { recipesHandler } from './recipes'
 import { tagGroupsHandler } from './tag-groups'
 import { tagsHandler } from './tags'
 import { getSupabase } from '../../supabase'
+import { getPublicImageUrl } from '../../../shared/lib/image-usecases'
 
 export function registerPublicRoutes(app: any) {
   // All routes under /api/public/* per spec
@@ -129,6 +130,59 @@ export function registerPublicRoutes(app: any) {
     } catch (e: any) {
       const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
       return new Response(JSON.stringify({ data: [], meta: null }), { status: 500, headers })
+    }
+  })
+
+  // Header images endpoint: return list of public header image URLs
+  // pulled from users.header_image_keys. No authentication required.
+  app.get('/api/public/header-images', async (c: any) => {
+    try {
+      const supabase = getSupabase(c.env)
+      const { data, error } = await supabase.from('users').select('id, header_image_keys').limit(500)
+      if (error) {
+        const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+        return new Response(JSON.stringify({ data: [] }), { status: 500, headers })
+      }
+
+      const keys: string[] = []
+      try {
+        for (const row of Array.isArray(data) ? data : []) {
+          const v = (row && (row.header_image_keys || null)) || null
+          if (!v) continue
+          if (Array.isArray(v)) {
+            for (const k of v) if (k) keys.push(String(k))
+          } else {
+            // support JSON/text stored as comma-separated or single string
+            try {
+              const parsed = JSON.parse(String(v))
+              if (Array.isArray(parsed)) {
+                for (const k of parsed) if (k) keys.push(String(k))
+                continue
+              }
+            } catch {}
+            const s = String(v || '').trim()
+            if (!s) continue
+            if (s.includes(',')) {
+              for (const k of s.split(',').map((x: string) => x.trim()).filter(Boolean)) keys.push(k)
+            } else {
+              keys.push(s)
+            }
+          }
+        }
+      } catch (e) {
+        // ignore parsing errors
+      }
+
+      // Deduplicate and map to public URLs (use IMAGES_DOMAIN or R2_PUBLIC_URL env if configured)
+      const unique = Array.from(new Set(keys)).filter(Boolean)
+      const domainOverride = (c.env && ((c.env as any).IMAGES_DOMAIN || (c.env as any).R2_PUBLIC_URL || null)) as string | null
+      const urls = unique.map(k => getPublicImageUrl(k, domainOverride)).filter(Boolean)
+
+      const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ data: urls }), { headers })
+    } catch (e: any) {
+      const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
+      return new Response(JSON.stringify({ data: [] }), { status: 500, headers })
     }
   })
 
