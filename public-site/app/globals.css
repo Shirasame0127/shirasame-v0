@@ -56,9 +56,8 @@
   /* Apply requested global body font stack */
   body { background-color: var(--background); color: var(--foreground); font-family: 'Quicksand', 'Zen Maru Gothic', 'メイリオ', sans-serif; }
   code, pre, kbd, samp { font-family: var(--font-mono); }
-  h1,h2,h3,h4,h5,h6 { font-family: var(--font-heading); font-weight: 500; }
+  h1,h2,h5,h6 { font-family: var(--font-heading); font-weight: 500; }
   h2 { font-weight: 700; }
-  h2,h3 { font-family: "Oswald", var(--font-heading); }
 
   /* Keep H2 and its inline button using the heading/font currently used (do not inherit body font) */
   h2, h2 button, h2 > button { font-family: "Oswald", var(--font-heading) !important; }
@@ -70,8 +69,8 @@
 
   /* profile-card component text */
   .profile-card p { color: var(--muted-foreground); }
-  /* all paragraph text should use the sans font variable */
-  p { font-family: var(--font-sans); }
+  /* paragraphs and smaller headings use the site body font (Quicksand) */
+  p, h3, h4 { font-family: 'Quicksand', 'Zen Maru Gothic', 'メイリオ', sans-serif; }
   /* Make image dragging/selecting/download via browser harder (best-effort) */
   .no-download {
     -webkit-user-drag: none;
