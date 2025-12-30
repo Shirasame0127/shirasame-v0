@@ -236,19 +236,25 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
   if (type === 'twitch') {
     const info = extractTwitchInfo(url)
     const parent = typeof window !== 'undefined' ? window.location.hostname : ''
-      if (tiktokId) {
-      if (embedFailed) {
-        return <ExternalLinkButton href={url} label="TikTokで見る" />
+    if (info) {
+      if (info.kind === 'clip') {
+        return (
+          <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
+            {loading && <Spinner />}
+            <iframe src={`https://clips.twitch.tv/embed?clip=${encodeURIComponent(info.id)}&parent=${encodeURIComponent(parent)}`} title="Twitch clip" frameBorder="0" allowFullScreen className="absolute inset-0 w-full h-full" onLoad={() => setLoading(false)} />
+          </div>
+        )
       }
-      return (
-        <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
-          <blockquote className="tiktok-embed" cite={url} data-video-id={tiktokId}>
-            <section className="text-left">
-              <a href={url} className="inline-block text-left">TikTokで見る</a>
-            </section>
-          </blockquote>
-        </div>
-      )
+      if (info.kind === 'video' || info.kind === 'channel') {
+        const src = info.kind === 'video' ? `https://player.twitch.tv/?video=${encodeURIComponent(info.id)}&parent=${encodeURIComponent(parent)}&autoplay=false` : `https://player.twitch.tv/?channel=${encodeURIComponent(info.id)}&parent=${encodeURIComponent(parent)}&autoplay=false`
+        return (
+          <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
+            {loading && <Spinner />}
+            <iframe src={src} title="Twitch player" frameBorder="0" allowFullScreen className="absolute inset-0 w-full h-full" onLoad={() => setLoading(false)} />
+          </div>
+        )
+      }
+    }
 
   if (type === 'twitter') {
       if (tweetId) {
