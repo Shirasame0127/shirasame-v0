@@ -1031,7 +1031,7 @@ export default function HomePage() {
 
 function PreviewWithOverlay({ products, handleProductClick, saleNameFor, openAll, }: any) {
   const previewRef = useRef<HTMLDivElement | null>(null)
-  const [overlayTop, setOverlayTop] = useState<number | null>(null)
+  const [overlayRowStart, setOverlayRowStart] = useState<number | null>(null)
 
   const items = (Array.isArray(products) ? products : []).slice(0, 9)
 
@@ -1043,22 +1043,19 @@ function PreviewWithOverlay({ products, handleProductClick, saleNameFor, openAll
         const elems = container.querySelectorAll('[data-preview-index]')
         if (!elems || elems.length === 0) return setOverlayTop(null)
 
-        // find oldest item index in displayed slice
-        let oldestIdx = 0
-        let oldestTime = Infinity
-        for (let i = 0; i < items.length; i++) {
-          const p = items[i]
-          const t = p && p.createdAt ? new Date(p.createdAt).getTime() : Infinity
-          if (t < oldestTime) { oldestTime = t; oldestIdx = i }
-        }
+          // find oldest item index in displayed slice
+          let oldestIdx = 0
+          let oldestTime = Infinity
+          for (let i = 0; i < items.length; i++) {
+            const p = items[i]
+            const t = p && p.createdAt ? new Date(p.createdAt).getTime() : Infinity
+            if (t < oldestTime) { oldestTime = t; oldestIdx = i }
+          }
 
-        const target = container.querySelector(`[data-preview-index="${oldestIdx}"]`) as HTMLElement | null
-        if (!target) return setOverlayTop(null)
-        const contRect = container.getBoundingClientRect()
-        const itemRect = target.getBoundingClientRect()
-        const relativeTop = itemRect.top - contRect.top
-        const topForHalf = relativeTop + itemRect.height / 2
-        setOverlayTop(Math.max(0, Math.min(contRect.height, topForHalf)))
+          // compute row start index (3 columns)
+          const cols = 3
+          const rowStart = Math.floor(oldestIdx / cols) * cols
+          setOverlayRowStart(rowStart)
       } catch (e) { setOverlayTop(null) }
     }
 
@@ -1080,18 +1077,20 @@ function PreviewWithOverlay({ products, handleProductClick, saleNameFor, openAll
   return (
     <div className="max-w-4xl mx-auto mt-4 relative">
       <div ref={previewRef} className="grid grid-cols-3 sm:grid-cols-3 gap-3">
-        {items.map((product: any, idx: number) => (
-          <div key={product.id} data-preview-index={idx}>
-            <ProductCardSimple product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
-          </div>
-        ))}
+        {items.map((product: any, idx: number) => {
+          const inOverlayRow = overlayRowStart !== null && idx >= overlayRowStart && idx < (overlayRowStart + 3)
+          return (
+            <div key={product.id} data-preview-index={idx} className="relative">
+              <ProductCardSimple product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product)} />
+              {inOverlayRow && (
+                <div aria-hidden className="pointer-events-none absolute left-0 right-0 bottom-0 h-1/2">
+                  <div style={{ height: '100%', background: 'linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.75) 60%, rgba(255,255,255,1) 100%)' }} />
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
-
-      {overlayTop !== null && items.length > 0 && (
-        <div aria-hidden className="pointer-events-none absolute left-0 right-0" style={{ top: overlayTop, bottom: 0 }}>
-          <div style={{ height: '100%', background: 'linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.85) 60%, rgba(255,255,255,1) 100%)' }} />
-        </div>
-      )}
 
       <div className="mt-4 flex justify-center">
         <Button onClick={openAll} className="w-44">続きを表示</Button>
