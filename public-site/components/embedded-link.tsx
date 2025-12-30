@@ -207,8 +207,8 @@ export function EmbeddedLink({ url, buttonClassName }: { url: string; buttonClas
       return (
         <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black" ref={containerRef}>
           <blockquote className="tiktok-embed" cite={url} data-video-id={tiktokId}>
-            <section>
-              <a href={url}>TikTokで見る</a>
+            <section className="text-left">
+              <a href={url} className="inline-block text-left">TikTokで見る</a>
             </section>
           </blockquote>
         </div>
