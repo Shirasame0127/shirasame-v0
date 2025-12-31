@@ -758,14 +758,16 @@ export default function HomePage() {
             <section id="global-gallery" className="mb-16">
               <div className="gallery-search-viewport" style={{ position: 'sticky', top: '74px', boxSizing: 'border-box', display: 'flex', justifyContent: 'center', zIndex: isModalOpen ? 0 : 30 }}>
                 <div id="global-gallery-search" className={`${isModalOpen ? 'z-0' : 'z-40'} mb-6 ${isGallerySearchSticky ? 'bg-white rounded-b-2xl shadow-md' : ''}`} style={{ width: 'calc(100dvw - 10px)', maxWidth: '80rem', boxSizing: 'border-box', marginInline: 'auto' }}>
-                  <div className="relative rounded-full border bg-white shadow-sm overflow-hidden" role="search" aria-label="ギャラリー検索" style={{ width: 'calc(100% - 10px)', marginInline: 'auto', maxWidth: '80rem' }}>
-                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-muted-foreground">
+                  <div className="relative flex items-center rounded-full border bg-white shadow-sm overflow-hidden" role="search" aria-label="ギャラリー検索" style={{ width: 'calc(100% - 10px)', marginInline: 'auto', maxWidth: '80rem' }}>
+                    <div className="absolute left-3 flex items-center pointer-events-none text-muted-foreground">
                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                     </div>
-                    <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setSearchText((e.target as HTMLInputElement).value) } }} placeholder="キーワードで検索" className="w-full bg-transparent py-3 pr-10 pl-10 text-sm outline-none placeholder:text-muted-foreground" />
-                    <button type="button" onClick={() => { if (typeof window !== 'undefined' && window.innerWidth < 640) { setIsFilterSheetOpen(true) } else { setShowFilters(!showFilters) } }} aria-label="フィルタを開く" className="absolute inset-y-0 right-3 flex items-center justify-center text-muted-foreground hover:text-foreground">
-                      <Filter className="w-4 h-4" />
-                    </button>
+                    <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setSearchText((e.target as HTMLInputElement).value) } }} placeholder="キーワードで検索" className="flex-1 bg-transparent py-3 pl-10 pr-3 text-sm outline-none placeholder:text-muted-foreground" />
+                    <div className="flex items-center pr-2 pl-2">
+                      <Button aria-label="フィルタを開く" variant="ghost" size="icon-lg" className="rounded-full w-10 h-10 flex items-center justify-center" onClick={() => { if (typeof window !== 'undefined' && window.innerWidth < 640) { setIsFilterSheetOpen(true) } else { setShowFilters(!showFilters) } }}>
+                        <Filter className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
                   <div className="mt-2 flex justify-center">
                       <div className="flex items-center gap-2">
