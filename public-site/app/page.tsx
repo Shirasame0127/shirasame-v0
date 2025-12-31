@@ -187,6 +187,23 @@ export default function HomePage() {
   const [isAllOverlayOpen, setIsAllOverlayOpen] = useState(false)
   const [isAllOverlayClosing, setIsAllOverlayClosing] = useState(false)
 
+  // Auto-scroll when opening/closing All Items overlay
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return
+      if (isAllOverlayOpen) {
+        // Scroll to top of the page when All Items opens
+        window.setTimeout(() => { window.scrollTo({ top: 0, behavior: 'smooth' }) }, 50)
+      } else {
+        // When closed, scroll to the All Items section in normal view
+        window.setTimeout(() => {
+          const target = document.getElementById('all-products')
+          if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 120)
+      }
+    } catch {}
+  }, [isAllOverlayOpen])
+
   // Prevent image context menu / long-press save on public pages (best-effort)
   useEffect(() => {
     const onContext = (e: Event) => {
