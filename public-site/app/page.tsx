@@ -62,6 +62,33 @@ function FilterContent({ isMobile = false, searchText, setSearchText, viewMode, 
   const handleCompositionStart = () => { composingRef.current = true }
   const handleCompositionEnd = () => { composingRef.current = false; setSearchText(localQuery) }
 
+  // Compute which groups should be visible based on tagGroups metadata
+  const visibleGroupKeys = useMemo(() => {
+    try {
+      const keys = Object.keys(tagGroups || {})
+      if (keys.length === 0) return []
+      // build a Set of selected tags for quick lookup
+      const sel = new Set((selectedTags || []).map((s) => String(s)))
+      return keys.filter((g) => {
+        const val: any = (tagGroups as any)[g]
+        // normalize group entry: could be array of tags or an object { tags, visibleWhenTriggerTagIds }
+        const visibleWhen: string[] | undefined = Array.isArray(val) ? undefined : (val && (val.visibleWhenTriggerTagIds || val.visible_when || val.visibleWhen))
+        if (!visibleWhen || visibleWhen.length === 0) {
+          // no constraint: always visible
+          return true
+        }
+        // If any selected tag matches the visibility triggers, show the group
+        for (const t of visibleWhen) {
+          if (sel.has(String(t))) return true
+        }
+        // otherwise hide
+        return false
+      })
+    } catch {
+      return Object.keys(tagGroups || {})
+    }
+  }, [tagGroups, selectedTags])
+
   return (
     <div className={`space-y-8 ${isMobile ? 'text-sm' : ''}`}>
       {!isMobile && (
@@ -122,27 +149,31 @@ function FilterContent({ isMobile = false, searchText, setSearchText, viewMode, 
           )}
           <div className={`${isMobile ? 'max-h-[38vh] overflow-y-auto pr-1 -mr-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded' : ''}`}>
             <Accordion type="multiple" className="w-full" value={openGroups} onValueChange={(v) => setOpenGroups(Array.isArray(v) ? v : [v])}>
-              {Object.entries(tagGroups).map(([groupName, tags]) => (
+              {visibleGroupKeys.map((groupName) => {
+                const raw = (tagGroups as any)[groupName]
+                const tags: string[] = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.tags) ? raw.tags : [])
+                return (
                   <AccordionItem key={groupName} value={groupName}>
-                  <AccordionTrigger className={isMobile ? 'text-sm py-2' : 'text-lg'}>
-                    {groupName}
-                    {selectedTags.some((t) => tags.includes(t)) && (
-                      <Badge variant="secondary" className={`ml-2 ${isMobile ? 'text-[10px] px-1.5 py-0' : ''}`}>
-                        {selectedTags.filter((t) => tags.includes(t)).length}
-                      </Badge>
-                    )}
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="flex flex-wrap gap-1.5 pt-2">
-                      {tags.map((tag) => (
-                        <Badge key={tag} variant={selectedTags.includes(tag) ? 'default' : 'secondary'} className={`border border-gray-200 rounded-full cursor-pointer font-normal hover:scale-105 transition-transform ${isMobile ? 'text-[15px] px-3 py-1' : 'text-base px-3 py-1.5'}`} onClick={() => toggleTag(tag)}>
-                          {tag}
+                    <AccordionTrigger className={isMobile ? 'text-sm py-2' : 'text-lg'}>
+                      {groupName}
+                      {selectedTags.some((t) => tags.includes(t)) && (
+                        <Badge variant="secondary" className={`ml-2 ${isMobile ? 'text-[10px] px-1.5 py-0' : ''}`}>
+                          {selectedTags.filter((t) => tags.includes(t)).length}
                         </Badge>
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
+                      )}
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="flex flex-wrap gap-1.5 pt-2">
+                        {tags.map((tag) => (
+                          <Badge key={tag} variant={selectedTags.includes(tag) ? 'default' : 'secondary'} className={`border border-gray-200 rounded-full cursor-pointer font-normal hover:scale-105 transition-transform ${isMobile ? 'text-[15px] px-3 py-1' : 'text-base px-3 py-1.5'}`} onClick={() => toggleTag(tag)}>
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                )
+              })}
             </Accordion>
           </div>
           {selectedTags.length > 0 && (
