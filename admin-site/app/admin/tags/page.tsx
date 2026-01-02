@@ -34,6 +34,7 @@ import { getCurrentUser } from "@/lib/auth"
 
 export default function AdminTagsPage() {
   const SPECIAL_LINK_GROUP_NAME = "リンク先"
+  const PRODUCT_TYPE_GROUP_NAME = "product-type"
   const [tags, setTags] = useState<Array<{ id: string; name: string; group?: string; linkUrl?: string; linkLabel?: string }>>([])
   const [serverGroups, setServerGroups] = useState<string[]>([])
   const [serverGroupMeta, setServerGroupMeta] = useState<Record<string, { isImmutable?: boolean; visibleWhenTriggerTagIds?: string[] }>>({})
@@ -743,6 +744,8 @@ export default function AdminTagsPage() {
     const names = new Set<string>()
     // show server-declared groups first
     serverGroups.forEach((g) => names.add(g))
+    // always include the special link group so UI shows it even when it has no tags
+    names.add(SPECIAL_LINK_GROUP_NAME)
     // include any groups derived from tags (e.g., 未分類)
     Array.from(groupedTags.keys()).forEach((g) => names.add(g))
     return Array.from(names)
@@ -883,7 +886,7 @@ export default function AdminTagsPage() {
                       <div className="space-y-2">
                         <Label>このグループを表示する条件</Label>
                         <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
-                          {tags.map((t) => (
+                          {tags.filter(t => (t.group || "") === PRODUCT_TYPE_GROUP_NAME).map((t) => (
                             <label key={t.name} className="flex items-center gap-2 text-sm">
                               <input
                                 type="checkbox"
@@ -897,7 +900,7 @@ export default function AdminTagsPage() {
                             </label>
                           ))}
                         </div>
-                        <p className="text-xs text-muted-foreground">何も選ばれていない場合は「常に表示」</p>
+                        <p className="text-xs text-muted-foreground">何も選ばれていない場合は「常に表示」。選択肢は「商品の種類」グループ内のタグのみです。</p>
                       </div>
                     )}
                   <div className="flex justify-end gap-2">
