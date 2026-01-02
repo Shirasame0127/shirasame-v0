@@ -3383,9 +3383,49 @@ app.get('/api/tag-groups', async (c) => mirrorGet(c, async (c2) => {
       const merged = Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), base)
       return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401, headers: merged })
     }
-    const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at').eq('user_id', ctx.userId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
+    const res = await supabase.from('tag_groups').select('name, label, sort_order, created_at, is_immutable').eq('user_id', ctx.userId).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
     if (res.error) return makeErrorResponse(c2, 'タググループの取得に失敗しました', res.error.message || res.error, 'db_error', 500)
-    return new Response(JSON.stringify({ data: res.data || [] }), { headers: Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+
+    // Fetch visibility mappings for this user and attach visibleWhenTriggerTagIds
+    let visRows: any[] = []
+    try {
+      const vq = await supabase.from('tag_group_visibility').select('*').eq('user_id', ctx.userId)
+      if (!vq.error && Array.isArray(vq.data)) visRows = vq.data
+    } catch (e) { visRows = [] }
+
+    const visMap: Record<string, string[]> = {}
+    if (Array.isArray(visRows)) {
+      for (const r of visRows) {
+        try {
+          const groupName = r.group_name || r.group || r.name || r.tag_group || r.groupName || r.target_group || null
+          if (!groupName) continue
+          if (Array.isArray(r.visible_when_trigger_tag_ids) && r.visible_when_trigger_tag_ids.length > 0) {
+            visMap[groupName] = Array.from(new Set([...(visMap[groupName] || []), ...r.visible_when_trigger_tag_ids.map(String)]))
+            continue
+          }
+          if (Array.isArray(r.trigger_tag_ids) && r.trigger_tag_ids.length > 0) {
+            visMap[groupName] = Array.from(new Set([...(visMap[groupName] || []), ...r.trigger_tag_ids.map(String)]))
+            continue
+          }
+          const t = r.trigger_tag_id || r.trigger_tag || r.visible_when || r.visibleWhen || null
+          if (t) {
+            visMap[groupName] = Array.from(new Set([...(visMap[groupName] || []), String(t)]))
+            continue
+          }
+        } catch (e) { continue }
+      }
+    }
+
+    const out = (res.data || []).map((g: any) => {
+      const groupName = g.name || g.group || null
+      const visible = groupName && visMap[groupName] ? visMap[groupName] : undefined
+      const outObj: any = { name: g.name, label: g.label, sortOrder: g.sort_order ?? 0, createdAt: g.created_at }
+      if (typeof g.is_immutable !== 'undefined') outObj.isImmutable = !!g.is_immutable
+      if (visible && Array.isArray(visible) && visible.length > 0) outObj.visibleWhenTriggerTagIds = visible
+      return outObj
+    })
+
+    return new Response(JSON.stringify({ data: out }), { headers: Object.assign({}, computeCorsHeaders(c2.req.header('Origin') || null, c2.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
     return makeErrorResponse(c2, 'タググループの取得中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
   }
