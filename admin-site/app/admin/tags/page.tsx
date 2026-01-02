@@ -888,7 +888,14 @@ export default function AdminTagsPage() {
                         <Label>このグループを表示する条件</Label>
                         <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
                           {(() => {
-                            const selectableTags = tags.filter((tag) => tag.group === TRIGGER_GROUP_NAME)
+                            // include tags from TRIGGER_GROUP_NAME plus any tags that are already selected
+                            const selectableTags = tags.filter((tag) => {
+                              try {
+                                if (tag.group === TRIGGER_GROUP_NAME) return true
+                                if (selectedVisibility && Array.isArray(selectedVisibility) && selectedVisibility.includes(String(tag.id))) return true
+                                return false
+                              } catch { return false }
+                            })
                             return selectableTags
                           })().map((t: any) => (
                             <label key={t.id} className="flex items-center gap-2 text-sm">
