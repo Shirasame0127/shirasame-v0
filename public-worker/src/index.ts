@@ -1394,7 +1394,9 @@ app.post('/api/admin/tags', async (c) => {
       }
     }
 
-    const insertBody: any = { name, group, link_url: linkUrl || null, link_label: linkLabel || null, sort_order: sortOrder, user_id: targetUser }
+    // Ensure an id exists for DBs that expect client-provided ids
+    const genId = (typeof crypto !== 'undefined' && (crypto as any).randomUUID) ? (crypto as any).randomUUID() : `tag-${Date.now()}-${Math.floor(Math.random()*10000)}`
+    const insertBody: any = { id: genId, name, group, link_url: linkUrl || null, link_label: linkLabel || null, sort_order: sortOrder, user_id: targetUser }
     const { data: ins, error: insErr } = await supabase.from('tags').insert(insertBody).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
     return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
@@ -3518,7 +3520,8 @@ app.post('/api/admin/tags/save', async (c) => {
         // Fallback: if DB didn't return the updated row (RLS), provide a provisional object
         results.push(up && up[0] ? up[0] : { id: t.id ?? null, name: tagName, group: tagGroup, provisional: true })
       } else {
-        const insertBody: any = { name: tagName, group: tagGroup, link_url: t.linkUrl || t.link_url || null, link_label: t.linkLabel || t.link_label || null, sort_order: typeof t.sortOrder !== 'undefined' ? t.sortOrder : null, user_id: targetUserId }
+        const genId2 = (typeof crypto !== 'undefined' && (crypto as any).randomUUID) ? (crypto as any).randomUUID() : `tag-${Date.now()}-${Math.floor(Math.random()*10000)}`
+        const insertBody: any = { id: t.id || genId2, name: tagName, group: tagGroup, link_url: t.linkUrl || t.link_url || null, link_label: t.linkLabel || t.link_label || null, sort_order: typeof t.sortOrder !== 'undefined' ? t.sortOrder : null, user_id: targetUserId }
         const { data: ins, error: insErr } = await supabase.from('tags').insert(insertBody).select('*')
         if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
         // If insert returned no visible row (RLS), provide a provisional object so client doesn't get null
