@@ -52,6 +52,17 @@ export default function AdminTagsPage() {
   const [selectedVisibility, setSelectedVisibility] = useState<string[]>([])
   const { toast } = useToast()
 
+  // When a group is selected for editing, initialize selectedVisibility
+  useEffect(() => {
+    try {
+      if (!editingGroupName) return
+      const meta = serverGroupMeta && serverGroupMeta[editingGroupName]
+      setSelectedVisibility(Array.isArray(meta?.visibleWhenTriggerTagIds) ? meta!.visibleWhenTriggerTagIds.map(String) : [])
+    } catch (e) {
+      setSelectedVisibility([])
+    }
+  }, [editingGroupName, serverGroupMeta])
+
   useEffect(() => {
     ;(async () => {
       try {
