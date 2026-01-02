@@ -79,10 +79,10 @@ export default function AdminTagsPage() {
         if (groupsRes.ok) {
           const groupNames = tagGroups.map((g: any) => g.name).filter(Boolean)
           const meta: Record<string, any> = {}
-          ;(tagGroups || []).forEach((g: any) => {
-            if (!g || !g.name) return
-            meta[g.name] = { isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
-          })
+            ;(tagGroups || []).forEach((g: any) => {
+              if (!g || !g.name) return
+              meta[g.name] = { label: g.label || g.name, isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
+            })
           setServerGroupMeta(meta)
           // Ensure the special LINK group exists in server-side groups. If missing, try to create it.
           if (!groupNames.includes(SPECIAL_LINK_GROUP_NAME)) {
@@ -558,8 +558,8 @@ export default function AdminTagsPage() {
             const meta: Record<string, any> = {}
             ;(freshGroups || []).forEach((g: any) => {
               if (!g || !g.name) return
-              meta[g.name] = { isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
-            })
+                meta[g.name] = { label: g.label || g.name, isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
+              })
             setServerGroupMeta(meta)
           }
         } catch (e) {
@@ -616,8 +616,8 @@ export default function AdminTagsPage() {
             const meta: Record<string, any> = {}
             ;(freshGroups || []).forEach((g: any) => {
               if (!g || !g.name) return
-              meta[g.name] = { isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
-            })
+                meta[g.name] = { label: g.label || g.name, isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
+              })
             setServerGroupMeta(meta)
           }
         } catch (e) {}
@@ -886,7 +886,16 @@ export default function AdminTagsPage() {
                       <div className="space-y-2">
                         <Label>このグループを表示する条件</Label>
                         <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
-                          {tags.filter(t => (t.group || "") === PRODUCT_TYPE_GROUP_NAME).map((t) => (
+                          {(() => {
+                            const productKey = Object.keys(serverGroupMeta).find(k => k === PRODUCT_TYPE_GROUP_NAME)
+                            const productLabel = productKey ? serverGroupMeta[productKey]?.label : null
+                            return tags.filter(t => {
+                              const g = t.group || ''
+                              return g === productKey || (productLabel && g === productLabel)
+                            }).map((t) => (
+                              t
+                            ))
+                          })().map((t: any) => (
                             <label key={t.name} className="flex items-center gap-2 text-sm">
                               <input
                                 type="checkbox"
@@ -982,8 +991,8 @@ export default function AdminTagsPage() {
                                     const meta: Record<string, any> = {}
                                     ;(freshGroups || []).forEach((g: any) => {
                                       if (!g || !g.name) return
-                                      meta[g.name] = { isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
-                                    })
+                                          meta[g.name] = { label: g.label || g.name, isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
+                                        })
                                     setServerGroupMeta(meta)
                                   } else {
                                     setServerGroups((s) => s.filter((g) => g !== groupName))
@@ -1069,8 +1078,8 @@ export default function AdminTagsPage() {
                                         const meta: Record<string, any> = {}
                                         ;(freshGroups || []).forEach((g: any) => {
                                           if (!g || !g.name) return
-                                          meta[g.name] = { isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
-                                        })
+                                            meta[g.name] = { label: g.label || g.name, isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
+                                          })
                                         setServerGroupMeta(meta)
                                       } else {
                                         setServerGroups((s) => s.filter((g) => g !== groupName))
