@@ -3485,18 +3485,22 @@ app.post('/api/admin/tags/save', async (c) => {
     if (body.userId && body.userId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
 
     const results: any[] = []
+
+    // Prefetch existing tags for this user to avoid per-item DB queries (prevents "Too many subrequests")
+    const { data: existingAll = [], error: existingAllErr } = await supabase.from('tags').select('id,name,group').eq('user_id', targetUserId)
+    if (existingAllErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの検索に失敗しました', existingAllErr.message || existingAllErr, 'db_error', 500)
+    const existingMap = new Map<string, any>()
+    for (const r of (existingAll || [])) {
+      if (r && r.name) existingMap.set(String(r.name), r)
+    }
     for (const t of incomingTags) {
       const tagName = (t && (t.name || t.text || t.title)) ? String(t.name || t.text || t.title).trim() : ''
       const tagGroup = t && typeof t.group !== 'undefined' ? t.group : null
       if (!tagName) continue
 
-      // check duplicate (same user_id + name + group)
-      const { data: existing = [], error: existErr } = await supabase.from('tags').select('id,group').eq('user_id', targetUserId).eq('name', tagName).limit(1)
-      if (existErr) {
-        return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの検索に失敗しました', existErr.message || existErr, 'db_error', 500)
-      }
-      if (existing && existing.length > 0) {
-        const ex = existing[0]
+      // check duplicate using prefetched map (same user_id + name + group)
+      const ex = existingMap.get(tagName) || null
+      if (ex) {
         const exId = ex.id
         const exGroup = ex.group ?? null
         const tg = tagGroup ?? null
@@ -3524,8 +3528,10 @@ app.post('/api/admin/tags/save', async (c) => {
         const insertBody: any = { id: t.id || genId2, name: tagName, group: tagGroup, link_url: t.linkUrl || t.link_url || null, link_label: t.linkLabel || t.link_label || null, sort_order: typeof t.sortOrder !== 'undefined' ? t.sortOrder : null, user_id: targetUserId }
         const { data: ins, error: insErr } = await supabase.from('tags').insert(insertBody).select('*')
         if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
-        // If insert returned no visible row (RLS), provide a provisional object so client doesn't get null
-        results.push(ins && ins[0] ? ins[0] : { id: null, name: tagName, group: tagGroup, provisional: true })
+        const inserted = ins && ins[0] ? ins[0] : { id: insertBody.id || null, name: tagName, group: tagGroup, provisional: true }
+        // update local map so subsequent iterations see this new tag
+        if (inserted && inserted.name) existingMap.set(String(inserted.name), inserted)
+        results.push(inserted)
       }
     }
 
