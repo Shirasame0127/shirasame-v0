@@ -962,7 +962,18 @@ export default function AdminTagsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => { setEditingGroupName(groupName); setNewGroupName(groupName); setSelectedVisibility(serverGroupMeta[groupName]?.visibleWhenTriggerTagIds || []); setIsGroupDialogOpen(true) }}>編集</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => {
+                              const raw = serverGroupMeta[groupName]?.visibleWhenTriggerTagIds || []
+                              const normalized = Array.isArray(raw) ? raw.map((v: any) => {
+                                const s = String(v)
+                                const byId = tags.find(t => String(t.id) === s)
+                                if (byId) return String(byId.id)
+                                const byName = tags.find(t => t.name === s)
+                                if (byName) return String(byName.id)
+                                return s
+                              }).filter(Boolean) : []
+                              setEditingGroupName(groupName); setNewGroupName(groupName); setSelectedVisibility(normalized); setIsGroupDialogOpen(true)
+                            }}>編集</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={async () => {
                               if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
@@ -1049,7 +1060,18 @@ export default function AdminTagsPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onSelect={() => { setEditingGroupName(groupName); setNewGroupName(groupName); setSelectedVisibility(serverGroupMeta[groupName]?.visibleWhenTriggerTagIds || []); setIsGroupDialogOpen(true) }}>編集</DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => {
+                                const raw = serverGroupMeta[groupName]?.visibleWhenTriggerTagIds || []
+                                const normalized = Array.isArray(raw) ? raw.map((v: any) => {
+                                  const s = String(v)
+                                  const byId = tags.find(t => String(t.id) === s)
+                                  if (byId) return String(byId.id)
+                                  const byName = tags.find(t => t.name === s)
+                                  if (byName) return String(byName.id)
+                                  return s
+                                }).filter(Boolean) : []
+                                setEditingGroupName(groupName); setNewGroupName(groupName); setSelectedVisibility(normalized); setIsGroupDialogOpen(true)
+                              }}>編集</DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onSelect={async () => {
                                 if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
