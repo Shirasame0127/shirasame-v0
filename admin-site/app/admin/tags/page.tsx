@@ -35,6 +35,7 @@ import { getCurrentUser } from "@/lib/auth"
 export default function AdminTagsPage() {
   const SPECIAL_LINK_GROUP_NAME = "リンク先"
   const PRODUCT_TYPE_GROUP_NAME = "product-type"
+  const TRIGGER_GROUP_NAME = 'カテゴリー'
   const [tags, setTags] = useState<Array<{ id: string; name: string; group?: string; linkUrl?: string; linkLabel?: string }>>([])
   const [serverGroups, setServerGroups] = useState<string[]>([])
   const [serverGroupMeta, setServerGroupMeta] = useState<Record<string, { label?: string; isImmutable?: boolean; visibleWhenTriggerTagIds?: string[] }>>({})
@@ -887,12 +888,8 @@ export default function AdminTagsPage() {
                         <Label>このグループを表示する条件</Label>
                         <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
                           {(() => {
-                            const productKey = Object.keys(serverGroupMeta).find(k => k === PRODUCT_TYPE_GROUP_NAME)
-                            const productLabel = productKey ? serverGroupMeta[productKey]?.label : null
-                            return tags.filter(t => {
-                              const g = t.group || ''
-                              return g === productKey || (productLabel && g === productLabel)
-                            })
+                            const selectableTags = tags.filter((tag) => tag.group === TRIGGER_GROUP_NAME)
+                            return selectableTags
                           })().map((t: any) => (
                             <label key={t.id} className="flex items-center gap-2 text-sm">
                               <input
@@ -1217,7 +1214,7 @@ export default function AdminTagsPage() {
               <div className="space-y-2">
                 <Label>このグループを表示する条件</Label>
                 <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
-                  {tags.map((t) => (
+                  {tags.filter((tag) => tag.group === TRIGGER_GROUP_NAME).map((t) => (
                     <label key={t.id} className="flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"
