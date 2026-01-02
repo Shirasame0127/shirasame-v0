@@ -498,9 +498,18 @@ export default function HomePage() {
           const tagsJson = await tagsRes.json().catch(() => ({ data: [] }))
           const serverGroups = Array.isArray(groupsJson.data) ? groupsJson.data : groupsJson.data || []
           const serverTags = Array.isArray(tagsJson.data) ? tagsJson.data : tagsJson.data || []
-          const groups: Record<string, string[]> = {}
-          for (const g of serverGroups) { if (!g || !g.name) continue; groups[g.name] = [] }
-          for (const t of serverTags) { const tagName = t.name; const groupName = t.group || '未分類'; if (!groups[groupName]) groups[groupName] = []; if (!groups[groupName].includes(tagName)) groups[groupName].push(tagName) }
+          // Use object shape so we can include visibleWhenTriggerTagIds metadata per group
+          const groups: Record<string, { tags: string[]; visibleWhenTriggerTagIds?: string[] }> = {}
+          for (const g of serverGroups) {
+            if (!g || !g.name) continue
+            groups[g.name] = { tags: [], visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds.map(String) : [] }
+          }
+          for (const t of serverTags) {
+            const tagName = t.name
+            const groupName = t.group || '未分類'
+            if (!groups[groupName]) groups[groupName] = { tags: [], visibleWhenTriggerTagIds: [] }
+            if (!groups[groupName].tags.includes(tagName)) groups[groupName].tags.push(tagName)
+          }
           if (Object.keys(groups).length === 0) {
             const derived: Record<string, string[]> = {}
             apiProducts.filter((p: any) => p.published && Array.isArray(p.tags)).forEach((p: any) => {
