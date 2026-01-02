@@ -3599,6 +3599,13 @@ app.post('/api/admin/tag-groups', async (c) => {
     const insertBody = { name, label, user_id: targetUser }
     const { data: ins, error: insErr } = await supabase.from('tag_groups').insert(insertBody).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+    // Invalidate public caches affected by tag-groups
+    try {
+      const cache = (caches as any).default
+      await cache.delete(new Request(new URL('tag-groups', 'http://dummy').toString()))
+      await cache.delete(new Request(new URL('tags', 'http://dummy').toString()))
+    } catch (e) {}
+
     return new Response(JSON.stringify({ ok: true, data: ins && ins[0] ? ins[0] : null }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ作成中にサーバーエラー', e?.message || String(e), 'server_error', 500)
@@ -3620,6 +3627,13 @@ app.put('/api/admin/tag-groups', async (c) => {
     const isAdminUser = isAdmin(ctx.userId, c.env)
     if (body.userId && body.userId !== ctx.userId && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
 
+    // Check immutable flag on existing row
+    const { data: existingRows = [], error: existErr } = await supabase.from('tag_groups').select('is_immutable').eq('user_id', targetUser).eq('name', name).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+    if (existingRows && existingRows.length > 0 && existingRows[0] && existingRows[0].is_immutable) {
+      return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'このグループは変更できません', null, 'immutable_group', 403)
+    }
+
     // update tag_groups row
     const { data: upd, error: updErr } = await supabase.from('tag_groups').update({ name: newName, label }).eq('user_id', targetUser).eq('name', name).select('*')
     if (updErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループの更新に失敗しました', updErr.message || updErr, 'db_error', 500)
@@ -3627,6 +3641,13 @@ app.put('/api/admin/tag-groups', async (c) => {
     // update tags that reference this group
     const { error: tagUpdErr } = await supabase.from('tags').update({ group: newName }).eq('user_id', targetUser).eq('group', name)
     if (tagUpdErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの参照更新に失敗しました', tagUpdErr.message || tagUpdErr, 'db_error', 500)
+
+    // Invalidate public caches affected by tag-groups/tags
+    try {
+      const cache = (caches as any).default
+      await cache.delete(new Request(new URL('tag-groups', 'http://dummy').toString()))
+      await cache.delete(new Request(new URL('tags', 'http://dummy').toString()))
+    } catch (e) {}
 
     return new Response(JSON.stringify({ ok: true, data: upd }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
@@ -3659,6 +3680,51 @@ app.post('/api/admin/tag-groups/reorder', async (c) => {
     return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
   } catch (e: any) {
     return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ並び替え中にサーバーエラー', e?.message || String(e), 'server_error', 500)
+  }
+})
+
+// Admin: delete tag-group
+app.delete('/api/admin/tag-groups', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const body = await c.req.json().catch(() => ({}))
+    const name = body.name ? String(body.name).trim() : ''
+    if (!name) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'グループ名が必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const targetUser = body.userId ? String(body.userId) : ctx.userId
+    const isAdminUser = isAdmin(ctx.userId, c.env)
+    if (body.userId && body.userId !== ctx.userId && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    // Check immutable flag
+    const { data: existingRows = [], error: existErr } = await supabase.from('tag_groups').select('is_immutable').eq('user_id', targetUser).eq('name', name).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+    if (existingRows && existingRows.length > 0 && existingRows[0] && existingRows[0].is_immutable) {
+      return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'このグループは削除できません', null, 'immutable_group', 403)
+    }
+
+    // Remove any visibility mappings for this group (tolerant to different column names)
+    try { await supabase.from('tag_group_visibility').delete().eq('user_id', targetUser).eq('group_name', name) } catch (e) {}
+    try { await supabase.from('tag_group_visibility').delete().eq('user_id', targetUser).eq('group', name) } catch (e) {}
+
+    // Clear tags referencing this group
+    const { error: tagUpdErr } = await supabase.from('tags').update({ group: null }).eq('user_id', targetUser).eq('group', name)
+    if (tagUpdErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タグの参照更新に失敗しました', tagUpdErr.message || tagUpdErr, 'db_error', 500)
+
+    // Delete the group row
+    const { error: delErr } = await supabase.from('tag_groups').delete().eq('user_id', targetUser).eq('name', name)
+    if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループの削除に失敗しました', delErr.message || delErr, 'db_error', 500)
+
+    // Invalidate public caches
+    try {
+      const cache = (caches as any).default
+      await cache.delete(new Request(new URL('tag-groups', 'http://dummy').toString()))
+      await cache.delete(new Request(new URL('tags', 'http://dummy').toString()))
+    } catch (e) {}
+
+    return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループ削除中にサーバーエラー', e?.message || String(e), 'server_error', 500)
   }
 })
 

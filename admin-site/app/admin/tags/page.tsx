@@ -36,6 +36,7 @@ export default function AdminTagsPage() {
   const SPECIAL_LINK_GROUP_NAME = "リンク先"
   const [tags, setTags] = useState<Array<{ id: string; name: string; group?: string; linkUrl?: string; linkLabel?: string }>>([])
   const [serverGroups, setServerGroups] = useState<string[]>([])
+  const [serverGroupMeta, setServerGroupMeta] = useState<Record<string, { isImmutable?: boolean; visibleWhenTriggerTagIds?: string[] }>>({})
   const [newTagName, setNewTagName] = useState("")
   const [newTagGroup, setNewTagGroup] = useState("")
   const [newTagLinkUrl, setNewTagLinkUrl] = useState("")
@@ -46,6 +47,7 @@ export default function AdminTagsPage() {
   const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false)
   const [editingGroupName, setEditingGroupName] = useState("")
   const [newGroupName, setNewGroupName] = useState("")
+  const [selectedVisibility, setSelectedVisibility] = useState<string[]>([])
   const { toast } = useToast()
 
   useEffect(() => {
@@ -75,6 +77,12 @@ export default function AdminTagsPage() {
 
         if (groupsRes.ok) {
           const groupNames = tagGroups.map((g: any) => g.name).filter(Boolean)
+          const meta: Record<string, any> = {}
+          ;(tagGroups || []).forEach((g: any) => {
+            if (!g || !g.name) return
+            meta[g.name] = { isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
+          })
+          setServerGroupMeta(meta)
           // Ensure the special LINK group exists in server-side groups. If missing, try to create it.
           if (!groupNames.includes(SPECIAL_LINK_GROUP_NAME)) {
             try {
@@ -525,7 +533,7 @@ export default function AdminTagsPage() {
         const res = await apiFetch('/api/admin/tag-groups', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: editingGroupName, newName: newGroupName.trim(), label: newGroupName.trim() }),
+          body: JSON.stringify({ name: editingGroupName, newName: newGroupName.trim(), label: newGroupName.trim(), visibleWhenTriggerTagIds: selectedVisibility }),
         })
         if (!res.ok) throw new Error('rename group failed')
 
@@ -537,6 +545,25 @@ export default function AdminTagsPage() {
         setIsGroupDialogOpen(false)
         setEditingGroupName("")
         setNewGroupName("")
+        setSelectedVisibility([])
+
+        // refresh server group list and metadata
+        try {
+          const fresh = await apiFetch('/api/tag-groups')
+          if (fresh.ok) {
+            const freshJson = await fresh.json().catch(() => ({ data: [] }))
+            const freshGroups = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+            setServerGroups(freshGroups.map((g: any) => g.name))
+            const meta: Record<string, any> = {}
+            ;(freshGroups || []).forEach((g: any) => {
+              if (!g || !g.name) return
+              meta[g.name] = { isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
+            })
+            setServerGroupMeta(meta)
+          }
+        } catch (e) {
+          // ignore refresh errors
+        }
       } catch (e) {
         console.error('rename group failed', e)
         toast({ variant: 'destructive', title: '変更失敗', description: 'グループ名の変更に失敗しました' })
@@ -569,13 +596,30 @@ export default function AdminTagsPage() {
         const res = await apiFetch('/api/admin/tag-groups', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: trimmedGroupName, label: trimmedGroupName }),
+          body: JSON.stringify({ name: trimmedGroupName, label: trimmedGroupName, visibleWhenTriggerTagIds: selectedVisibility }),
         })
         if (!res.ok) throw new Error('create group failed')
         setServerGroups(s => Array.from(new Set([...(s || []), trimmedGroupName])))
         toast({ title: '作成完了', description: `グループ「${trimmedGroupName}」を作成しました` })
         setNewGroupName("")
         setIsGroupDialogOpen(false)
+        setSelectedVisibility([])
+
+        // refresh server group metadata
+        try {
+          const fresh = await apiFetch('/api/tag-groups')
+          if (fresh.ok) {
+            const freshJson = await fresh.json().catch(() => ({ data: [] }))
+            const freshGroups = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+            setServerGroups(freshGroups.map((g: any) => g.name))
+            const meta: Record<string, any> = {}
+            ;(freshGroups || []).forEach((g: any) => {
+              if (!g || !g.name) return
+              meta[g.name] = { isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
+            })
+            setServerGroupMeta(meta)
+          }
+        } catch (e) {}
       } catch (e) {
         console.error('create group failed', e)
         toast({ variant: 'destructive', title: '作成失敗' })
@@ -835,6 +879,27 @@ export default function AdminTagsPage() {
                       placeholder="例: 作業環境、ガジェット、ソフトウェア"
                     />
                   </div>
+                    {editingGroupName && (
+                      <div className="space-y-2">
+                        <Label>このグループを表示する条件</Label>
+                        <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
+                          {tags.map((t) => (
+                            <label key={t.name} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={selectedVisibility.includes(t.name)}
+                                onChange={(e) => {
+                                  const v = t.name
+                                  setSelectedVisibility((prev) => e.target.checked ? Array.from(new Set([...prev, v])) : prev.filter(x => x !== v))
+                                }}
+                              />
+                              <span className="truncate">{t.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">何も選ばれていない場合は「常に表示」</p>
+                      </div>
+                    )}
                   <div className="flex justify-end gap-2">
                     <Button variant="outline" onClick={() => setIsGroupDialogOpen(false)}>
                       キャンセル
@@ -883,6 +948,7 @@ export default function AdminTagsPage() {
                     <div className="flex-none flex items-center gap-2 ml-2">
                       {/* Special handling: protect the special link group from rename/delete */}
                       {groupName !== SPECIAL_LINK_GROUP_NAME && (
+                      {!(serverGroupMeta[groupName]?.isImmutable) && groupName !== SPECIAL_LINK_GROUP_NAME && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0">
@@ -890,7 +956,7 @@ export default function AdminTagsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={() => { setEditingGroupName(groupName); setNewGroupName(groupName); setIsGroupDialogOpen(true) }}>編集</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => { setEditingGroupName(groupName); setNewGroupName(groupName); setSelectedVisibility(serverGroupMeta[groupName]?.visibleWhenTriggerTagIds || []); setIsGroupDialogOpen(true) }}>編集</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={async () => {
                               if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
@@ -904,7 +970,25 @@ export default function AdminTagsPage() {
                                 const updatedTags = tags.map((t) => (t.group === groupName ? { ...t, group: undefined } : t))
                                 setTags(updatedTags)
                                 db.tags.saveAll(updatedTags)
-                                setServerGroups((s) => s.filter((g) => g !== groupName))
+                                // refresh server groups and metadata
+                                try {
+                                  const fresh = await apiFetch('/api/tag-groups')
+                                  if (fresh.ok) {
+                                    const freshJson = await fresh.json().catch(() => ({ data: [] }))
+                                    const freshGroups = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+                                    setServerGroups(freshGroups.map((g: any) => g.name))
+                                    const meta: Record<string, any> = {}
+                                    ;(freshGroups || []).forEach((g: any) => {
+                                      if (!g || !g.name) return
+                                      meta[g.name] = { isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
+                                    })
+                                    setServerGroupMeta(meta)
+                                  } else {
+                                    setServerGroups((s) => s.filter((g) => g !== groupName))
+                                  }
+                                } catch (e) {
+                                  setServerGroups((s) => s.filter((g) => g !== groupName))
+                                }
                                 toast({ title: '削除完了', description: `グループ「${groupName}」を削除しました` })
                               } catch (e) {
                                 console.error('delete group failed', e)
@@ -951,7 +1035,7 @@ export default function AdminTagsPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 truncate">
                         <span className="text-sm font-medium truncate">{groupName}</span>
-                        {groupName !== "未分類" && groupName !== SPECIAL_LINK_GROUP_NAME && (
+                        {groupName !== "未分類" && !(serverGroupMeta[groupName]?.isImmutable) && groupName !== SPECIAL_LINK_GROUP_NAME && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" className="h-6 w-6">
@@ -959,7 +1043,7 @@ export default function AdminTagsPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onSelect={() => { setEditingGroupName(groupName); setNewGroupName(groupName); setIsGroupDialogOpen(true) }}>編集</DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => { setEditingGroupName(groupName); setNewGroupName(groupName); setSelectedVisibility(serverGroupMeta[groupName]?.visibleWhenTriggerTagIds || []); setIsGroupDialogOpen(true) }}>編集</DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onSelect={async () => {
                                 if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
@@ -970,11 +1054,29 @@ export default function AdminTagsPage() {
                                     body: JSON.stringify({ name: groupName }),
                                   })
                                   if (!res.ok) throw new Error('delete failed')
-                                  const updatedTags = tags.map((t) => (t.group === groupName ? { ...t, group: undefined } : t))
-                                  setTags(updatedTags)
-                                  db.tags.saveAll(updatedTags)
-                                  setServerGroups((s) => s.filter((g) => g !== groupName))
-                                  toast({ title: '削除完了', description: `グループ「${groupName}」を削除しました` })
+                                    const updatedTags = tags.map((t) => (t.group === groupName ? { ...t, group: undefined } : t))
+                                    setTags(updatedTags)
+                                    db.tags.saveAll(updatedTags)
+                                    // refresh server groups and metadata
+                                    try {
+                                      const fresh = await apiFetch('/api/tag-groups')
+                                      if (fresh.ok) {
+                                        const freshJson = await fresh.json().catch(() => ({ data: [] }))
+                                        const freshGroups = Array.isArray(freshJson) ? freshJson : freshJson.data || []
+                                        setServerGroups(freshGroups.map((g: any) => g.name))
+                                        const meta: Record<string, any> = {}
+                                        ;(freshGroups || []).forEach((g: any) => {
+                                          if (!g || !g.name) return
+                                          meta[g.name] = { isImmutable: !!g.is_immutable, visibleWhenTriggerTagIds: Array.isArray(g.visibleWhenTriggerTagIds) ? g.visibleWhenTriggerTagIds : [] }
+                                        })
+                                        setServerGroupMeta(meta)
+                                      } else {
+                                        setServerGroups((s) => s.filter((g) => g !== groupName))
+                                      }
+                                    } catch (e) {
+                                      setServerGroups((s) => s.filter((g) => g !== groupName))
+                                    }
+                                    toast({ title: '削除完了', description: `グループ「${groupName}」を削除しました` })
                                 } catch (e) {
                                   console.error('delete group failed', e)
                                   toast({ variant: 'destructive', title: '削除失敗' })
@@ -1102,6 +1204,27 @@ export default function AdminTagsPage() {
                 placeholder="例: 作業環境、ガジェット、ソフトウェア"
               />
             </div>
+            {editingGroupName && (
+              <div className="space-y-2">
+                <Label>このグループを表示する条件</Label>
+                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
+                  {tags.map((t) => (
+                    <label key={t.name} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selectedVisibility.includes(t.name)}
+                        onChange={(e) => {
+                          const v = t.name
+                          setSelectedVisibility((prev) => e.target.checked ? Array.from(new Set([...prev, v])) : prev.filter(x => x !== v))
+                        }}
+                      />
+                      <span className="truncate">{t.name}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">何も選ばれていない場合は「常に表示」</p>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setIsGroupDialogOpen(false)}>
                 キャンセル
