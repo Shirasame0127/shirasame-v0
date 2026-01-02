@@ -16,7 +16,7 @@ export async function fetchPublicTagGroups(env: any) {
       for (const r of visRows) {
         try {
           // Determine group identifier column
-          const groupName = r.group_name || r.group || r.name || r.tag_group || r.groupName || null
+          const groupName = r.group_name || r.group || r.name || r.tag_group || r.groupName || r.target_group || null
           if (!groupName) continue
 
           // If row provides an array field, use it

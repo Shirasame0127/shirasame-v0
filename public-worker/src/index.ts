@@ -3599,6 +3599,17 @@ app.post('/api/admin/tag-groups', async (c) => {
     const insertBody = { name, label, user_id: targetUser }
     const { data: ins, error: insErr } = await supabase.from('tag_groups').insert(insertBody).select('*')
     if (insErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'タググループの作成に失敗しました', insErr.message || insErr, 'db_error', 500)
+    // If visibility mappings provided, persist to tag_group_visibility
+    try {
+      const visibleIds = Array.isArray(body.visibleWhenTriggerTagIds) ? body.visibleWhenTriggerTagIds.map(String) : null
+      if (visibleIds && visibleIds.length > 0) {
+        // insert rows in bulk
+        const rows = visibleIds.map((tid) => ({ user_id: targetUser, trigger_tag_id: tid, target_group: name }))
+        await supabase.from('tag_group_visibility').insert(rows)
+      }
+    } catch (e) {
+      // tolerate failures here; visibility is optional
+    }
     // Invalidate public caches affected by tag-groups
     try {
       const cache = (caches as any).default
@@ -3647,6 +3658,27 @@ app.put('/api/admin/tag-groups', async (c) => {
       const cache = (caches as any).default
       await cache.delete(new Request(new URL('tag-groups', 'http://dummy').toString()))
       await cache.delete(new Request(new URL('tags', 'http://dummy').toString()))
+    } catch (e) {}
+
+    // Update visibility mappings: replace any existing mappings for this user's old group
+    try {
+      // delete any rows that reference the old group name (try multiple column names)
+      await supabase.from('tag_group_visibility').delete().eq('user_id', targetUser).eq('target_group', name)
+    } catch (e) {}
+    try {
+      await supabase.from('tag_group_visibility').delete().eq('user_id', targetUser).eq('group', name)
+    } catch (e) {}
+    try {
+      await supabase.from('tag_group_visibility').delete().eq('user_id', targetUser).eq('group_name', name)
+    } catch (e) {}
+
+    // If caller provided new visibility ids, insert them for newName
+    try {
+      const visibleIds = Array.isArray(body.visibleWhenTriggerTagIds) ? body.visibleWhenTriggerTagIds.map(String) : null
+      if (visibleIds && visibleIds.length > 0) {
+        const rows = visibleIds.map((tid) => ({ user_id: targetUser, trigger_tag_id: tid, target_group: newName }))
+        await supabase.from('tag_group_visibility').insert(rows)
+      }
     } catch (e) {}
 
     return new Response(JSON.stringify({ ok: true, data: upd }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
@@ -3706,6 +3738,7 @@ app.delete('/api/admin/tag-groups', async (c) => {
     // Remove any visibility mappings for this group (tolerant to different column names)
     try { await supabase.from('tag_group_visibility').delete().eq('user_id', targetUser).eq('group_name', name) } catch (e) {}
     try { await supabase.from('tag_group_visibility').delete().eq('user_id', targetUser).eq('group', name) } catch (e) {}
+    try { await supabase.from('tag_group_visibility').delete().eq('user_id', targetUser).eq('target_group', name) } catch (e) {}
 
     // Clear tags referencing this group
     const { error: tagUpdErr } = await supabase.from('tags').update({ group: null }).eq('user_id', targetUser).eq('group', name)
