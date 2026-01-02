@@ -8,7 +8,7 @@ import { recipesHandler } from './recipes'
 import { tagGroupsHandler } from './tag-groups'
 import { tagsHandler } from './tags'
 import { getSupabase } from '../../supabase'
-import { getPublicImageUrl } from '../../../shared/lib/image-usecases'
+import { getPublicImageUrl } from '../../../../shared/lib/image-usecases'
 
 export function registerPublicRoutes(app: any) {
   // All routes under /api/public/* per spec
