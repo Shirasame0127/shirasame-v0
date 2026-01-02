@@ -37,7 +37,7 @@ export default function AdminTagsPage() {
   const PRODUCT_TYPE_GROUP_NAME = "product-type"
   const [tags, setTags] = useState<Array<{ id: string; name: string; group?: string; linkUrl?: string; linkLabel?: string }>>([])
   const [serverGroups, setServerGroups] = useState<string[]>([])
-  const [serverGroupMeta, setServerGroupMeta] = useState<Record<string, { isImmutable?: boolean; visibleWhenTriggerTagIds?: string[] }>>({})
+  const [serverGroupMeta, setServerGroupMeta] = useState<Record<string, { label?: string; isImmutable?: boolean; visibleWhenTriggerTagIds?: string[] }>>({})
   const [newTagName, setNewTagName] = useState("")
   const [newTagGroup, setNewTagGroup] = useState("")
   const [newTagLinkUrl, setNewTagLinkUrl] = useState("")
@@ -892,16 +892,14 @@ export default function AdminTagsPage() {
                             return tags.filter(t => {
                               const g = t.group || ''
                               return g === productKey || (productLabel && g === productLabel)
-                            }).map((t) => (
-                              t
-                            ))
+                            })
                           })().map((t: any) => (
-                            <label key={t.name} className="flex items-center gap-2 text-sm">
+                            <label key={t.id} className="flex items-center gap-2 text-sm">
                               <input
                                 type="checkbox"
-                                checked={selectedVisibility.includes(t.name)}
+                                checked={selectedVisibility.includes(t.id)}
                                 onChange={(e) => {
-                                  const v = t.name
+                                  const v = t.id
                                   setSelectedVisibility((prev) => e.target.checked ? Array.from(new Set([...prev, v])) : prev.filter(x => x !== v))
                                 }}
                               />
@@ -1220,12 +1218,12 @@ export default function AdminTagsPage() {
                 <Label>このグループを表示する条件</Label>
                 <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
                   {tags.map((t) => (
-                    <label key={t.name} className="flex items-center gap-2 text-sm">
+                    <label key={t.id} className="flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"
-                        checked={selectedVisibility.includes(t.name)}
+                        checked={selectedVisibility.includes(t.id)}
                         onChange={(e) => {
-                          const v = t.name
+                          const v = t.id
                           setSelectedVisibility((prev) => e.target.checked ? Array.from(new Set([...prev, v])) : prev.filter(x => x !== v))
                         }}
                       />
