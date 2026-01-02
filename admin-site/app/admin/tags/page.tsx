@@ -947,8 +947,7 @@ export default function AdminTagsPage() {
                     </div>
                     <div className="flex-none flex items-center gap-2 ml-2">
                       {/* Special handling: protect the special link group from rename/delete */}
-                      {groupName !== SPECIAL_LINK_GROUP_NAME && (
-                      {!(serverGroupMeta[groupName]?.isImmutable) && groupName !== SPECIAL_LINK_GROUP_NAME && (
+                      {groupName !== SPECIAL_LINK_GROUP_NAME && !(serverGroupMeta[groupName]?.isImmutable) && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0">
