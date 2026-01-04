@@ -788,7 +788,14 @@ export default function HomePage() {
         <div className={`max-w-7xl mx-auto px-4 pt-8 ${isAllOverlayOpen ? 'all-items-overlay' : ''}`}>
           <div className="mb-8 flex justify-center">
             <div className="relative inline-flex items-center rounded-full shadow-sm border-2 border-sky-400 bg-white gallery-toggle" style={{ width: 280, padding: '4px' }}>
-              <div className={`absolute left-1 top-1 bottom-1 w-1/2 rounded-full transition-transform duration-300 ease-in-out ${displayMode === 'gallery' ? 'translate-x-full' : 'translate-x-0'} bg-sky-300`} aria-hidden />
+              <div
+                aria-hidden
+                className="absolute top-1 bottom-1 rounded-full bg-sky-300 transition-all duration-300 ease-in-out"
+                style={{
+                  width: 'calc(50% - 4px)',
+                  left: displayMode === 'gallery' ? '50%' : '4px',
+                }}
+              />
               <button onClick={() => changeDisplayMode('normal')} aria-pressed={displayMode === 'normal'} className={`relative z-10 flex-1 h-10 flex items-center justify-center text-base font-semibold px-4 rounded-full transition-colors ${displayMode === 'normal' ? 'text-white' : 'text-sky-600'}`}>Normal</button>
               <button onClick={() => changeDisplayMode('gallery')} aria-pressed={displayMode === 'gallery'} className={`relative z-10 flex-1 h-10 flex items-center justify-center text-base font-semibold px-4 rounded-full transition-colors ${displayMode === 'gallery' ? 'text-white' : 'text-sky-600'}`}>Gallery   </button>
             </div>
