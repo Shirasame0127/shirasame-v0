@@ -19,7 +19,45 @@ interface ProductDetailModalProps {
 }
 
 export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, saleName }: ProductDetailModalProps) {
-  useEffect(() => { document.body.style.overflow = isOpen ? 'hidden' : 'unset'; return () => { document.body.style.overflow = 'unset' } }, [isOpen])
+  const scrollYRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!isOpen) {
+      if (scrollYRef.current !== null) {
+        const y = scrollYRef.current
+        document.body.style.position = ''
+        document.body.style.top = ''
+        document.body.style.left = ''
+        document.body.style.right = ''
+        document.body.style.width = ''
+        document.body.style.overflow = ''
+        window.scrollTo(0, y)
+        scrollYRef.current = null
+      }
+      return
+    }
+    // lock scroll: fix body in place and preserve scroll position to avoid jump on mobile/iOS
+    scrollYRef.current = typeof window !== 'undefined' ? window.scrollY : 0
+    document.body.style.position = 'fixed'
+    document.body.style.top = `-${scrollYRef.current}px`
+    document.body.style.left = '0'
+    document.body.style.right = '0'
+    document.body.style.width = '100%'
+    document.body.style.overflow = 'hidden'
+    return () => {
+      if (scrollYRef.current !== null) {
+        const y = scrollYRef.current
+        document.body.style.position = ''
+        document.body.style.top = ''
+        document.body.style.left = ''
+        document.body.style.right = ''
+        document.body.style.width = ''
+        document.body.style.overflow = ''
+        window.scrollTo(0, y)
+        scrollYRef.current = null
+      }
+    }
+  }, [isOpen])
+
   const leftImageRef = useRef<HTMLDivElement | null>(null)
   const [modalMinHeight, setModalMinHeight] = useState<number | undefined>(undefined)
   const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null)
@@ -30,7 +68,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
     }
     updateHeight(); window.addEventListener('resize', updateHeight); return () => window.removeEventListener('resize', updateHeight)
   }, [isOpen, product])
-  if (!isOpen || !product) return null
+  if (!isOpen) return null
 
   // API now returns `main_image: { src, srcSet } | null` and `attachment_images: [{ src, srcSet }]`.
   // Normalize sources: prefer `main_image`/`attachment_images`, fall back to legacy `images` shape.
@@ -63,18 +101,18 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
   // Attachment images to render (ensure {src,srcSet} shape)
   const attachmentImages = (apiAttachments.length > 0 ? apiAttachments : legacyImages.filter((l: any) => l.role === 'attachment').map((l: any) => ({ src: l.src, srcSet: l.srcSet }))) .slice(0, 4)
 
-  const hasTags = product.tags && product.tags.length > 0
-  const hasShortDescription = !!product.shortDescription
+  const hasTags = product?.tags && product.tags.length > 0
+  const hasShortDescription = !!product?.shortDescription
   // Treat 0 and numeric strings as valid prices. Respect explicit showPrice / show_price flags.
   const rawPrice = product?.price ?? null
   const parsedPrice = typeof rawPrice === 'number' ? rawPrice : (typeof rawPrice === 'string' && /^\d+$/.test(rawPrice) ? Number(rawPrice) : (rawPrice === null ? null : Number(rawPrice)))
   // Force-show price regardless of showPrice / show_price flags
   const hasPrice = parsedPrice !== null && !Number.isNaN(parsedPrice)
-  const hasBody = !!product.body
-  const hasAffiliateLinks = product.affiliateLinks && product.affiliateLinks.length > 0
-  const hasNotes = !!product.notes
+  const hasBody = !!product?.body
+  const hasAffiliateLinks = product?.affiliateLinks && product.affiliateLinks.length > 0
+  const hasNotes = !!product?.notes
   const hasAttachments = attachmentImages.length > 0
-  const hasRelatedLinks = product.relatedLinks && product.relatedLinks.length > 0
+  const hasRelatedLinks = product?.relatedLinks && product.relatedLinks.length > 0
 
   const rightSideElementCount = [hasTags, hasShortDescription, hasPrice, hasBody, hasAffiliateLinks, hasNotes, hasAttachments, hasRelatedLinks].filter(Boolean).length
   const useVerticalLayout = rightSideElementCount <= 1
@@ -127,109 +165,120 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
         </div>
 
         <div className={rightContentClassName} style={{ rowGap: textSpacing.sectionRowGap }}>
-          {hasTags && (
-            <div className="flex flex-wrap gap-2">
-              {product.tags.map((tag: any) => (
-                <span key={tag} className="inline-flex items-center bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-gray-100 text-xs font-medium px-2 py-0.5 rounded-full">{tag}</span>
-              ))}
-            </div>
-          )}
-
-          {hasShortDescription && (
-            <p className="text-sm text-muted-foreground" style={{ marginBottom: '0em' }}>{product.shortDescription}</p>
-          )}
-
-          <h1 className="text-xl font-bold" style={{ marginBottom: textSpacing.titleMarginBottom }}>{product.title}</h1>
-
-          {hasPrice ? (
-            <div className="flex items-center gap-3">
-                <p className="text-2xl font-bold">¥{(typeof parsedPrice === 'number' && !Number.isNaN(parsedPrice)) ? parsedPrice.toLocaleString() : String(parsedPrice)}</p>
-              {saleName && (
-                <Badge variant="destructive" className="text-sm px-3 py-1.5 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  {saleName || 'セール'}
-                </Badge>
-              )}
+          {!product ? (
+            <div className="flex-1 flex items-center justify-center p-6">
+              <div className="space-y-2 text-center">
+                <div className="h-6 w-48 bg-gray-200 dark:bg-slate-700 rounded animate-pulse mx-auto" />
+                <p className="text-sm text-muted-foreground mt-2">読み込み中...</p>
+              </div>
             </div>
           ) : (
-            saleName && (
-              <div className="flex items-center gap-3">
-                <Badge variant="destructive" className="text-sm px-3 py-1.5 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  {saleName || 'セール'}
-                </Badge>
-              </div>
-            )
-          )}
-
-          {hasBody && (
-            <Card>
-              <CardContent className="px-2">
-                <h2 className="font-semibold mb-2 text-sm">商品詳細</h2>
-                <p className="text-sm leading-relaxed">{product.body}</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {hasAffiliateLinks && (
-            <div className="space-y-3">
-              <h3 className="font-semibold text-sm text-center">購入リンク</h3>
-              <div className="space-y-2">
-                {product.affiliateLinks.map((link: any, index: number) => {
-                  let label = link.label
-                  if (!label) {
-                    try { const u = new URL(link.url); label = u.hostname.replace('www.', '') } catch (e) { label = '購入リンク' }
-                  }
-                  const isTikTok = typeof link.url === 'string' && /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com|vm.tiktok.com|vt.tiktok.com)/i.test(link.url)
-                  const commonClass = 'w-full flex items-center justify-center gap-2 rounded-md text-white py-3 text-sm font-medium'
-                  if (isTikTok) {
-                    const tLabel = link.label || 'TikTokで見る'
-                    return (
-                      <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
-                        <span className="truncate ">{tLabel}</span>
-                        <ExternalLink className="w-4 h-4" />
-                      </a>
-                    )
-                  }
-                  return (
-                    <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
-                      <span className="truncate">{label}</span>
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {hasAttachments && (
-            <div>
-              <h3 className="font-semibold mb-2 text-sm text-center">添付画像</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {attachmentImages.map((img: any, idx: number) => (
-                    <div key={`${product.id ?? 'p'}-att-${idx}`} className="relative aspect-square rounded-md overflow-hidden bg-white dark:bg-slate-800 shadow-sm">
-                          <img src={img?.src || "/placeholder.svg"} srcSet={img?.srcSet || undefined} alt={`添付画像 ${idx + 1}`} className="w-full h-full object-cover" />
-                    </div>
+            <>
+              {hasTags && (
+                <div className="flex flex-wrap gap-2">
+                  {product?.tags?.map((tag: any) => (
+                    <span key={tag} className="inline-flex items-center bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-gray-100 text-xs font-medium px-2 py-0.5 rounded-full">{tag}</span>
                   ))}
                 </div>
-            </div>
-          )}
+              )}
 
-          {hasRelatedLinks && (
-            <div>
-              <h3 className="font-semibold mb-2 text-sm text-center">関連リンク</h3>
-              <div className="space-y-2">
-                {(product.relatedLinks || []).map((link: string, index: number) => (
-                  <div key={index}>
-                    <EmbeddedLink
-                      url={link}
-                      // ensure related link buttons are full-width pills
-                      buttonClassName={`w-full rounded-full py-5 bg-sky-400 text-white hover:bg-sky-500 focus-visible:ring-sky-200`}
-                    />
+              {hasShortDescription && (
+                <p className="text-sm text-muted-foreground" style={{ marginBottom: '0em' }}>{product?.shortDescription}</p>
+              )}
+
+              <h1 className="text-xl font-bold" style={{ marginBottom: textSpacing.titleMarginBottom }}>{product?.title || ''}</h1>
+
+              {hasPrice ? (
+                <div className="flex items-center gap-3">
+                    <p className="text-2xl font-bold">¥{(typeof parsedPrice === 'number' && !Number.isNaN(parsedPrice)) ? parsedPrice.toLocaleString() : String(parsedPrice)}</p>
+                  {saleName && (
+                    <Badge variant="destructive" className="text-sm px-3 py-1.5 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" />
+                      {saleName || 'セール'}
+                    </Badge>
+                  )}
+                </div>
+              ) : (
+                saleName && (
+                  <div className="flex items-center gap-3">
+                    <Badge variant="destructive" className="text-sm px-3 py-1.5 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" />
+                      {saleName || 'セール'}
+                    </Badge>
                   </div>
-                ))}
-              </div>
-            </div>
+                )
+              )}
+
+              {hasBody && (
+                <Card>
+                  <CardContent className="px-2">
+                    <h2 className="font-semibold mb-2 text-sm">商品詳細</h2>
+                    <p className="text-sm leading-relaxed">{product?.body}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {hasAffiliateLinks && (
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-sm text-center">購入リンク</h3>
+                  <div className="space-y-2">
+                    {product?.affiliateLinks?.map((link: any, index: number) => {
+                      let label = link.label
+                      if (!label) {
+                        try { const u = new URL(link.url); label = u.hostname.replace('www.', '') } catch (e) { label = '購入リンク' }
+                      }
+                      const isTikTok = typeof link.url === 'string' && /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com|vm.tiktok.com|vt.tiktok.com)/i.test(link.url)
+                      const commonClass = 'w-full flex items-center justify-center gap-2 rounded-md text-white py-3 text-sm font-medium'
+                      if (isTikTok) {
+                        const tLabel = link.label || 'TikTokで見る'
+                        return (
+                          <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
+                            <span className="truncate ">{tLabel}</span>
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        )
+                      }
+                      return (
+                        <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
+                          <span className="truncate">{label}</span>
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {hasAttachments && (
+                <div>
+                  <h3 className="font-semibold mb-2 text-sm text-center">添付画像</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {attachmentImages.map((img: any, idx: number) => (
+                        <div key={`${product?.id ?? 'p'}-att-${idx}`} className="relative aspect-square rounded-md overflow-hidden bg-white dark:bg-slate-800 shadow-sm">
+                              <img src={img?.src || "/placeholder.svg"} srcSet={img?.srcSet || undefined} alt={`添付画像 ${idx + 1}`} className="w-full h-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                </div>
+              )}
+
+              {hasRelatedLinks && (
+                <div>
+                  <h3 className="font-semibold mb-2 text-sm text-center">関連リンク</h3>
+                  <div className="space-y-2">
+                    {(product?.relatedLinks || []).map((link: string, index: number) => (
+                      <div key={index}>
+                        <EmbeddedLink
+                          url={link}
+                          // ensure related link buttons are full-width pills
+                          buttonClassName={`w-full rounded-full py-5 bg-sky-400 text-white hover:bg-sky-500 focus-visible:ring-sky-200`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
