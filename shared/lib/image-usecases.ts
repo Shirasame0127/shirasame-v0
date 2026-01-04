@@ -30,7 +30,8 @@ export function usageToWidths(u: ImageUsage): number[] {
     case 'detail':
       return [800]
     case 'attachment':
-      return [200, 400]
+      // Use single 400px variant for attachments to reduce unique transforms
+      return [400]
     case 'gallery':
       return [400]
     case 'recipe':
