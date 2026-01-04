@@ -91,13 +91,10 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
     : 'relative w-[95%] sm:w-[85%] lg:w-[75%] max-w-5xl h-auto max-h-[80vh] sm:h-[40vh] bg-white dark:bg-slate-900 rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-auto sm:overflow-hidden flex flex-col sm:flex-row'
 
   const leftImageClassName = useVerticalLayout ? 'flex-shrink-0 w-full p-4 flex items-center justify-center' : 'flex-shrink-0 sm:w-1/2 p-6 sm:border-r flex items-center justify-center sm:h-full'
-  const isSquareImage = imageAspectRatio ? imageAspectRatio > 0.95 && imageAspectRatio < 1.05 : false
-  // When square images are detected, add aspect-square but also constrain max-height
-  // and allow width to auto-adjust so the square won't overflow a short parent container.
-  const squareModifiers = isSquareImage ? 'aspect-square max-h-full w-auto h-auto' : ''
+  // Force square (1:1) image container to avoid layout shift and ensure consistent presentation
   const innerImageClassName = useVerticalLayout
-    ? `relative w-full max-w-sm mx-auto rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center ${squareModifiers}`
-    : `relative w-full max-w-[640px] rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center ${squareModifiers}`
+    ? 'relative w-full max-w-sm mx-auto rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center aspect-square'
+    : 'relative w-full max-w-[640px] rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center aspect-square'
   const rightContentClassName = useVerticalLayout ? 'flex-1 pt-4 pb-6 px-6 space-y-4 text-left [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2 overflow-auto' : 'flex-1 pt-4 pb-6 px-6 space-y-4 text-left sm:overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2'
 
   return (
@@ -116,7 +113,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                   (() => {
                     const displaySrc = mainImage?.src || "/placeholder.svg"
                     const displaySrcSet = mainImage?.srcSet || undefined
-                    return <img src={displaySrc} srcSet={displaySrcSet} alt={product.title || '商品画像'} className="max-w-full max-h-full object-contain" onLoad={(e) => { const t = e.currentTarget as HTMLImageElement; setImageAspectRatio(t.naturalWidth / t.naturalHeight); }} />
+                    return <img src={displaySrc} srcSet={displaySrcSet} alt={product.title || '商品画像'} className="w-full h-full object-cover" onLoad={(e) => { try { const t = e.currentTarget as HTMLImageElement; setImageAspectRatio(t.naturalWidth / t.naturalHeight); } catch {} }} />
                   })()
                 }
             {saleName && (
