@@ -30,7 +30,9 @@ export function registerPublicRoutes(app: any) {
   app.get('/api/public/owner-products/*', async (c: any) => {
     try {
       const path = (new URL(c.req.url)).pathname || ''
-      const slug = path.replace('/api/public/owner-products/', '').replace(/\/+$/, '')
+      const slug = (() => {
+        try { return decodeURIComponent(path.replace('/api/public/owner-products/', '').replace(/\/+$/, '')) } catch { return path.replace('/api/public/owner-products/', '').replace(/\/+$/, '') }
+      })()
       const { fetchPublicOwnerProductBySlug } = await import('../../services/public/products')
       const res = await fetchPublicOwnerProductBySlug(c.env, slug)
       const headers = Object.assign({}, computePublicCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' })
