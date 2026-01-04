@@ -814,8 +814,8 @@ export default function HomePage() {
                       <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setSearchText((e.target as HTMLInputElement).value) } }} placeholder="キーワードで検索" className="flex-1 bg-transparent py-3 pl-10 pr-3 text-sm outline-none placeholder:text-muted-foreground" />
                     </div>
                     <div className="ml-3 flex items-center">
-                      <Button aria-label="フィルタを開く" variant="ghost" size="icon-lg" className="rounded-full w-10 h-10 flex items-center justify-center" onClick={() => { if (typeof window !== 'undefined' && window.innerWidth < 640) { setIsFilterSheetOpen(true) } else { setShowFilters(!showFilters) } }}>
-                        <Filter className="w-4 h-4" />
+                      <Button aria-label="フィルタを開く" variant="ghost" size="icon-lg" className="rounded-full w-10 h-10 flex items-center justify-center bg-white border shadow-sm hover:shadow-md" onClick={() => { if (typeof window !== 'undefined' && window.innerWidth < 640) { setIsFilterSheetOpen(true) } else { setShowFilters(!showFilters) } }}>
+                        <Filter className="w-4 h-4 text-sky-600" />
                       </Button>
                     </div>
                   </div>
