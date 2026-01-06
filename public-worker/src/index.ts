@@ -1790,6 +1790,38 @@ app.put('/api/admin/collections/*', async (c) => {
   }
 })
 
+// Admin: delete collection
+app.delete('/api/admin/collections/*', async (c) => {
+  try {
+    const supabase = getSupabase(c.env)
+    const path = c.req.path || (new URL(c.req.url)).pathname
+    const id = path.replace('/api/admin/collections/', '')
+    if (!id) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクションIDが必要です', null, 'invalid_request', 400)
+    const ctx = await resolveRequestUserContext(c)
+    if (!ctx.trusted || !ctx.userId) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '認証が必要です', null, 'unauthenticated', 401)
+    const actingUser = ctx.userId
+    const isAdminUser = isAdmin(actingUser, c.env)
+
+    const { data: existing = [], error: existErr } = await supabase.from('collections').select('user_id').eq('id', id).limit(1)
+    if (existErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクションの検索に失敗しました', existErr.message || existErr, 'db_error', 500)
+    const ownerId = existing && existing[0] ? existing[0].user_id : null
+    if (ownerId && ownerId !== actingUser && !isAdminUser) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, '権限がありません', null, 'forbidden', 403)
+
+    // Remove any collection_items references first
+    try {
+      const { error: delItemsErr } = await supabase.from('collection_items').delete().eq('collection_id', id)
+      if (delItemsErr) try { console.warn('[DBG] collection_items delete error', delItemsErr) } catch (e) {}
+    } catch (e) {}
+
+    const { error: delErr } = await supabase.from('collections').delete().eq('id', id)
+    if (delErr) return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクション削除に失敗しました', delErr.message || delErr, 'db_error', 500)
+
+    return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({}, computeCorsHeaders(c.req.header('Origin') || null, c.env), { 'Content-Type': 'application/json; charset=utf-8' }) })
+  } catch (e: any) {
+    return makeErrorResponse({ env: c.env, computeCorsHeaders, req: c.req }, 'コレクション削除中にサーバーエラーが発生しました', e?.message || String(e), 'server_error', 500)
+  }
+})
+
 // Admin: reorder collections
 app.post('/api/admin/collections/reorder', async (c) => {
   try {
