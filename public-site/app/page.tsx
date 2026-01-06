@@ -901,8 +901,9 @@ export default function HomePage() {
                       // Determine which indices should receive the fade overlay
                       const overlayFlags: boolean[] = []
                       if (len === 9) {
-                        // For 9 items, overlay the 3rd column (index % 3 === 2)
-                        for (let i = 0; i < len; i++) overlayFlags.push(i % 3 === 2)
+                        // For 9 items, overlay the bottom row (last row)
+                        const targetRow = Math.floor((len - 1) / 3)
+                        for (let i = 0; i < len; i++) overlayFlags.push(Math.floor(i / 3) === targetRow)
                       } else {
                         // For fewer items, find the oldest displayed item (last in list)
                         const oldestIdx = Math.max(0, len - 1)
