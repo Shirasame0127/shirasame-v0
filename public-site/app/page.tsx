@@ -786,10 +786,10 @@ export default function HomePage() {
         {user && <ProfileHeader user={user as any} />}
 
         <div className={`max-w-7xl mx-auto px-4 pt-8 ${isAllOverlayOpen ? 'all-items-overlay' : ''}`}>
-          <div className="mb-8 flex justify-center">
-            <div className="mb-4 flex justify-center">
+          <div className="mb-8 flex flex-col items-center">
+            <div className="mb-4">
               <a href="https://shirasame-store.booth.pm/?_gl=1*1rk7hxt*_ga*NjE4OTI5OTkxLjE3NDk0NTU5OTA.*_ga_RWT2QKJLDC*czE3Njc2OTIwNDAkbzckZzEkdDE3Njc2OTIwNzIkajI4JGwwJGgw" target="_blank" rel="noopener noreferrer" className="no-underline">
-                <Button variant="outline" className="bg-white/90 border rounded-full px-4 py-2 text-sm">壁紙やグッズはこちら（Booth）</Button>
+                <Button variant="outline" className="bg-white/90 border rounded-full px-4 py-2 text-sm shadow-md">壁紙やグッズはこちら（Booth）</Button>
               </a>
             </div>
             <div className="relative inline-flex items-center rounded-full shadow-sm border-2 border-sky-400 bg-white gallery-toggle" style={{ width: 280, padding: '4px' }}>
