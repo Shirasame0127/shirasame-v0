@@ -789,7 +789,10 @@ export default function HomePage() {
           <div className="mb-8 flex flex-col items-center">
             <div className="mb-4">
               <a href="https://shirasame-store.booth.pm/?_gl=1*1rk7hxt*_ga*NjE4OTI5OTkxLjE3NDk0NTU5OTA.*_ga_RWT2QKJLDC*czE3Njc2OTIwNDAkbzckZzEkdDE3Njc2OTIwNzIkajI4JGwwJGgw" target="_blank" rel="noopener noreferrer" className="no-underline">
-                <Button variant="outline" className="bg-white/90 border rounded-full px-4 py-2 text-sm shadow-md">壁紙やグッズはこちら（Booth）</Button>
+                <Button variant="default" className="bg-[#ff6a00] text-white font-semibold px-6 py-3 text-base rounded-xl shadow-2xl hover:bg-[#e55a00] transition inline-flex items-center gap-3">
+                  <span className="w-7 h-7 flex items-center justify-center bg-white rounded-full text-sm font-bold text-[#ff6a00]">B</span>
+                  <span>壁紙やグッズはこちら（Booth）</span>
+                </Button>
               </a>
             </div>
             <div className="relative inline-flex items-center rounded-full shadow-sm border-2 border-sky-400 bg-white gallery-toggle" style={{ width: 280, padding: '4px' }}>
