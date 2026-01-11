@@ -462,7 +462,8 @@ export default function HomePage() {
         const normalizedRecipes = apiRecipes.map((r: any) => normalizeRecipe(r))
 
         setProducts(normalizedProducts.filter((p: any) => p.published !== false))
-        setPageOffset(normalizedProducts.length)
+        // pageOffset should reflect number of flattened gallery items fetched
+        setPageOffset(apiProductsFlattened.length)
         if (prodJson?.meta && typeof prodJson.meta.total === 'number') {
           setHasMore(normalizedProducts.length < prodJson.meta.total)
         } else {
