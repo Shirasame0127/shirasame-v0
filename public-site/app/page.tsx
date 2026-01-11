@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef, useMemo } from "react"
+import { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import dynamic from 'next/dynamic'
 const ProfileCard = dynamic(() => import('@/components/profile-card').then((m) => m.ProfileCard), { ssr: false, loading: () => null })
 const ProductCardSimple = dynamic(() => import('@/components/product-card-simple').then((m) => m.ProductCardSimple), { ssr: false, loading: () => <div className="h-24 bg-muted" /> })
@@ -257,7 +257,8 @@ export default function HomePage() {
   const [pageOffset, setPageOffset] = useState<number>(0)
   const [loadingMore, setLoadingMore] = useState<boolean>(false)
   const [hasMore, setHasMore] = useState<boolean>(true)
-  const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const sentinelRefGallery = useRef<HTMLDivElement | null>(null)
+  const sentinelRefAll = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     // Preload main images for visible products and recipe items so modal shows immediately
@@ -317,8 +318,15 @@ export default function HomePage() {
     }
     ;(async () => {
       try {
+        // Request the initial flattened items with `shuffle=true` so the server
+        // returns a random selection of flattened images for the first page.
+        // NOTE: when combining `shuffle` with offset-based pagination there is a
+        // risk of duplicates or missing items across pages unless the server
+        // uses a deterministic shuffle (seed) or returns a consistent global
+        // ordering for the duration of the client's session. The backend here
+        // is expected to perform: products -> flatten -> shuffle -> slice.
         const [galleryRes, colRes, recRes, profileRes, saleRes] = await Promise.allSettled([
-          apiFetch(`/gallery?limit=${pageLimit}&offset=0`),
+          apiFetch(`/gallery?limit=${pageLimit}&offset=0&shuffle=true`),
           apiFetch(`/collections`),
           apiFetch(`/recipes`),
           apiFetch('/profile'),
@@ -331,8 +339,8 @@ export default function HomePage() {
         const profileJson = profileRes.status === 'fulfilled' ? await profileRes.value.json().catch(() => null) : null
         const apiProductsFlattened: any[] = Array.isArray(prodJson.data) ? prodJson.data : []
         // store flattened gallery items for client-side filtering
-        // Shuffle only on initial load and store shuffled order
-        setGalleryFlatItems(shuffleArray(apiProductsFlattened))
+        // Initial request asks server to shuffle; keep client-side order as returned
+        setGalleryFlatItems(apiProductsFlattened.slice())
         // Convert flattened gallery items back into a product-like collection for initial page state
         const grouped: Record<string, any> = {}
         for (const it of apiProductsFlattened) {
@@ -465,9 +473,9 @@ export default function HomePage() {
         // pageOffset should reflect number of flattened gallery items fetched
         setPageOffset(apiProductsFlattened.length)
         if (prodJson?.meta && typeof prodJson.meta.total === 'number') {
-          setHasMore(normalizedProducts.length < prodJson.meta.total)
+          setHasMore(apiProductsFlattened.length < prodJson.meta.total)
         } else {
-          setHasMore(normalizedProducts.length === pageLimit)
+          setHasMore(apiProductsFlattened.length === pageLimit)
         }
         setRecipes(normalizedRecipes.filter((r: any) => r.published !== false))
         setCollections(normalizedCollections)
@@ -728,7 +736,7 @@ export default function HomePage() {
   const productById = useMemo(() => { const m = new Map<string, Product>(); for (const p of products) m.set(p.id, p); return m }, [products])
   const saleNameFor = (productId: string): string | null => activeSaleMap.get(productId) || null
 
-  const loadMore = async () => {
+  const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return
     setLoadingMore(true)
     try {
@@ -736,6 +744,28 @@ export default function HomePage() {
       if (!res.ok) throw new Error('failed to fetch')
       const js = await res.json().catch(() => ({ data: [], meta: undefined }))
       const items = Array.isArray(js.data) ? js.data : []
+
+      // Append flattened gallery items to client-side list (avoid duplicates)
+      try {
+        setGalleryFlatItems((prev) => {
+          const existing = new Set(prev.map((x: any) => String(x.id)))
+          const toAdd = items.filter((it: any) => !existing.has(String(it.id)))
+          const newLen = prev.length + toAdd.length
+          // If the server returned no *new* flattened items, stop further loading.
+          if (toAdd.length === 0) {
+            setHasMore(false)
+            return prev
+          }
+          // hasMore should be based on flattened items length vs server total
+          if (js?.meta && typeof js.meta.total === 'number') {
+            setHasMore(newLen < js.meta.total)
+          } else {
+            setHasMore(toAdd.length === pageLimit)
+          }
+          return [...prev, ...toAdd]
+        })
+      } catch (e) {}
+
       // items are flattened gallery items; group by productId to produce product-like entries
       const grouped: Record<string, any> = {}
       for (const it of items) {
@@ -751,26 +781,31 @@ export default function HomePage() {
         const toAdd = normalized.filter((p: any) => !existing.has(String(p.id)))
         return [...prev, ...toAdd]
       })
-      // compute new offset based on current known offset to avoid stale closures
+
+      // compute new offset based on number of flattened items fetched
       const newOffset = pageOffset + items.length
       setPageOffset(newOffset)
-      if (js?.meta && typeof js.meta.total === 'number') {
-        setHasMore(newOffset < js.meta.total)
-      } else {
-        setHasMore(items.length === pageLimit)
-      }
     } catch (e) { console.error('[public] loadMore failed', e) } finally { setLoadingMore(false) }
-  }
+  }, [loadingMore, hasMore, pageOffset, pageLimit])
 
   const galleryItems = useMemo(() => { return galleryItemsShuffled.filter((item: any) => productById.has(item.productId)) }, [galleryItemsShuffled, productById])
 
   useEffect(() => {
-    const node = sentinelRef.current
+    // Choose the appropriate sentinel depending on which view/overlay is visible.
+    const node = isAllOverlayOpen ? sentinelRefAll.current : (displayMode === 'gallery' ? sentinelRefGallery.current : sentinelRefAll.current)
     if (!node) return
-    const obs = new IntersectionObserver((entries) => { for (const e of entries) { if (e.isIntersecting) { loadMore() } } }, { root: null, rootMargin: '400px', threshold: 0.1 })
+    // Observe a single sentinel element placed at the bottom of the gallery/all-items.
+    // rootMargin ~300px so loadMore triggers slightly before the user reaches the bottom.
+    const obs = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting && !loadingMore && hasMore) {
+          loadMore()
+        }
+      }
+    }, { root: null, rootMargin: '300px', threshold: 0.1 })
     obs.observe(node)
     return () => obs.disconnect()
-  }, [loadingMore, hasMore, pageOffset])
+  }, [loadMore, loadingMore, hasMore, displayMode, isAllOverlayOpen])
 
   if (!isLoaded) { return null }
 
@@ -858,12 +893,20 @@ export default function HomePage() {
 
               <div className={`transition-opacity duration-250 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
                 {galleryItems.length > 0 ? (
-                  <ProductMasonry key={`global-gallery-${galleryFlatItems.length}`} items={galleryItems} className="gap-3" fullWidth={true} columns={gridColumns} onItemClick={(id: string) => { const item: any = galleryItems.find((gi: any) => gi.id === id); const p = item ? products.find((pr) => pr.id === item.productId) : undefined; if (p) handleProductClick(p) }} />
+                  // NOTE: Do NOT supply a dynamic `key` here — remounting the Masonry
+                  // will break layout / observer timing. Keep the component mounted
+                  // and just update its `items` prop.
+                  <ProductMasonry items={galleryItems} className="gap-3" fullWidth={true} columns={gridColumns} onItemClick={(id: string) => { const item: any = galleryItems.find((gi: any) => gi.id === id); const p = item ? products.find((pr) => pr.id === item.productId) : undefined; if (p) handleProductClick(p) }} />
                 ) : (
                   <p className="text-center text-muted-foreground py-16">そのワードに関連するものはまだないな...</p>
                 )}
+                {/* sentinel: a single 1px element at the bottom of the gallery. */}
+                {/* We observe this sentinel for infinite-scroll; do NOT observe individual */}
+                {/* Masonry item elements because their reflow/virtualization can cause */}
+                {/* noisy intersection events and prevent stable loadMore triggering. */}
+                <div ref={sentinelRefGallery as any} style={{ height: '1px' }} />
               </div>
-            </section>
+              </section>
           ) : (
             collections.length > 0 && (
               <section id="collections" className="mb-16">
@@ -1015,7 +1058,9 @@ export default function HomePage() {
             </section>
           )}
 
-          <div ref={sentinelRef as any} className="w-full flex items-center justify-center py-4">
+          
+
+          <div ref={sentinelRefAll as any} className="w-full flex items-center justify-center py-4">
             {loadingMore ? (<div className="text-sm text-muted-foreground">読み込み中...</div>) : null}
           </div>
 
@@ -1128,8 +1173,13 @@ export default function HomePage() {
                 })}
               </div>
             )}
-
             {filteredAndSortedProducts.length === 0 && (<p className="text-center text-muted-foreground py-16">そのワードに関連するものはまだないな...</p>)}
+
+            {/* sentinel for All Items mode (1px). When All Items is visible this
+              element is observed for infinite-scroll. We intentionally observe
+              a single sentinel node rather than many item nodes to avoid
+              noisy intersection events caused by Masonry/item reflows. */}
+            <div ref={sentinelRefAll as any} style={{ height: '1px' }} />
           </div>
         </section>
       )}
