@@ -547,9 +547,9 @@ export default function HomePage() {
             if (!groups[groupName]) groups[groupName] = { tags: [], visibleWhenTriggerTagIds: [] }
             if (!groups[groupName].tags.includes(tagName)) groups[groupName].tags.push(tagName)
           }
-          if (Object.keys(groups).length === 0) {
+            if (Object.keys(groups).length === 0) {
             const derived: Record<string, string[]> = {}
-            apiProducts.filter((p: any) => p.published && Array.isArray(p.tags)).forEach((p: any) => {
+            normalizedProducts.filter((p: any) => p.published && Array.isArray(p.tags)).forEach((p: any) => {
               (p.tags as string[]).forEach((tag) => {
                 const isLinkTag = tag === "Amazon" || tag === "楽天市場" || tag === "Yahoo!ショッピング" || tag === "公式サイト"
                 const groupName = isLinkTag ? "リンク先" : "その他"
@@ -564,7 +564,7 @@ export default function HomePage() {
           }
         } catch (e) {
           const groups: Record<string, string[]> = {}
-          apiProducts.filter((p: any) => p.published && Array.isArray(p.tags)).forEach((p: any) => {
+          normalizedProducts.filter((p: any) => p.published && Array.isArray(p.tags)).forEach((p: any) => {
             (p.tags as string[]).forEach((tag) => {
               const isLinkTag = tag === "Amazon" || tag === "楽天市場" || tag === "Yahoo!ショッピング" || tag === "公式サイト"
               const groupName = isLinkTag ? "リンク先" : "その他"
