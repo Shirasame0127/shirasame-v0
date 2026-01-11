@@ -1218,58 +1218,21 @@ export default function HomePage() {
               )}
             </div>
 
-            {viewMode === 'grid' ? (
-              <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>
-                {filteredAndSortedProducts.map((product) => {
-                  const sale = saleNameFor(product.id)
-                  const sizes = "(max-width: 768px) 100vw, 400px"
-                  const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
-                  const img0: any = product.images?.[0] || null
-                  const mainLegacyUrl = img0?.url || null
-                  const src = mainTop?.src || mainLegacyUrl || '/placeholder.svg'
-                  const srcSet = mainTop?.srcSet || img0?.srcSet || null
-                  return (
-                    <div key={product.id} className="group relative aspect-square overflow-hidden rounded-lg cursor-pointer transform transition-transform duration-300 ease-out motion-safe:will-change-transform hover:scale-[1.02] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => handleProductClick(product)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleProductClick(product) } }} aria-label={product.title}>
-                      <img src={src} srcSet={srcSet || undefined} sizes={srcSet ? sizes : undefined} alt={product.title} className="object-cover rounded-lg w-full h-full no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg'; e.currentTarget.srcset = '' } catch {} }} />
-                      {sale && (
-                        <div className="absolute left-2 top-2 z-10">
-                          <span className="inline-flex items-center rounded-full bg-pink-600 text-white text-[10px] font-semibold px-2 py-0.5 shadow-sm">{sale}</span>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredAndSortedProducts.map((product) => {
-                  const sale = saleNameFor(product.id)
-                  const sizes = "(max-width: 768px) 100vw, 400px"
-                  const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
-                  const img0: any = product.images?.[0] || null
-                  const mainLegacyUrl = img0?.url || null
-                  const src = mainTop?.src || mainLegacyUrl || '/placeholder.svg'
-                  const srcSet = mainTop?.srcSet || img0?.srcSet || null
-                  return (
-                    <div key={product.id} className="flex gap-4 p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer bg-white/70" onClick={() => handleProductClick(product)}>
-                      <div className="relative w-24 h-24 shrink-0">
-                        <img src={src} srcSet={srcSet || undefined} sizes={srcSet ? sizes : undefined} alt={product.title} className="object-cover rounded w-24 h-24 no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg'; e.currentTarget.srcset = '' } catch {} }} />
-                        {sale && (
-                          <div className="absolute left-1 top-1 z-10">
-                            <span className="inline-flex items-center rounded bg-pink-600 text-white text-[9px] font-semibold px-1.5 py-0.5 shadow">{sale}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold mb-1">{product.title}</h3>
-                        <p className="text-sm text-muted-foreground line-clamp-2">{product.shortDescription}</p>
-                        {product.price && <p className="text-lg font-bold mt-2">¥{Number(product.price).toLocaleString()}</p>}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>
+              {filteredAndSortedProducts.map((product) => {
+                const sizes = "(max-width: 768px) 100vw, 400px"
+                const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
+                const img0: any = product.images?.[0] || null
+                const mainLegacyUrl = img0?.url || null
+                const src = mainTop?.src || mainLegacyUrl || '/placeholder.svg'
+                const srcSet = mainTop?.srcSet || img0?.srcSet || null
+                return (
+                  <div key={product.id} className="relative aspect-square overflow-hidden rounded-lg cursor-pointer" onClick={() => handleProductClick(product)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleProductClick(product) } }} aria-label={product.title}>
+                    <img src={src} srcSet={srcSet || undefined} sizes={srcSet ? sizes : undefined} alt={product.title} className="object-cover w-full h-full no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg'; e.currentTarget.srcset = '' } catch {} }} />
+                  </div>
+                )
+              })}
+            </div>
             {filteredAndSortedProducts.length === 0 && (<p className="text-center text-muted-foreground py-16">そのワードに関連するものはまだないな...</p>)}
 
             {/* sentinel for All Items mode (1px). When All Items is visible this
