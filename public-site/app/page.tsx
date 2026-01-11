@@ -952,7 +952,7 @@ export default function HomePage() {
           {displayMode !== 'gallery' && (
             <section id="all-products" className="mb-16 scroll-mt-20">
               <h2 className="font-heading text-4xl sm:text-4xl font-bold mb-6 text-center heading-with-vertical">
-                <button onClick={() => setIsAllOverlayOpen(true)} className="underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded px-2">All Items</button>
+                <button onClick={() => { setSortMode('newest'); setIsAllOverlayOpen(true) }} className="underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded px-2">All Items</button>
               </h2>
               <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">いままで紹介したすべての商品を表示します</p>
 
@@ -960,7 +960,12 @@ export default function HomePage() {
                 <div className="max-w-4xl mx-auto mt-4">
                   <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
                     {(() => {
-                      const items = filteredAndSortedProducts.slice(0, 9)
+                      // Preview: show the latest 9 products by created date (ignore current filters/sort)
+                      const items = products.slice().sort((a: any, b: any) => {
+                        const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0
+                        const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0
+                        return tb - ta
+                      }).slice(0, 9)
                       const len = items.length
                       // Determine which indices should receive the fade overlay
                       const overlayFlags: boolean[] = []
@@ -988,8 +993,8 @@ export default function HomePage() {
                       ))
                     })()}
                   </div>
-                  <div className="mt-4 flex justify-center">
-                    <Button onClick={() => setIsAllOverlayOpen(true)} className="w-50 rounded-full border-2 border-sky-400 bg-white text-sky-600 relative mt-3 px-4 py-5 shadow-sm hover:bg-sky-50">
+                    <div className="mt-4 flex justify-center">
+                    <Button onClick={() => { setSortMode('newest'); setIsAllOverlayOpen(true) }} className="w-50 rounded-full border-2 border-sky-400 bg-white text-sky-600 relative mt-3 px-4 py-5 shadow-sm hover:bg-sky-50">
                       <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <span style={{ fontSize: '1.2em' }} className="font-medium">続きを表示</span>
                       </span>
