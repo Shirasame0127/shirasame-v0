@@ -341,48 +341,56 @@ export default function HomePage() {
         setGalleryAllIds(apiIds)
 
         if (apiIds.length > 0) {
-          // ids-first flow: fetch details only for the first page of IDs
-          const firstIds = apiIds.slice(0, pageLimit)
+          // ids-first flow: fetch details for ALL IDs in batches so the client displays everything at once
+          const batchSize = 200
+          const allFetched: any[] = []
           try {
-            const detailsRes = await apiFetch(`/gallery?ids=${encodeURIComponent(firstIds.join(','))}`)
-            if (detailsRes.ok) {
-              const detJson = await detailsRes.json().catch(() => ({ data: [] }))
-              apiProductsFlattened = Array.isArray(detJson.data) ? detJson.data : []
+            for (let i = 0; i < apiIds.length; i += batchSize) {
+              const batch = apiIds.slice(i, i + batchSize)
+              if (batch.length === 0) break
+              try {
+                const detailsRes = await apiFetch(`/gallery?ids=${encodeURIComponent(batch.join(','))}`)
+                if (detailsRes.ok) {
+                  const detJson = await detailsRes.json().catch(() => ({ data: [] }))
+                  const pageItems = Array.isArray(detJson.data) ? detJson.data : []
+                  allFetched.push(...pageItems)
+                }
+              } catch (e) { /* ignore batch error and continue */ }
             }
-          } catch (e) { apiProductsFlattened = [] }
+          } catch (e) {}
 
-          // Keep track of which IDs we've displayed
-          setDisplayedIds(firstIds)
-          // set initial flattened items for client-side filtering + gallery rendering
+          apiProductsFlattened = allFetched
+          // set displayed IDs to the full ID list and mark no more pages
+          setDisplayedIds(apiIds.slice())
           setGalleryFlatItems(apiProductsFlattened.slice())
-          // set page offset equal to number of flattened items loaded
-          setPageOffset(firstIds.length)
-          setHasMore(firstIds.length < apiIds.length)
+          setPageOffset(apiProductsFlattened.length)
+          setHasMore(false)
         } else {
-          // Fallback: server doesn't expose /gallery/ids. Use offset-based initial fetch.
+          // Fallback: server doesn't expose /gallery/ids. Iterate offset pagination until all items retrieved.
+          const allFetched: any[] = []
+          let offset = 0
+          let totalFromApi: number | undefined = undefined
           try {
-            const detRes = await apiFetch(`/gallery?limit=${pageLimit}&offset=0&shuffle=true`)
-            if (detRes.ok) {
+            while (true) {
+              const detRes = await apiFetch(`/gallery?limit=${pageLimit}&offset=${offset}${offset === 0 ? '&shuffle=true' : ''}`)
+              if (!detRes.ok) break
               const detJson = await detRes.json().catch(() => ({ data: [], meta: undefined }))
-              apiProductsFlattened = Array.isArray(detJson.data) ? detJson.data : []
-              // When ids endpoint is missing we cannot know full id list. Use returned items' ids for dedupe/display.
-              const returnedIds = apiProductsFlattened.map((it: any) => String(it.id)).filter(Boolean)
-              setDisplayedIds(returnedIds)
-              setGalleryFlatItems(apiProductsFlattened.slice())
-              const total = detJson.meta && typeof detJson.meta.total === 'number' ? detJson.meta.total : undefined
-              setPageOffset(apiProductsFlattened.length)
-              setHasMore(total ? apiProductsFlattened.length < total : apiProductsFlattened.length >= pageLimit)
-            } else {
-              setGalleryFlatItems([])
-              setDisplayedIds([])
-              setHasMore(false)
+              const pageItems = Array.isArray(detJson.data) ? detJson.data : []
+              allFetched.push(...pageItems)
+              if (detJson.meta && typeof detJson.meta.total === 'number') totalFromApi = detJson.meta.total
+              offset += pageItems.length
+              if (pageItems.length === 0) break
+              if (typeof totalFromApi === 'number' && offset >= totalFromApi) break
+              if (pageItems.length < pageLimit) break
             }
-          } catch (e) {
-            apiProductsFlattened = []
-            setGalleryFlatItems([])
-            setDisplayedIds([])
-            setHasMore(false)
-          }
+          } catch (e) {}
+
+          apiProductsFlattened = allFetched
+          const returnedIds = apiProductsFlattened.map((it: any) => String(it.id)).filter(Boolean)
+          setDisplayedIds(returnedIds)
+          setGalleryFlatItems(apiProductsFlattened.slice())
+          setPageOffset(apiProductsFlattened.length)
+          setHasMore(false)
         }
 
         // Fetch collections/recipes/profile/schedules in parallel (these are independent)
