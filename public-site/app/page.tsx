@@ -337,12 +337,12 @@ export default function HomePage() {
           }
         } catch (e) { apiIds = [] }
 
-        // store the full ID list on the client
+        // store the full ID list on the client (may be empty if server doesn't support ids endpoint)
         setGalleryAllIds(apiIds)
 
-        // fetch details only for the first page of IDs
-        const firstIds = apiIds.slice(0, pageLimit)
-        if (firstIds.length > 0) {
+        if (apiIds.length > 0) {
+          // ids-first flow: fetch details only for the first page of IDs
+          const firstIds = apiIds.slice(0, pageLimit)
           try {
             const detailsRes = await apiFetch(`/gallery?ids=${encodeURIComponent(firstIds.join(','))}`)
             if (detailsRes.ok) {
@@ -355,13 +355,34 @@ export default function HomePage() {
           setDisplayedIds(firstIds)
           // set initial flattened items for client-side filtering + gallery rendering
           setGalleryFlatItems(apiProductsFlattened.slice())
-          // hasMore based on ID list length
+          // set page offset equal to number of flattened items loaded
           setPageOffset(firstIds.length)
           setHasMore(firstIds.length < apiIds.length)
         } else {
-          setGalleryFlatItems([])
-          setDisplayedIds([])
-          setHasMore(false)
+          // Fallback: server doesn't expose /gallery/ids. Use offset-based initial fetch.
+          try {
+            const detRes = await apiFetch(`/gallery?limit=${pageLimit}&offset=0&shuffle=true`)
+            if (detRes.ok) {
+              const detJson = await detRes.json().catch(() => ({ data: [], meta: undefined }))
+              apiProductsFlattened = Array.isArray(detJson.data) ? detJson.data : []
+              // When ids endpoint is missing we cannot know full id list. Use returned items' ids for dedupe/display.
+              const returnedIds = apiProductsFlattened.map((it: any) => String(it.id)).filter(Boolean)
+              setDisplayedIds(returnedIds)
+              setGalleryFlatItems(apiProductsFlattened.slice())
+              const total = detJson.meta && typeof detJson.meta.total === 'number' ? detJson.meta.total : undefined
+              setPageOffset(apiProductsFlattened.length)
+              setHasMore(total ? apiProductsFlattened.length < total : apiProductsFlattened.length >= pageLimit)
+            } else {
+              setGalleryFlatItems([])
+              setDisplayedIds([])
+              setHasMore(false)
+            }
+          } catch (e) {
+            apiProductsFlattened = []
+            setGalleryFlatItems([])
+            setDisplayedIds([])
+            setHasMore(false)
+          }
         }
 
         // Fetch collections/recipes/profile/schedules in parallel (these are independent)
@@ -765,58 +786,91 @@ export default function HomePage() {
   const saleNameFor = (productId: string): string | null => activeSaleMap.get(productId) || null
 
   const loadMore = useCallback(async () => {
-    // Client-driven loadMore: slice next IDs from `galleryAllIds`, fetch details for those IDs,
-    // append flattened items and update `displayedIds`.
+    // loadMore supports two modes:
+    // - IDs mode: when `galleryAllIds` contains the full ID list (ids-first flow)
+    // - Offset mode: fallback to server offset/limit pagination when ids endpoint is unavailable
     if (loadingMore || !hasMore) return
-    if (!galleryAllIds || galleryAllIds.length === 0) return
     setLoadingMore(true)
     try {
-      const already = displayedIds.length
-      const nextIds = galleryAllIds.slice(already, already + pageLimit)
-      if (nextIds.length === 0) {
-        setHasMore(false)
-        return
-      }
-
-      // Fetch flattened item details for the requested IDs (no shuffle/offset here)
-      const res = await apiFetch(`/gallery?ids=${encodeURIComponent(nextIds.join(','))}`)
-      if (!res.ok) throw new Error('failed to fetch')
-      const js = await res.json().catch(() => ({ data: [], meta: undefined }))
-      const items = Array.isArray(js.data) ? js.data : []
-
-      // Append flattened gallery items to client-side list (dedupe by id)
-      setGalleryFlatItems((prev) => {
-        const existing = new Set(prev.map((x: any) => String(x.id)))
-        const toAdd = items.filter((it: any) => !existing.has(String(it.id)))
-        if (toAdd.length === 0) {
-          // No new items returned for these IDs — stop further loading
+      if (galleryAllIds && galleryAllIds.length > 0) {
+        const already = displayedIds.length
+        const nextIds = galleryAllIds.slice(already, already + pageLimit)
+        if (nextIds.length === 0) {
           setHasMore(false)
-          return prev
+          return
         }
-        return [...prev, ...toAdd]
-      })
 
-      // Group newly-fetched flattened items into product-like entries and append to `products`
-      const grouped: Record<string, any> = {}
-      for (const it of items) {
-        try {
-          const pid = it.productId || `p-${it.id}`
-          if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
-          grouped[pid].images.push({ url: it.image, src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
-        } catch (e) { continue }
+        const res = await apiFetch(`/gallery?ids=${encodeURIComponent(nextIds.join(','))}`)
+        if (!res.ok) throw new Error('failed to fetch')
+        const js = await res.json().catch(() => ({ data: [], meta: undefined }))
+        const items = Array.isArray(js.data) ? js.data : []
+
+        setGalleryFlatItems((prev) => {
+          const existing = new Set(prev.map((x: any) => String(x.id)))
+          const toAdd = items.filter((it: any) => !existing.has(String(it.id)))
+          if (toAdd.length === 0) {
+            setHasMore(false)
+            return prev
+          }
+          return [...prev, ...toAdd]
+        })
+
+        const grouped: Record<string, any> = {}
+        for (const it of items) {
+          try {
+            const pid = it.productId || `p-${it.id}`
+            if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
+            grouped[pid].images.push({ url: it.image, src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
+          } catch (e) { continue }
+        }
+        const normalized = Object.values(grouped).map((p: any) => p)
+        setProducts((prev) => {
+          const existing = new Set(prev.map((x: any) => String(x.id)))
+          const toAdd = normalized.filter((p: any) => !existing.has(String(p.id)))
+          return [...prev, ...toAdd]
+        })
+
+        const newDisplayedLen = displayedIds.length + nextIds.length
+        setDisplayedIds((prev) => [...prev, ...nextIds])
+        setPageOffset(newDisplayedLen)
+        setHasMore(newDisplayedLen < galleryAllIds.length)
+      } else {
+        // Offset-based fallback
+        const res = await apiFetch(`/gallery?limit=${pageLimit}&offset=${pageOffset}`)
+        if (!res.ok) throw new Error('failed to fetch')
+        const js = await res.json().catch(() => ({ data: [], meta: undefined }))
+        const items = Array.isArray(js.data) ? js.data : []
+
+        setGalleryFlatItems((prev) => {
+          const existing = new Set(prev.map((x: any) => String(x.id)))
+          const toAdd = items.filter((it: any) => !existing.has(String(it.id)))
+          if (toAdd.length === 0) {
+            setHasMore(false)
+            return prev
+          }
+          return [...prev, ...toAdd]
+        })
+
+        const grouped: Record<string, any> = {}
+        for (const it of items) {
+          try {
+            const pid = it.productId || `p-${it.id}`
+            if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
+            grouped[pid].images.push({ url: it.image, src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
+          } catch (e) { continue }
+        }
+        const normalized = Object.values(grouped).map((p: any) => p)
+        setProducts((prev) => {
+          const existing = new Set(prev.map((x: any) => String(x.id)))
+          const toAdd = normalized.filter((p: any) => !existing.has(String(p.id)))
+          return [...prev, ...toAdd]
+        })
+
+        const newOffset = pageOffset + items.length
+        setPageOffset(newOffset)
+        const total = js.meta && typeof js.meta.total === 'number' ? js.meta.total : undefined
+        setHasMore(total ? newOffset < total : items.length >= pageLimit)
       }
-      const normalized = Object.values(grouped).map((p: any) => p)
-      setProducts((prev) => {
-        const existing = new Set(prev.map((x: any) => String(x.id)))
-        const toAdd = normalized.filter((p: any) => !existing.has(String(p.id)))
-        return [...prev, ...toAdd]
-      })
-
-      // update displayed IDs and pageOffset
-      const newDisplayedLen = already + nextIds.length
-      setDisplayedIds((prev) => [...prev, ...nextIds])
-      setPageOffset(newDisplayedLen)
-      setHasMore(newDisplayedLen < galleryAllIds.length)
     } catch (e) { console.error('[public] loadMore failed', e) } finally { setLoadingMore(false) }
   }, [loadingMore, hasMore, galleryAllIds, displayedIds, pageLimit])
 
