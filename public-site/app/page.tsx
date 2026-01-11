@@ -1352,17 +1352,29 @@ export default function HomePage() {
 
             {viewMode === 'grid' ? (
               <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>
-                {filteredAndSortedProducts.map((product) => {
-                  const sale = saleNameFor(product.id)
+                {(galleryFlatItems && galleryFlatItems.length > 0 ? galleryFlatItems : filteredAndSortedProducts).map((item: any) => {
+                  // item may be either a flattened gallery item or a product
+                  const isFlat = !!(item && (item.image || item.src || item.url))
+                  const sale = isFlat && item.productId ? saleNameFor(String(item.productId)) : (!isFlat ? saleNameFor(item.id) : null)
                   const sizes = "(max-width: 768px) 100vw, 400px"
-                  const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
-                  const img0: any = product.images?.[0] || null
-                  const mainLegacyUrl = img0?.url || null
-                  const src = mainTop?.src || mainLegacyUrl || '/placeholder.svg'
-                  const srcSet = mainTop?.srcSet || img0?.srcSet || null
+                  const src = isFlat ? (item.image || item.src || item.url || '/placeholder.svg') : ((item as any).main_image?.src || (item.images && item.images[0]?.url) || '/placeholder.svg')
+                  const title = isFlat ? (item.title || '') : (item.title || '')
+                  const onClick = () => {
+                    try {
+                      const pid = isFlat ? item.productId : item.id
+                      const prod = pid ? productById.get(String(pid)) : null
+                      if (prod) handleProductClick(prod)
+                      else {
+                        // fallback: create a minimal product-like object
+                        const faux = { id: pid || (`flat-${item.id || item.image}`), title: title, images: [{ url: src }] }
+                        handleProductClick(faux as any)
+                      }
+                    } catch { }
+                  }
+                  const key = isFlat ? (item.id || item.image || `${item.productId || ''}-${item.image || ''}`) : item.id
                   return (
-                    <div key={product.id} className="group relative aspect-square overflow-hidden rounded-lg cursor-pointer transform transition-transform duration-300 ease-out motion-safe:will-change-transform hover:scale-[1.02] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => handleProductClick(product)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleProductClick(product) } }} aria-label={product.title}>
-                      <img src={src} srcSet={srcSet || undefined} sizes={srcSet ? sizes : undefined} alt={product.title} className="object-cover rounded-lg w-full h-full no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg'; e.currentTarget.srcset = '' } catch {} }} />
+                    <div key={key} className="group relative aspect-square overflow-hidden rounded-lg cursor-pointer transform transition-transform duration-300 ease-out motion-safe:will-change-transform hover:scale-[1.02] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={onClick} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }} aria-label={title}>
+                      <img src={src} alt={title} className="object-cover rounded-lg w-full h-full no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg' } catch {} }} />
                       {sale && (
                         <div className="absolute left-2 top-2 z-10">
                           <span className="inline-flex items-center rounded-full bg-pink-600 text-white text-[10px] font-semibold px-2 py-0.5 shadow-sm">{sale}</span>
@@ -1374,18 +1386,28 @@ export default function HomePage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredAndSortedProducts.map((product) => {
-                  const sale = saleNameFor(product.id)
+                {(galleryFlatItems && galleryFlatItems.length > 0 ? galleryFlatItems : filteredAndSortedProducts).map((item: any) => {
+                  const isFlat = !!(item && (item.image || item.src || item.url))
+                  const sale = isFlat && item.productId ? saleNameFor(String(item.productId)) : (!isFlat ? saleNameFor(item.id) : null)
                   const sizes = "(max-width: 768px) 100vw, 400px"
-                  const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
-                  const img0: any = product.images?.[0] || null
-                  const mainLegacyUrl = img0?.url || null
-                  const src = mainTop?.src || mainLegacyUrl || '/placeholder.svg'
-                  const srcSet = mainTop?.srcSet || img0?.srcSet || null
+                  const src = isFlat ? (item.image || item.src || item.url || '/placeholder.svg') : ((item as any).main_image?.src || (item.images && item.images[0]?.url) || '/placeholder.svg')
+                  const title = isFlat ? (item.title || '') : (item.title || '')
+                  const onClick = () => {
+                    try {
+                      const pid = isFlat ? item.productId : item.id
+                      const prod = pid ? productById.get(String(pid)) : null
+                      if (prod) handleProductClick(prod)
+                      else {
+                        const faux = { id: pid || (`flat-${item.id || item.image}`), title: title, images: [{ url: src }] }
+                        handleProductClick(faux as any)
+                      }
+                    } catch {}
+                  }
+                  const key = isFlat ? (item.id || item.image || `${item.productId || ''}-${item.image || ''}`) : item.id
                   return (
-                    <div key={product.id} className="flex gap-4 p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer bg-white/70" onClick={() => handleProductClick(product)}>
+                    <div key={key} className="flex gap-4 p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer bg-white/70" onClick={onClick}>
                       <div className="relative w-24 h-24 shrink-0">
-                        <img src={src} srcSet={srcSet || undefined} sizes={srcSet ? sizes : undefined} alt={product.title} className="object-cover rounded w-24 h-24 no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg'; e.currentTarget.srcset = '' } catch {} }} />
+                        <img src={src} sizes={sizes} alt={title} className="object-cover rounded w-24 h-24 no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg' } catch {} }} />
                         {sale && (
                           <div className="absolute left-1 top-1 z-10">
                             <span className="inline-flex items-center rounded bg-pink-600 text-white text-[9px] font-semibold px-1.5 py-0.5 shadow">{sale}</span>
@@ -1393,9 +1415,8 @@ export default function HomePage() {
                         )}
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-semibold mb-1">{product.title}</h3>
-                        <p className="text-sm text-muted-foreground line-clamp-2">{product.shortDescription}</p>
-                        {product.price && <p className="text-lg font-bold mt-2">¥{Number(product.price).toLocaleString()}</p>}
+                        <h3 className="font-semibold mb-1">{title}</h3>
+                        {!isFlat && <p className="text-sm text-muted-foreground line-clamp-2">{item.shortDescription}</p>}
                       </div>
                     </div>
                   )
