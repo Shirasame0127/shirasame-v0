@@ -803,8 +803,14 @@ export default function HomePage() {
         }
       }
     }, { root: null, rootMargin: '300px', threshold: 0.1 })
-    obs.observe(node)
-    return () => obs.disconnect()
+    // Delay observing briefly after a display mode switch so layout
+    // stabilizes and we don't immediately trigger multiple loads.
+    const delay = displayMode === 'gallery' ? 300 : 0
+    const t = (typeof window !== 'undefined') ? window.setTimeout(() => obs.observe(node), delay) : null
+    return () => {
+      if (t) clearTimeout(t)
+      obs.disconnect()
+    }
   }, [loadMore, loadingMore, hasMore, displayMode, isAllOverlayOpen])
 
   if (!isLoaded) { return null }
