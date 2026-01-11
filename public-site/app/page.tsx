@@ -882,6 +882,119 @@ export default function HomePage() {
     } catch (e) { console.error('[public] loadMore failed', e) } finally { setLoadingMore(false) }
   }, [loadingMore, hasMore, galleryAllIds, displayedIds, pageLimit])
 
+  const fetchAllGalleryItems = useCallback(async () => {
+    // Ensure we fetch any remaining gallery items in one go for Gallery mode
+    if (loadingMore) return
+    setLoadingMore(true)
+    try {
+      // If we have an IDs list from the server, fetch all remaining IDs in batches
+      if (galleryAllIds && galleryAllIds.length > 0) {
+        const remaining = galleryAllIds.filter((id) => !displayedIds.includes(id))
+        if (remaining.length === 0) {
+          setHasMore(false)
+          return
+        }
+        const batchSize = 200
+        const allFetched: any[] = []
+        for (let i = 0; i < remaining.length; i += batchSize) {
+          const batch = remaining.slice(i, i + batchSize)
+          try {
+            const res = await apiFetch(`/gallery?ids=${encodeURIComponent(batch.join(','))}`)
+            if (!res.ok) continue
+            const js = await res.json().catch(() => ({ data: [] }))
+            const items = Array.isArray(js.data) ? js.data : []
+            allFetched.push(...items)
+          } catch (e) { continue }
+        }
+
+        if (allFetched.length > 0) {
+          setGalleryFlatItems((prev) => {
+            const existing = new Set(prev.map((x: any) => String(x.id)))
+            const toAdd = allFetched.filter((it: any) => !existing.has(String(it.id)))
+            return [...prev, ...toAdd]
+          })
+
+          // group and append products
+          const grouped: Record<string, any> = {}
+          for (const it of allFetched) {
+            try {
+              const pid = it.productId || `p-${it.id}`
+              if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
+              grouped[pid].images.push({ url: it.image, src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
+            } catch {}
+          }
+          const normalized = Object.values(grouped).map((p: any) => p)
+          setProducts((prev) => {
+            const existing = new Set(prev.map((x: any) => String(x.id)))
+            const toAdd = normalized.filter((p: any) => !existing.has(String(p.id)))
+            return [...prev, ...toAdd]
+          })
+
+          // mark all displayed
+          setDisplayedIds((prev) => Array.from(new Set([...prev, ...remaining])))
+          setPageOffset((prev) => prev + allFetched.length)
+        }
+        setHasMore(false)
+        return
+      }
+
+      // Fallback: offset-based loop until all pages fetched
+      const allFetched: any[] = []
+      let offset = pageOffset
+      let totalFromApi: number | undefined = undefined
+      while (true) {
+        try {
+          const res = await apiFetch(`/gallery?limit=${pageLimit}&offset=${offset}`)
+          if (!res.ok) break
+          const js = await res.json().catch(() => ({ data: [], meta: undefined }))
+          const items = Array.isArray(js.data) ? js.data : []
+          allFetched.push(...items)
+          if (js.meta && typeof js.meta.total === 'number') totalFromApi = js.meta.total
+          offset += items.length
+          if (items.length === 0) break
+          if (typeof totalFromApi === 'number' && offset >= totalFromApi) break
+          if (items.length < pageLimit) break
+        } catch (e) { break }
+      }
+
+      if (allFetched.length > 0) {
+        setGalleryFlatItems((prev) => {
+          const existing = new Set(prev.map((x: any) => String(x.id)))
+          const toAdd = allFetched.filter((it: any) => !existing.has(String(it.id)))
+          return [...prev, ...toAdd]
+        })
+
+        const grouped: Record<string, any> = {}
+        for (const it of allFetched) {
+          try {
+            const pid = it.productId || `p-${it.id}`
+            if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
+            grouped[pid].images.push({ url: it.image, src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
+          } catch {}
+        }
+        const normalized = Object.values(grouped).map((p: any) => p)
+        setProducts((prev) => {
+          const existing = new Set(prev.map((x: any) => String(x.id)))
+          const toAdd = normalized.filter((p: any) => !existing.has(String(p.id)))
+          return [...prev, ...toAdd]
+        })
+
+        const returnedIds = allFetched.map((it: any) => String(it.id)).filter(Boolean)
+        setDisplayedIds((prev) => Array.from(new Set([...prev, ...returnedIds])))
+        setPageOffset(offset)
+      }
+      setHasMore(false)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [galleryAllIds, displayedIds, pageLimit, pageOffset, loadingMore])
+
+  useEffect(() => {
+    if (displayMode === 'gallery' && galleryFlatItems.length === 0) {
+      void fetchAllGalleryItems()
+    }
+  }, [displayMode, galleryFlatItems.length, fetchAllGalleryItems])
+
   const galleryItems = useMemo(() => { return galleryItemsShuffled.filter((item: any) => productById.has(item.productId)) }, [galleryItemsShuffled, productById])
 
   useEffect(() => {
