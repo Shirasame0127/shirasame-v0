@@ -374,16 +374,7 @@ export default function HomePage() {
         const colJson = colRes.status === 'fulfilled' ? await colRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const recJson = recRes.status === 'fulfilled' ? await recRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const profileJson = profileRes.status === 'fulfilled' ? await profileRes.value.json().catch(() => null) : null
-        const apiProducts: Product[] = []
-        // Convert flattened gallery items back into a product-like collection for initial page state
-        const grouped: Record<string, any> = {}
-        for (const it of apiProductsFlattened) {
-          const pid = it.productId || `p-${it.id}`
-          if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
-          // include both `url` and `src` for compatibility with legacy rendering
-          grouped[pid].images.push({ url: it.image, src: it.image, srcSet: it.srcSet || null, aspect: it.aspect || null, role: it.role || null })
-        }
-        const apiProducts: Product[] = Object.values(grouped)
+        // Note: product reconstruction from flattened items is handled below.
         const apiCollections: Collection[] = Array.isArray(colJson.data) ? colJson.data : []
         const apiRecipes = Array.isArray(recJson.data) ? recJson.data : []
         let loadedUser = profileJson?.data || profileJson || null
