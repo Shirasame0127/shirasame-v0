@@ -33,6 +33,7 @@ const RECIPE_ASPECT_RATIOS = [
   { value: "5:4", label: "横長 (5:4)", ratio: 5 / 4 },
   { value: "9:16", label: "縦長 (9:16)", ratio: 9 / 16 },
   { value: "16:9", label: "横長 (16:9)", ratio: 16 / 9 },
+  { value: "free", label: "フリーサイズ" },
 ]
 
 const ASPECT_RATIOS: Record<string, { value: number; label: string; aspect?: string }> = {
@@ -59,7 +60,7 @@ export function ImageCropper({
   const [selectedProductAspect, setSelectedProductAspect] = useState("1:1")
 
   const isRecipe = aspectRatioType === "recipe"
-  let aspectRatio: number
+  let aspectRatio: number | undefined
   let aspectString: string
   if (!isRecipe && (forcedAspect && forcedAspect.length > 0)) {
     const parts = forcedAspect.split(":")
@@ -74,10 +75,18 @@ export function ImageCropper({
     }
   } else {
     if (isRecipe) {
-      aspectRatio = RECIPE_ASPECT_RATIOS.find((r) => r.value === selectedRecipeAspect)?.ratio || 4 / 3
-      aspectString = selectedRecipeAspect
+      if (selectedRecipeAspect === 'free') {
+        aspectRatio = undefined
+        aspectString = 'free'
+      } else {
+        aspectRatio = RECIPE_ASPECT_RATIOS.find((r) => r.value === selectedRecipeAspect)?.ratio || 4 / 3
+        aspectString = selectedRecipeAspect
+      }
     } else if (aspectRatioType === 'product') {
-      if (selectedProductAspect && selectedProductAspect.length > 0) {
+      if (selectedProductAspect === 'free') {
+        aspectRatio = undefined
+        aspectString = 'free'
+      } else if (selectedProductAspect && selectedProductAspect.length > 0) {
         const parts = selectedProductAspect.split(":")
         if (parts.length === 2) {
           const a = Number(parts[0])
@@ -205,6 +214,8 @@ export function ImageCropper({
                   <SelectItem value="1:1" className="text-xs sm:text-sm">正方形 (1:1)</SelectItem>
                   <SelectItem value="4:3" className="text-xs sm:text-sm">横長 (4:3)</SelectItem>
                   <SelectItem value="16:9" className="text-xs sm:text-sm">横長ワイド (16:9)</SelectItem>
+                  <SelectItem value="9:16" className="text-xs sm:text-sm">縦長 (9:16)</SelectItem>
+                  <SelectItem value="free" className="text-xs sm:text-sm">フリーサイズ</SelectItem>
                   <SelectItem value="2:3" className="text-xs sm:text-sm">縦長 (2:3)</SelectItem>
                   <SelectItem value="3:4" className="text-xs sm:text-sm">縦長 (3:4)</SelectItem>
                 </SelectContent>
