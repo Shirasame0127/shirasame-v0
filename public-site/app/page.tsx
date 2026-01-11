@@ -200,6 +200,11 @@ export default function HomePage() {
   const [displayMode, setDisplayMode] = useState<'normal' | 'gallery'>('normal')
   const [isTransitioning, setIsTransitioning] = useState(false)
   const [galleryFlatItems, setGalleryFlatItems] = useState<any[]>([])
+  // Client-driven pagination (Pattern B)
+  // `galleryAllIds` holds the full list of flattened image IDs (server can return shuffled order once)
+  // `displayedIds` tracks which IDs have been fetched and rendered
+  const [galleryAllIds, setGalleryAllIds] = useState<string[]>([])
+  const [displayedIds, setDisplayedIds] = useState<string[]>([])
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -318,29 +323,58 @@ export default function HomePage() {
     }
     ;(async () => {
       try {
-        // Request the initial flattened items with `shuffle=true` so the server
-        // returns a random selection of flattened images for the first page.
-        // NOTE: when combining `shuffle` with offset-based pagination there is a
-        // risk of duplicates or missing items across pages unless the server
-        // uses a deterministic shuffle (seed) or returns a consistent global
-        // ordering for the duration of the client's session. The backend here
-        // is expected to perform: products -> flatten -> shuffle -> slice.
-        const [galleryRes, colRes, recRes, profileRes, saleRes] = await Promise.allSettled([
-          apiFetch(`/gallery?limit=${pageLimit}&offset=0&shuffle=true`),
+        // Client-driven pagination (Pattern B):
+        // 1) Fetch the full list of flattened image IDs (server may shuffle once with ?shuffle=true)
+        // 2) Keep `galleryAllIds` in state and fetch details only for the visible ID slice
+        // This guarantees the client can eventually display 100% of images while the initial ordering is random.
+        let apiProductsFlattened: any[] = []
+        let apiIds: string[] = []
+        try {
+          const idsRes = await apiFetch(`/gallery/ids?shuffle=true`)
+          if (idsRes.ok) {
+            const idsJson = await idsRes.json().catch(() => ({ data: [] }))
+            apiIds = Array.isArray(idsJson) ? idsJson : Array.isArray(idsJson.data) ? idsJson.data : []
+          }
+        } catch (e) { apiIds = [] }
+
+        // store the full ID list on the client
+        setGalleryAllIds(apiIds)
+
+        // fetch details only for the first page of IDs
+        const firstIds = apiIds.slice(0, pageLimit)
+        if (firstIds.length > 0) {
+          try {
+            const detailsRes = await apiFetch(`/gallery?ids=${encodeURIComponent(firstIds.join(','))}`)
+            if (detailsRes.ok) {
+              const detJson = await detailsRes.json().catch(() => ({ data: [] }))
+              apiProductsFlattened = Array.isArray(detJson.data) ? detJson.data : []
+            }
+          } catch (e) { apiProductsFlattened = [] }
+
+          // Keep track of which IDs we've displayed
+          setDisplayedIds(firstIds)
+          // set initial flattened items for client-side filtering + gallery rendering
+          setGalleryFlatItems(apiProductsFlattened.slice())
+          // hasMore based on ID list length
+          setPageOffset(firstIds.length)
+          setHasMore(firstIds.length < apiIds.length)
+        } else {
+          setGalleryFlatItems([])
+          setDisplayedIds([])
+          setHasMore(false)
+        }
+
+        // Fetch collections/recipes/profile/schedules in parallel (these are independent)
+        const [colRes, recRes, profileRes, saleRes] = await Promise.allSettled([
           apiFetch(`/collections`),
           apiFetch(`/recipes`),
           apiFetch('/profile'),
           apiFetch('/amazon-sale-schedules'),
         ])
-        const prodJson = galleryRes.status === 'fulfilled' ? await galleryRes.value.json().catch(() => ({ data: [] })) : { data: [] }
-        // gallery API returns flattened items in data[]; we'll reconstruct lightweight product-like entries
         const colJson = colRes.status === 'fulfilled' ? await colRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const recJson = recRes.status === 'fulfilled' ? await recRes.value.json().catch(() => ({ data: [] })) : { data: [] }
         const profileJson = profileRes.status === 'fulfilled' ? await profileRes.value.json().catch(() => null) : null
-        const apiProductsFlattened: any[] = Array.isArray(prodJson.data) ? prodJson.data : []
-        // store flattened gallery items for client-side filtering
-        // Initial request asks server to shuffle; keep client-side order as returned
-        setGalleryFlatItems(apiProductsFlattened.slice())
+        const apiProducts: Product[] = []
         // Convert flattened gallery items back into a product-like collection for initial page state
         const grouped: Record<string, any> = {}
         for (const it of apiProductsFlattened) {
@@ -417,7 +451,15 @@ export default function HomePage() {
           return p
         }
 
-        const normalizedProducts = apiProducts.map((p: any) => normalizeProduct(p))
+        // Reconstruct lightweight product-like entries from flattened gallery items
+        const grouped: Record<string, any> = {}
+        for (const it of apiProductsFlattened) {
+          const pid = it.productId || `p-${it.id}`
+          if (!grouped[pid]) grouped[pid] = { id: it.productId || pid, slug: it.slug || null, title: it.title || null, images: [] }
+          grouped[pid].images.push({ id: it.id || null, url: it.image || it.src || it.url || null, width: it.width || null, height: it.height || null, aspect: it.aspect || null, role: it.role || null })
+        }
+        const apiProductsFromFlattened: Product[] = Object.values(grouped)
+        const normalizedProducts = apiProductsFromFlattened.map((p: any) => normalizeProduct(p))
 
         const normalizeCollection = (raw: any) => {
           const c = { ...raw } as any
@@ -470,13 +512,8 @@ export default function HomePage() {
         const normalizedRecipes = apiRecipes.map((r: any) => normalizeRecipe(r))
 
         setProducts(normalizedProducts.filter((p: any) => p.published !== false))
-        // pageOffset should reflect number of flattened gallery items fetched
-        setPageOffset(apiProductsFlattened.length)
-        if (prodJson?.meta && typeof prodJson.meta.total === 'number') {
-          setHasMore(apiProductsFlattened.length < prodJson.meta.total)
-        } else {
-          setHasMore(apiProductsFlattened.length === pageLimit)
-        }
+        // pageOffset already set earlier when we fetched IDs/details; ensure it's at least the number of flattened items loaded
+        setPageOffset((prev) => Math.max(prev, apiProductsFlattened.length))
         setRecipes(normalizedRecipes.filter((r: any) => r.published !== false))
         setCollections(normalizedCollections)
         setSaleSchedules(apiSchedules)
@@ -737,36 +774,38 @@ export default function HomePage() {
   const saleNameFor = (productId: string): string | null => activeSaleMap.get(productId) || null
 
   const loadMore = useCallback(async () => {
+    // Client-driven loadMore: slice next IDs from `galleryAllIds`, fetch details for those IDs,
+    // append flattened items and update `displayedIds`.
     if (loadingMore || !hasMore) return
+    if (!galleryAllIds || galleryAllIds.length === 0) return
     setLoadingMore(true)
     try {
-      const res = await apiFetch(`/gallery?limit=${pageLimit}&offset=${pageOffset}`)
+      const already = displayedIds.length
+      const nextIds = galleryAllIds.slice(already, already + pageLimit)
+      if (nextIds.length === 0) {
+        setHasMore(false)
+        return
+      }
+
+      // Fetch flattened item details for the requested IDs (no shuffle/offset here)
+      const res = await apiFetch(`/gallery?ids=${encodeURIComponent(nextIds.join(','))}`)
       if (!res.ok) throw new Error('failed to fetch')
       const js = await res.json().catch(() => ({ data: [], meta: undefined }))
       const items = Array.isArray(js.data) ? js.data : []
 
-      // Append flattened gallery items to client-side list (avoid duplicates)
-      try {
-        setGalleryFlatItems((prev) => {
-          const existing = new Set(prev.map((x: any) => String(x.id)))
-          const toAdd = items.filter((it: any) => !existing.has(String(it.id)))
-          const newLen = prev.length + toAdd.length
-          // If the server returned no *new* flattened items, stop further loading.
-          if (toAdd.length === 0) {
-            setHasMore(false)
-            return prev
-          }
-          // hasMore should be based on flattened items length vs server total
-          if (js?.meta && typeof js.meta.total === 'number') {
-            setHasMore(newLen < js.meta.total)
-          } else {
-            setHasMore(toAdd.length === pageLimit)
-          }
-          return [...prev, ...toAdd]
-        })
-      } catch (e) {}
+      // Append flattened gallery items to client-side list (dedupe by id)
+      setGalleryFlatItems((prev) => {
+        const existing = new Set(prev.map((x: any) => String(x.id)))
+        const toAdd = items.filter((it: any) => !existing.has(String(it.id)))
+        if (toAdd.length === 0) {
+          // No new items returned for these IDs — stop further loading
+          setHasMore(false)
+          return prev
+        }
+        return [...prev, ...toAdd]
+      })
 
-      // items are flattened gallery items; group by productId to produce product-like entries
+      // Group newly-fetched flattened items into product-like entries and append to `products`
       const grouped: Record<string, any> = {}
       for (const it of items) {
         try {
@@ -782,11 +821,13 @@ export default function HomePage() {
         return [...prev, ...toAdd]
       })
 
-      // compute new offset based on number of flattened items fetched
-      const newOffset = pageOffset + items.length
-      setPageOffset(newOffset)
+      // update displayed IDs and pageOffset
+      const newDisplayedLen = already + nextIds.length
+      setDisplayedIds((prev) => [...prev, ...nextIds])
+      setPageOffset(newDisplayedLen)
+      setHasMore(newDisplayedLen < galleryAllIds.length)
     } catch (e) { console.error('[public] loadMore failed', e) } finally { setLoadingMore(false) }
-  }, [loadingMore, hasMore, pageOffset, pageLimit])
+  }, [loadingMore, hasMore, galleryAllIds, displayedIds, pageLimit])
 
   const galleryItems = useMemo(() => { return galleryItemsShuffled.filter((item: any) => productById.has(item.productId)) }, [galleryItemsShuffled, productById])
 
