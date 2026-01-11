@@ -1,77 +1,55 @@
 "use client"
-
-import { useEffect, useState, useRef, useMemo, useCallback } from "react"
-import dynamic from 'next/dynamic'
-const ProfileCard = dynamic(() => import('@/components/profile-card').then((m) => m.ProfileCard), { ssr: false, loading: () => null })
-const ProductCardSimple = dynamic(() => import('@/components/product-card-simple').then((m) => m.ProductCardSimple), { ssr: false, loading: () => <div className="h-24 bg-muted" /> })
-const ProductDetailModal = dynamic(() => import('@/components/product-detail-modal').then((m) => m.ProductDetailModal), { ssr: false, loading: () => null })
-const RecipeDisplay = dynamic(() => import('@/components/recipe-display').then((m) => m.RecipeDisplay), { ssr: false, loading: () => <div className="h-48 bg-muted" /> })
-const ProductMasonry = dynamic(() => import('@/components/product-masonry').then((m) => m.default), { ssr: false, loading: () => <div className="h-32" /> })
-
-import Image from "next/image"
-import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
-import { Grid3x3, List, Filter, SortAsc, X, ArrowLeft } from "lucide-react"
-import WavyGrid from '@/components/wavy-grid'
-import { Label } from "@/components/ui/label"
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { Input } from "@/components/ui/input"
-import { PublicNav } from "@/components/public-nav"
-import { ProfileHeader } from "@/components/profile-header"
-import { apiFetch } from "@/lib/api-client"
-import type { Product, Collection, User, AmazonSaleSchedule } from "@shared/types"
-
-const API_BASE = process.env.NEXT_PUBLIC_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_BASE_URL || "/api/public"
-const api = (p: string) => `${API_BASE}${p.startsWith('/') ? p : '/' + p}`
-
-// Types are now provided by @shared/types
-
-type FilterContentProps = {
-  isMobile?: boolean
-  searchText: string
-  setSearchText: (v: string) => void
-  viewMode: "grid" | "list"
-  setViewMode: (v: "grid" | "list") => void
-  gridColumns: number
-  setGridColumns: (n: number) => void
-  layoutStyle: "masonry" | "square"
-  setLayoutStyle: (s: "masonry" | "square") => void
-  sortMode: "newest" | "clicks" | "price-asc" | "price-desc"
-  setSortMode: (v: any) => void
-  tagGroups: Record<string, string[]>
-  selectedTags: string[]
-  toggleTag: (t: string) => void
-  openGroups: string[] | undefined
-  setOpenGroups: (v: string[] | undefined) => void
-  setSelectedTags: (v: string[]) => void
-}
-
-function FilterContent({ isMobile = false, searchText, setSearchText, viewMode, setViewMode, gridColumns, setGridColumns, layoutStyle, setLayoutStyle, sortMode, setSortMode, tagGroups, selectedTags, toggleTag, openGroups, setOpenGroups, setSelectedTags, }: FilterContentProps) {
-  const [localQuery, setLocalQuery] = useState<string>(searchText)
-  const composingRef = useRef(false)
-  const debounceRef = useRef<number | null>(null)
-  useEffect(() => { setLocalQuery(searchText) }, [searchText])
-  useEffect(() => {
-    if (composingRef.current) return
-    if (debounceRef.current) { clearTimeout(debounceRef.current) }
-    debounceRef.current = window.setTimeout(() => { setSearchText(localQuery); debounceRef.current = null }, 300)
-    return () => { if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null } }
-  }, [localQuery, setSearchText])
-  const handleCompositionStart = () => { composingRef.current = true }
-  const handleCompositionEnd = () => { composingRef.current = false; setSearchText(localQuery) }
-
-  // Compute which groups should be visible based on tagGroups metadata
-  const visibleGroupKeys = useMemo(() => {
-    try {
-      const keys = Object.keys(tagGroups || {})
-      if (keys.length === 0) return []
-      // build a Set of selected tags for quick lookup
-      const sel = new Set((selectedTags || []).map((s) => String(s)))
-      return keys.filter((g) => {
-        const val: any = (tagGroups as any)[g]
-        // normalize group entry: could be array of tags or an object { tags, visibleWhenTriggerTagIds }
+            {viewMode === 'grid' ? (
+              <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>
+                {filteredAndSortedProducts.map((product) => {
+                  const sale = saleNameFor(product.id)
+                  const sizes = "(max-width: 768px) 100vw, 400px"
+                  const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
+                  const img0: any = product.images?.[0] || null
+                  const mainLegacyUrl = img0?.url || null
+                  const src = mainTop?.src || mainLegacyUrl || '/placeholder.svg'
+                  const title = product.title || ''
+                  return (
+                    <div key={product.id} className="group relative aspect-square overflow-hidden rounded-lg cursor-pointer transform transition-transform duration-300 ease-out motion-safe:will-change-transform hover:scale-[1.02] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onClick={() => handleProductClick(product)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleProductClick(product) } }} aria-label={title}>
+                      <img src={src} srcSet={(mainTop && mainTop.srcSet) || img0?.srcSet || undefined} sizes={(mainTop && mainTop.srcSet) || img0?.srcSet ? sizes : undefined} alt={title} className="object-cover rounded-lg w-full h-full no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg'; e.currentTarget.srcset = '' } catch {} }} />
+                      {sale && (
+                        <div className="absolute left-2 top-2 z-10">
+                          <span className="inline-flex items-center rounded-full bg-pink-600 text-white text-[10px] font-semibold px-2 py-0.5 shadow-sm">{sale}</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredAndSortedProducts.map((product) => {
+                  const sale = saleNameFor(product.id)
+                  const sizes = "(max-width: 768px) 100vw, 400px"
+                  const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
+                  const img0: any = product.images?.[0] || null
+                  const mainLegacyUrl = img0?.url || null
+                  const src = mainTop?.src || mainLegacyUrl || '/placeholder.svg'
+                  const title = product.title || ''
+                  return (
+                    <div key={product.id} className="flex gap-4 p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer bg-white/70" onClick={() => handleProductClick(product)}>
+                      <div className="relative w-24 h-24 shrink-0">
+                        <img src={src} sizes={sizes} alt={title} className="object-cover rounded w-24 h-24 no-download" loading="lazy" draggable={false} onDragStart={(e) => e.preventDefault()} onContextMenu={(e) => e.preventDefault()} onError={(e: any) => { try { e.currentTarget.onerror = null; e.currentTarget.src = '/placeholder.svg'; e.currentTarget.srcset = '' } catch {} }} />
+                        {sale && (
+                          <div className="absolute left-1 top-1 z-10">
+                            <span className="inline-flex items-center rounded bg-pink-600 text-white text-[9px] font-semibold px-1.5 py-0.5 shadow">{sale}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold mb-1">{title}</h3>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{product.shortDescription}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
         const visibleWhen: string[] | undefined = Array.isArray(val) ? undefined : (val && (val.visibleWhenTriggerTagIds || val.visible_when || val.visibleWhen))
         if (!visibleWhen || visibleWhen.length === 0) {
           // no constraint: always visible
