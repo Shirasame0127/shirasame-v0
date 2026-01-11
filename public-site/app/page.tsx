@@ -1000,13 +1000,56 @@ export default function HomePage() {
     }
   }, [galleryAllIds, displayedIds, pageLimit, pageOffset, loadingMore])
 
+  // Fetch canonical product list from server for "All Items" overlay
+  const fetchAllProductsFromApi = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/products`)
+      if (!res.ok) return null
+      const js = await res.json().catch(() => ({ data: [] }))
+      const data = Array.isArray(js.data) ? js.data : (Array.isArray(js) ? js : (js && js.data ? js.data : []))
+      const normalize = (raw: any) => {
+        const p = { ...raw } as any
+        if (raw.created_at && !p.createdAt) p.createdAt = raw.created_at
+        if (raw.updated_at && !p.updatedAt) p.updatedAt = raw.updated_at
+        if (raw.short_description && !p.shortDescription) p.shortDescription = raw.short_description
+        if (raw.image && !p.images) p.images = [{ id: raw.image.id || null, product_id: raw.id, url: raw.image.url || raw.image, width: raw.image.width || null, height: raw.image.height || null, aspect: raw.image.width && raw.image.height ? raw.image.width / raw.image.height : raw.image.aspect || null, role: raw.image.role || 'main' }]
+        if (!Array.isArray(p.images)) p.images = Array.isArray(raw.images) ? raw.images : []
+        if (raw.tags && !Array.isArray(raw.tags) && typeof raw.tags === 'string') {
+          try { p.tags = JSON.parse(raw.tags) } catch { p.tags = raw.tags.split(',').map((s: string) => s.trim()).filter(Boolean) }
+        }
+        return p
+      }
+      const normalized = (data || []).map((d: any) => normalize(d))
+      setProducts(normalized.filter((p: any) => p.published !== false))
+      return normalized
+    } catch (e) {
+      return null
+    }
+  }, [])
+
+  const openAllItemsOverlay = useCallback(async () => {
+    try {
+      setSortMode('newest')
+      setViewMode('grid')
+      setLayoutStyle('square')
+      setSelectedTags([])
+      setSearchText('')
+      // Try fetching canonical product list to ensure All Items shows all products
+      void fetchAllProductsFromApi()
+    } finally {
+      setIsAllOverlayOpen(true)
+    }
+  }, [fetchAllProductsFromApi])
+
   useEffect(() => {
     if (displayMode === 'gallery' && galleryFlatItems.length === 0) {
       void fetchAllGalleryItems()
     }
   }, [displayMode, galleryFlatItems.length, fetchAllGalleryItems])
 
-  const galleryItems = useMemo(() => { return galleryItemsShuffled.filter((item: any) => productById.has(item.productId)) }, [galleryItemsShuffled, productById])
+  // Include all shuffled gallery items (don't filter out items missing from `products`)
+  // We still dedupe earlier; this ensures gallery shows every image/attachment.
+  const galleryItems = useMemo(() => { return galleryItemsShuffled.slice() }, [galleryItemsShuffled])
 
   useEffect(() => {
     // Choose the appropriate sentinel depending on which view/overlay is visible.
@@ -1120,7 +1163,16 @@ export default function HomePage() {
                   // NOTE: Do NOT supply a dynamic `key` here — remounting the Masonry
                   // will break layout / observer timing. Keep the component mounted
                   // and just update its `items` prop.
-                  <ProductMasonry items={galleryItems} className="gap-3" fullWidth={true} columns={gridColumns} onItemClick={(id: string) => { const item: any = galleryItems.find((gi: any) => gi.id === id); const p = item ? products.find((pr) => pr.id === item.productId) : undefined; if (p) handleProductClick(p) }} />
+                  <ProductMasonry items={galleryItems} className="gap-3" fullWidth={true} columns={gridColumns} onItemClick={(id: string) => {
+                    const item: any = galleryItems.find((gi: any) => gi.id === id)
+                    const p = item ? products.find((pr) => pr.id === item.productId) : undefined
+                    if (p) return handleProductClick(p)
+                    // Fallback: create a minimal product-like object so modal can open for flat items
+                    if (item) {
+                      const faux = { id: item.productId || (`flat-${item.id || item.image}`), title: item.title || '', images: [{ url: item.image || item.src || item.url }] }
+                      return handleProductClick(faux as any)
+                    }
+                  }} />
                 ) : (
                   <p className="text-center text-muted-foreground py-16">そのワードに関連するものはまだないな...</p>
                 )}
@@ -1169,8 +1221,8 @@ export default function HomePage() {
 
           {displayMode !== 'gallery' && (
             <section id="all-products" className="mb-16 scroll-mt-20">
-              <h2 className="font-heading text-4xl sm:text-4xl font-bold mb-6 text-center heading-with-vertical">
-                <button onClick={() => { setSortMode('newest'); setViewMode('grid'); setLayoutStyle('square'); setSelectedTags([]); setSearchText(''); setIsAllOverlayOpen(true) }} className="underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded px-2">All Items</button>
+                <h2 className="font-heading text-4xl sm:text-4xl font-bold mb-6 text-center heading-with-vertical">
+                <button onClick={() => { void openAllItemsOverlay() }} className="underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded px-2">All Items</button>
               </h2>
               <p className="text-xs sm:text-sm text-muted-foreground mb-6 text-center">いままで紹介したすべての商品を表示します</p>
 
@@ -1212,7 +1264,7 @@ export default function HomePage() {
                     })()}
                   </div>
                     <div className="mt-4 flex justify-center">
-                    <Button onClick={() => { setSortMode('newest'); setViewMode('grid'); setLayoutStyle('square'); setSelectedTags([]); setSearchText(''); setIsAllOverlayOpen(true) }} className="w-50 rounded-full border-2 border-sky-400 bg-white text-sky-600 relative mt-3 px-4 py-5 shadow-sm hover:bg-sky-50">
+                    <Button onClick={() => { void openAllItemsOverlay() }} className="w-50 rounded-full border-2 border-sky-400 bg-white text-sky-600 relative mt-3 px-4 py-5 shadow-sm hover:bg-sky-50">
                       <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <span style={{ fontSize: '1.2em' }} className="font-medium">続きを表示</span>
                       </span>
