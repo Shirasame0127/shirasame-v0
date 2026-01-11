@@ -750,8 +750,14 @@ export default function HomePage() {
         const toAdd = normalized.filter((p: any) => !existing.has(String(p.id)))
         return [...prev, ...toAdd]
       })
-      setPageOffset((prev) => prev + items.length)
-      if (js?.meta && typeof js.meta.total === 'number') { setHasMore((prevOffset) => pageOffset + items.length < js.meta.total) } else { setHasMore(items.length === pageLimit) }
+      // compute new offset based on current known offset to avoid stale closures
+      const newOffset = pageOffset + items.length
+      setPageOffset(newOffset)
+      if (js?.meta && typeof js.meta.total === 'number') {
+        setHasMore(newOffset < js.meta.total)
+      } else {
+        setHasMore(items.length === pageLimit)
+      }
     } catch (e) { console.error('[public] loadMore failed', e) } finally { setLoadingMore(false) }
   }
 
