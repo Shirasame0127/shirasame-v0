@@ -787,7 +787,18 @@ export default function HomePage() {
       return [{ id: it.id || `${it.productId}__${idx}`, productId: it.productId || null, image: it.image || it.src || it.url || null, aspect: it.aspect || null, title: it.title || null, href: it.slug ? `/products/${it.slug}` : null }]
     })
 
-    return mapped
+    // Dedupe by image id or image URL to avoid showing the same image multiple times
+    const seen = new Set<string>()
+    const deduped: any[] = []
+    for (const m of mapped) {
+      const key = String(m.id || m.image || `${m.productId || ''}-${m.image || ''}`)
+      if (!key) continue
+      if (seen.has(key)) continue
+      seen.add(key)
+      deduped.push(m)
+    }
+
+    return deduped
   }, [galleryFlatItems, displayMode, searchText, selectedTags])
 
   const productById = useMemo(() => { const m = new Map<string, Product>(); for (const p of products) m.set(p.id, p); return m }, [products])
