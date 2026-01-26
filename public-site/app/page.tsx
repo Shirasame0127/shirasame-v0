@@ -1368,10 +1368,16 @@ export default function HomePage() {
                                 {linkedProducts.map((product) => {
                                   const cardImage = (() => {
                                     try {
+                                      // Prefer explicit `main_image.src` when available
                                       const mainSrc = (product as any)?.main_image && (product as any).main_image.src ? (product as any).main_image.src : null
                                       if (mainSrc) return String(mainSrc)
-                                      const legacy = (product as any)?.images && Array.isArray((product as any).images) ? (product as any).images[0] : null
-                                      return legacy?.url || '/placeholder.svg'
+                                      // Otherwise prefer the first non-attachment image (role !== 'attachment')
+                                      const imgs = (product as any)?.images && Array.isArray((product as any).images) ? (product as any).images : []
+                                      const nonAttachment = imgs.find((i: any) => !i?.role || i.role !== 'attachment')
+                                      if (nonAttachment && (nonAttachment.src || nonAttachment.url)) return String(nonAttachment.src || nonAttachment.url)
+                                      // Fallback: use first image if present, else placeholder
+                                      const legacy = imgs.length > 0 ? imgs[0] : null
+                                      return legacy?.src || legacy?.url || '/placeholder.svg'
                                     } catch { return '/placeholder.svg' }
                                   })()
                                   return (<ProductCardSimple key={product.id} product={product} saleName={saleNameFor(product.id)} onClick={() => handleProductClick(product, cardImage)} />)
