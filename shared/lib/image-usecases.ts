@@ -30,7 +30,7 @@ export function usageToWidths(u: ImageUsage): number[] {
     case 'list':
       return [400]
     case 'detail':
-      return [1200]
+      return [1000]
     case 'attachment':
       // Use single 400px variant for attachments to reduce unique transforms
       return [400]
