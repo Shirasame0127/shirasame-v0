@@ -222,6 +222,7 @@ export default function HomePage() {
   const [isGallerySearchSticky, setIsGallerySearchSticky] = useState(false)
   const [isAllOverlayOpen, setIsAllOverlayOpen] = useState(false)
   const [isAllOverlayClosing, setIsAllOverlayClosing] = useState(false)
+  const [mergedCanonicalImages, setMergedCanonicalImages] = useState(false)
 
   // Auto-scroll when opening/closing All Items overlay
   useEffect(() => {
@@ -1040,6 +1041,54 @@ export default function HomePage() {
       setIsAllOverlayOpen(true)
     }
   }, [fetchAllProductsFromApi])
+
+  // Ensure gallery includes images that may be present on canonical `/products` but
+  // missing from the flattened `/gallery` endpoint. Run once when entering gallery mode.
+  useEffect(() => {
+    if (!isLoaded) return
+    if (displayMode !== 'gallery') return
+    if (mergedCanonicalImages) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const canonical = await fetchAllProductsFromApi()
+        if (!canonical || cancelled) return
+
+        const existingUrls = new Set((galleryFlatItems || []).map((it: any) => String(it.image || it.src || it.url || '')).filter(Boolean))
+        const existingIds = new Set((galleryFlatItems || []).map((it: any) => String(it.id || '')).filter(Boolean))
+        const toAdd: any[] = []
+        for (const p of canonical) {
+          try {
+            const pid = p.id
+            const imgs = Array.isArray(p.images) ? p.images : (p.image ? [p.image] : [])
+            for (let i = 0; i < imgs.length; i++) {
+              const img = imgs[i]
+              const url = (img && (img.url || img.src || img.imageUrl || img.publicUrl)) || null
+              if (!url) continue
+              if (existingUrls.has(String(url))) continue
+              const fid = `prod-${pid}-img-${i}`
+              if (existingIds.has(fid)) continue
+              existingUrls.add(String(url))
+              existingIds.add(fid)
+              toAdd.push({ id: fid, productId: pid, image: url, src: url, url, width: img?.width || null, height: img?.height || null, aspect: img?.aspect || (img?.width && img?.height ? img.width / img.height : null), title: p.title || null, slug: p.slug || null })
+            }
+          } catch (e) { continue }
+        }
+
+        if (toAdd.length > 0) {
+          setGalleryFlatItems((prev) => {
+            const existing = new Set(prev.map((x: any) => String(x.id)))
+            const filtered = toAdd.filter((it) => !existing.has(String(it.id)))
+            return [...prev, ...filtered]
+          })
+        }
+        setMergedCanonicalImages(true)
+      } catch (e) {
+        // ignore
+      }
+    })()
+    return () => { cancelled = true }
+  }, [isLoaded, displayMode, galleryFlatItems, fetchAllProductsFromApi, mergedCanonicalImages])
 
   useEffect(() => {
     if (displayMode === 'gallery' && galleryFlatItems.length === 0) {

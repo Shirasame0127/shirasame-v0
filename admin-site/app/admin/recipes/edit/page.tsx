@@ -2091,7 +2091,8 @@ export default function RecipeEditPage() {
 
                 <Tabs value={parentTab} onValueChange={setParentTab} className="flex-1 flex flex-col overflow-hidden">
                   <div className="px-3 pt-3 pb-0 border-b border-zinc-800 bg-zinc-900/50">
-                    <TabsList className="w-full bg-zinc-950/50 p-1 h-9 grid grid-cols-3 gap-1">
+                    <div className="flex items-center justify-between">
+                      <TabsList className="w-full bg-zinc-950/50 p-1 h-9 grid grid-cols-3 gap-1">
                       <TabsTrigger
                         value="style"
                         className="text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-cyan-400 text-zinc-400 h-7"
@@ -2111,6 +2112,19 @@ export default function RecipeEditPage() {
                         ピン設定
                       </TabsTrigger>
                     </TabsList>
+                      <div className="ml-3">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const scope = parentTab === "style" ? "style" : parentTab === "font" ? "font" : "effect"
+                            applyToAllPins(scope as any)
+                          }}
+                          className="text-xs bg-zinc-800/30 hover:bg-zinc-700/40 text-zinc-200"
+                        >
+                          一括反映
+                        </Button>
+                      </div>
+                    </div>
                   </div>
 
                   <TabsContent
