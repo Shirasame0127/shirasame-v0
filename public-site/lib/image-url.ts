@@ -5,9 +5,8 @@ import {
   responsiveImageForUsage as sharedResponsiveImageForUsage,
   buildR2VariantFromBasePath as sharedBuildR2VariantFromBasePath,
   buildR2VariantFromBasePathWithFormat as sharedBuildR2VariantFromBasePathWithFormat,
+  ImageUsage,
 } from './image-usecases'
-import { ImageUsage } from './image-usecases'
-} from '../../shared/lib/image-usecases'
 
 export const getPublicImageUrl = sharedGetPublicImageUrl
 export const buildResizedImageUrl = sharedBuildResizedImageUrl
