@@ -1,4 +1,4 @@
-export const ALLOWED_WIDTHS = [200, 400, 800, 1600] as const
+export const ALLOWED_WIDTHS = [200, 400, 800, 1200, 1600, 1920] as const
 export const DEFAULT_QUALITY = 75
 
 export type AllowedWidth = typeof ALLOWED_WIDTHS[number]
@@ -18,17 +18,19 @@ export function snapToAllowed(w: number): AllowedWidth {
   if (clamped <= 200) return 200
   if (clamped <= 400) return 400
   if (clamped <= 800) return 800
-  return 1600
+  if (clamped <= 1200) return 1200
+  if (clamped <= 1600) return 1600
+  return 1920
 }
 
 export function usageToWidths(u: ImageUsage): number[] {
   switch (u) {
     case 'header-large':
-      return [1600]
+      return [1920]
     case 'list':
       return [400]
     case 'detail':
-      return [800]
+      return [1200]
     case 'attachment':
       // Use single 400px variant for attachments to reduce unique transforms
       return [400]
