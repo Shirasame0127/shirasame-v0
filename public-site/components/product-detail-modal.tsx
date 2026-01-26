@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { ExternalLink, X, Sparkles } from 'lucide-react'
 import EmbeddedLink from './embedded-link'
 import Image from "next/image"
+import { buildResizedImageUrl } from '@/lib/image-url'
 
 import { useEffect, useRef, useState } from "react"
 
@@ -151,7 +152,45 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                   (() => {
                     const displaySrc = mainImage?.src || "/placeholder.svg"
                     const displaySrcSet = mainImage?.srcSet || undefined
-                    return <img src={displaySrc} srcSet={displaySrcSet} alt={product.title || '商品画像'} className="w-full h-full object-cover" onLoad={(e) => { try { const t = e.currentTarget as HTMLImageElement; setImageAspectRatio(t.naturalWidth / t.naturalHeight); } catch {} }} />
+
+                    const forceWidth = 1000
+                    const tryForceCdnWidth = (url?: string | null) => {
+                      if (!url) return url || null
+                      try {
+                        // If URL already contains Cloudflare's cdn-cgi/image/width=..., replace width value
+                        const m = url.match(/(\/cdn-cgi\/image\/(?:[^/]*?)width=)\d+/)
+                        if (m) {
+                          return url.replace(/(\/cdn-cgi\/image\/(?:[^/]*?)width=)\d+/, `$1${forceWidth}`)
+                        }
+                      } catch {}
+                      return null
+                    }
+
+                    let finalSrc: string | null = null
+                    let finalSrcSet: string | undefined = undefined
+
+                    // Prefer to rewrite existing CDN-transformed URLs
+                    const rewritten = tryForceCdnWidth(displaySrc)
+                    if (rewritten) {
+                      finalSrc = rewritten
+                      finalSrcSet = displaySrcSet ? displaySrcSet.replace(/\b\d+w\b/g, `${forceWidth}w`) : `${finalSrc} ${forceWidth}w`
+                    } else {
+                      // Fallback: attempt to build a resized variant (handles raw keys/URLs)
+                      try {
+                        const built = buildResizedImageUrl(displaySrc, { width: forceWidth, format: 'auto', quality: 75 })
+                        if (built) {
+                          finalSrc = built
+                          finalSrcSet = `${built} ${forceWidth}w`
+                        }
+                      } catch {}
+                    }
+
+                    if (!finalSrc) {
+                      finalSrc = displaySrc
+                      finalSrcSet = displaySrcSet || undefined
+                    }
+
+                    return <img src={finalSrc || "/placeholder.svg"} srcSet={finalSrcSet} alt={product.title || '商品画像'} className="w-full h-full object-cover" onLoad={(e) => { try { const t = e.currentTarget as HTMLImageElement; setImageAspectRatio(t.naturalWidth / t.naturalHeight); } catch {} }} />
                   })()
                 }
             {saleName && (
