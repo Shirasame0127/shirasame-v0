@@ -10,7 +10,9 @@ export function ProductCardSimple({ product, onClick, saleName }: ProductCardSim
   // Prefer top-level `main_image` from owner-products API; fallback to legacy product.images
   const mainTop = (product as any).main_image && typeof (product as any).main_image === 'object' ? (product as any).main_image : null
   const images = Array.isArray(product.images) ? product.images : []
-  const mainLegacy = images.find((img) => img?.role === "main") || images[0] || null
+  // Prefer explicit 'main' role, then first non-attachment image, then first available image
+  const nonAttachment = images.find((img) => img && img.role !== 'attachment') || null
+  const mainLegacy = images.find((img) => img?.role === "main") || nonAttachment || images[0] || null
 
   // Use API-provided transformed URLs (prefer `main_image.src`).
   // Do NOT construct CDN URLs from keys on the client — backend should provide them.

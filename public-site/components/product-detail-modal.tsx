@@ -83,21 +83,46 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
   let mainImage: { src?: string | null; srcSet?: string | null } | null = null
   if (initialImageUrl) {
     // try match against apiMainImage, apiAttachments or legacyImages
-    if (apiMainImage && apiMainImage.src === initialImageUrl) mainImage = apiMainImage
-    else {
-      const matchLegacy = legacyImages.find((l: any) => l.src === initialImageUrl)
-      if (matchLegacy) mainImage = { src: matchLegacy.src, srcSet: matchLegacy.srcSet }
-      else {
+    if (apiMainImage && apiMainImage.src === initialImageUrl) {
+      mainImage = apiMainImage
+    } else {
+      // prefer legacy non-attachment images when matching initialImageUrl
+      const matchLegacyNonAttach = legacyImages.find((l: any) => l.src === initialImageUrl && l.role !== 'attachment')
+      if (matchLegacyNonAttach) {
+        mainImage = { src: matchLegacyNonAttach.src, srcSet: matchLegacyNonAttach.srcSet }
+      } else {
+        const matchLegacyAny = legacyImages.find((l: any) => l.src === initialImageUrl)
         const matchAttach = apiAttachments.find((a: any) => a && a.src === initialImageUrl)
-        if (matchAttach) mainImage = matchAttach
+        const hasNonAttach = !!(apiMainImage || legacyImages.find((l: any) => l.role !== 'attachment'))
+        // Only accept attachment/legacy matches if there are no other non-attachment product images
+        if (matchLegacyAny && !hasNonAttach) {
+          mainImage = { src: matchLegacyAny.src, srcSet: matchLegacyAny.srcSet }
+        } else if (matchAttach && !hasNonAttach) {
+          mainImage = matchAttach
+        }
       }
     }
   }
   // If initialImageUrl provided but no match was found, use it directly so modal shows immediately
   if (initialImageUrl && !mainImage) {
-    mainImage = { src: initialImageUrl, srcSet: null }
+    const hasNonAttach = !!(apiMainImage || legacyImages.find((l: any) => l.role !== 'attachment'))
+    // Do NOT use the initial image if it's an attachment and the product has non-attachment images.
+    if (!hasNonAttach) mainImage = { src: initialImageUrl, srcSet: null }
   }
-  if (!mainImage) mainImage = apiMainImage || (legacyImages.find((l: any) => l.role === 'main') ? { src: legacyImages.find((l: any) => l.role === 'main').src, srcSet: legacyImages.find((l: any) => l.role === 'main').srcSet } : (legacyImages[0] ? { src: legacyImages[0].src, srcSet: legacyImages[0].srcSet } : null))
+  if (!mainImage) {
+    const nonAttach = legacyImages.find((l: any) => l.role !== 'attachment')
+    if (apiMainImage) mainImage = apiMainImage
+    else if (legacyImages.find((l: any) => l.role === 'main')) {
+      const lm = legacyImages.find((l: any) => l.role === 'main')!
+      mainImage = { src: lm.src, srcSet: lm.srcSet }
+    } else if (nonAttach) {
+      mainImage = { src: nonAttach.src, srcSet: nonAttach.srcSet }
+    } else if (legacyImages[0]) {
+      mainImage = { src: legacyImages[0].src, srcSet: legacyImages[0].srcSet }
+    } else {
+      mainImage = null
+    }
+  }
 
   // Attachment images to render (ensure {src,srcSet} shape)
   const attachmentImages = (apiAttachments.length > 0 ? apiAttachments : legacyImages.filter((l: any) => l.role === 'attachment').map((l: any) => ({ src: l.src, srcSet: l.srcSet }))) .slice(0, 4)
