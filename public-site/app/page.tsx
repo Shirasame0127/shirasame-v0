@@ -491,7 +491,7 @@ export default function HomePage() {
           else if (Array.isArray(c.items)) {
             const prodList: any[] = []
             for (const it of c.items) {
-              const pid = it?.product_id ?? it?.id ?? it?.productId ?? null
+              const pid = (it as any)?.product_id ?? it?.id ?? it?.productId ?? null
               if (!pid) continue
               const found = normalizedProducts.find((np: any) => String(np.id) === String(pid))
               if (found) prodList.push(found)
@@ -512,15 +512,15 @@ export default function HomePage() {
           const referencedIds = new Set<string>()
           for (const c of apiCollections) {
             if (!c) continue
-            if (Array.isArray(c.products)) {
-              for (const p of c.products) {
-                const pid = p?.id ?? p?.product_id ?? p?.productId ?? null
+            if (Array.isArray((c as any).products)) {
+              for (const p of (c as any).products) {
+                const pid = (p as any)?.id ?? (p as any)?.product_id ?? (p as any)?.productId ?? null
                 if (pid) referencedIds.add(String(pid))
               }
             }
-            if (Array.isArray(c.items)) {
-              for (const it of c.items) {
-                const pid = it?.product_id ?? it?.id ?? it?.productId ?? null
+            if (Array.isArray((c as any).items)) {
+              for (const it of (c as any).items) {
+                const pid = (it as any)?.product_id ?? it?.id ?? it?.productId ?? null
                 if (pid) referencedIds.add(String(pid))
               }
             }
@@ -1385,7 +1385,7 @@ export default function HomePage() {
                     if (byMap) return byMap
                     const fromProducts = products.find((p) => String(p.id) === String(id)) || null
                     if (fromProducts) return fromProducts
-                    const itemFromRecipe = Array.isArray(recipe.items) ? recipe.items.find((it: any) => String(it.id ?? it.product_id ?? it.productId) === String(id)) : undefined
+                    const itemFromRecipe = Array.isArray(recipe.items) ? recipe.items.find((it: any) => String(it.id ?? (it as any).product_id ?? it.productId) === String(id)) : undefined
                     if (itemFromRecipe) return itemFromRecipe
                     return null
                   }).filter(Boolean) as any[]

@@ -112,7 +112,7 @@ export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, produ
           // Build product map once for quick lookup
           (() => {
             const productMap = new Map(products.map((p) => [String(p.id), p]))
-            const itemsMap = new Map((Array.isArray(items) ? items : []).map((it: any) => [String(it.id ?? it.product_id ?? it.productId), it]))
+            const itemsMap = new Map((Array.isArray(items) ? items : []).map((it: any) => [String(it.id ?? (it as any).product_id ?? it.productId), it]))
             return pins.map((pin) => {
               const pidKey = pin && pin.productId ? String(pin.productId) : null
               const productFromItems = pidKey ? itemsMap.get(pidKey) : undefined
