@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import { AppInitializer } from "@/components/app-initializer"
 import InitialLoading from "@/components/initial-loading-client"
+import NoSelectClient from "@/components/no-select-client"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans antialiased">
         <InitialLoading />
         <AppInitializer />
+        <NoSelectClient />
         {children}
         {/* Vercel Analytics removed for Cloudflare Pages deployment. */}
       </body>
