@@ -15,14 +15,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ja">
       <body className="font-sans antialiased">
-        {process.env.NODE_ENV === "production" && (
-          <>
-            <Script src="https://www.googletagmanager.com/gtag/js?id=G-SWEFCBS39M" strategy="afterInteractive" />
-            <Script id="ga-init" strategy="afterInteractive">
-              {`window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', 'G-SWEFCBS39M');`}
-            </Script>
-          </>
-        )}
+        {(() => {
+          const enableGa = process.env.NODE_ENV === "production" || process.env.NEXT_PUBLIC_FORCE_GA === "true"
+          if (!enableGa) return null
+          return (
+            <>
+              {/* Client-side optimized loader for runtime */}
+              <Script src="https://www.googletagmanager.com/gtag/js?id=G-SWEFCBS39M" strategy="afterInteractive" />
+              <Script id="ga-init" strategy="afterInteractive">
+                {`window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', 'G-SWEFCBS39M');`}
+              </Script>
+              {/* Static script tags so scanners that don't execute JS can detect GA */}
+              <script async src="https://www.googletagmanager.com/gtag/js?id=G-SWEFCBS39M"></script>
+              <script dangerouslySetInnerHTML={{ __html: "window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', 'G-SWEFCBS39M');" }} />
+            </>
+          )
+        })()}
         <InitialLoading />
         <AppInitializer />
         <NoSelectClient />
