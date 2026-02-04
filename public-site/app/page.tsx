@@ -503,7 +503,45 @@ export default function HomePage() {
           return c
         }
 
-        const normalizedCollections = apiCollections.map((c: any) => normalizeCollection(c))
+        let normalizedCollections = apiCollections.map((c: any) => normalizeCollection(c))
+
+        // If collections reference product IDs that weren't present in the
+        // flattened gallery-derived `normalizedProducts`, fetch those products
+        // from the API so collection pages can render registered items.
+        try {
+          const referencedIds = new Set<string>()
+          for (const c of apiCollections) {
+            if (!c) continue
+            if (Array.isArray(c.products)) {
+              for (const p of c.products) {
+                const pid = p?.id ?? p?.product_id ?? p?.productId ?? null
+                if (pid) referencedIds.add(String(pid))
+              }
+            }
+            if (Array.isArray(c.items)) {
+              for (const it of c.items) {
+                const pid = it?.product_id ?? it?.id ?? it?.productId ?? null
+                if (pid) referencedIds.add(String(pid))
+              }
+            }
+          }
+          const haveIds = new Set(normalizedProducts.map((p: any) => String(p.id)))
+          const missing = Array.from(referencedIds).filter((id) => !haveIds.has(String(id)))
+          if (missing.length > 0) {
+            try {
+              const prodsRes = await apiFetch(`/products?ids=${encodeURIComponent(missing.join(','))}`)
+              if (prodsRes.ok) {
+                const prodsJson = await prodsRes.json().catch(() => ({ data: [] }))
+                const fetched = Array.isArray(prodsJson.data) ? prodsJson.data : []
+                const fetchedNormalized = fetched.map((p: any) => normalizeProduct(p))
+                // Merge into normalizedProducts so subsequent lookup succeeds
+                normalizedProducts.push(...fetchedNormalized)
+                // Recompute collections now that normalizedProducts includes fetched items
+                normalizedCollections = apiCollections.map((c: any) => normalizeCollection(c))
+              }
+            } catch {}
+          }
+        } catch {}
 
         const normalizeRecipe = (raw: any) => {
           const r = { ...raw } as any
