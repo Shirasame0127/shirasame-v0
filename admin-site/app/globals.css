@@ -1,5 +1,5 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&display=swap');
+@import "tailwindcss";
 /* tw-animate-cssのインポートを削除してTailwind v4の構文エラーを修正 */
 
 /* @custom-variant構文を削除し、標準的なダークモード設定に変更 */

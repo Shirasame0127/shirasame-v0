@@ -23,11 +23,14 @@ export async function GET(req: Request) {
 			if (auth && auth.toLowerCase().startsWith('bearer ')) token = auth.slice(7).trim()
 		}
 		if (!token) return new Response(JSON.stringify({ ok: false, error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
-		const supabaseUrl = process.env.SUPABASE_URL || ''
+		// Prefer server-side SUPABASE_URL but fall back to NEXT_PUBLIC_SUPABASE_URL
+		const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 		if (!supabaseUrl) return new Response(JSON.stringify({ ok: false, error: 'server misconfigured' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
 
 		// Query Supabase user endpoint using the resolved token
-		const res = await fetch(`${supabaseUrl.replace(/\/$/, '')}/auth/v1/user`, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } })
+		const headers: Record<string, string> = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+		if (process.env.SUPABASE_ANON_KEY) headers['apikey'] = process.env.SUPABASE_ANON_KEY
+		const res = await fetch(`${supabaseUrl.replace(/\/$/, '')}/auth/v1/user`, { headers })
 		if (!res.ok) return new Response(JSON.stringify({ ok: false, error: 'unauthenticated' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
 		const json = await res.json().catch(() => null)
 		return new Response(JSON.stringify({ ok: true, user: json }), { status: 200, headers: { 'Content-Type': 'application/json' } })

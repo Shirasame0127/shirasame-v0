@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react'
 import { getPublicImageUrl } from '@/lib/image-url'
 import apiFetch from '@/lib/api-client'
 import { db } from '@/lib/db/storage'
+import LoadingAnimation from '@/components/loading-animation'
 
 export default function AdminLoading() {
   const [gifUrl, setGifUrl] = useState<string | null>(null)
@@ -68,9 +69,7 @@ export default function AdminLoading() {
           // eslint-disable-next-line @next/next/no-img-element
           <img src={gifUrl} alt="loading" className="w-full h-full object-cover" />
         ) : (
-          // Fallback to static placeholder image when GIF not configured
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src="/placeholder.svg" alt="loading" className="w-12 h-12 object-contain" />
+          <LoadingAnimation size={96} />
         )}
       </div>
     </div>

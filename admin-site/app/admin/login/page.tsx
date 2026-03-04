@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
+import { Eye, EyeOff } from 'lucide-react'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -303,15 +304,18 @@ export default function LoginPage() {
                       aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-sm opacity-70 hover:opacity-100"
                     >
-                      {showLoginPassword ? 'Hide' : 'Show'}
+                      {showLoginPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
                     </button>
                   </div>
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>{isLoading ? 'ログイン中...' : 'ログイン'}</Button>
                 <div className="flex items-center gap-2">
-                  <Button type="button" variant="ghost" onClick={handleGoogleLogin} disabled={isLoading} className="flex-1">Googleでログイン</Button>
-                    <Button type="button" variant="outline" onClick={handleSendMagicLink} disabled={isLoading} className="flex-1">メール認証</Button>
-                    <Button type="button" variant="link" onClick={handleSendPasswordReset} disabled={isLoading} className="flex-1">パスワードをリセット</Button>
+                  <Button type="button" variant="outline" onClick={handleSendMagicLink} disabled={isLoading} className="flex-1">メール認証</Button>
+                  <Button type="button" variant="link" onClick={handleSendPasswordReset} disabled={isLoading} className="flex-1">パスワードをリセット</Button>
                 </div>
               </form>
             </TabsContent>
@@ -333,7 +337,7 @@ export default function LoginPage() {
                   <div className="relative">
                     <Input id="signup-password" type={showSignupPassword ? 'text' : 'password'} value={signupPassword} onChange={(e) => { setSignupPassword(e.target.value); setSignupPasswordError('') }} required />
                     {signupPasswordError ? <p className="text-sm text-destructive mt-1">{signupPasswordError}</p> : null}
-                    <button type="button" onClick={() => setShowSignupPassword((s) => !s)} aria-label={showSignupPassword ? 'Hide password' : 'Show password'} className="absolute right-2 top-1/2 -translate-y-1/2 text-sm opacity-70 hover:opacity-100">{showSignupPassword ? 'Hide' : 'Show'}</button>
+                    <button type="button" onClick={() => setShowSignupPassword((s) => !s)} aria-label={showSignupPassword ? 'Hide password' : 'Show password'} className="absolute right-2 top-1/2 -translate-y-1/2 text-sm opacity-70 hover:opacity-100">{showSignupPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
                   </div>
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>{isLoading ? 'アカウント作成中...' : 'アカウント作成'}</Button>

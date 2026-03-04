@@ -126,10 +126,12 @@ export default function InitialLoading() {
     isPublic = true
   }
 
-  // Use solid pale-blue while visible; fade-out will animate opacity to transparent.
+        gifUrl ? (
   const bgStyle = isPublic ? { backgroundColor: '#add8e6' } : undefined
   const transitionStyle = { transition: 'opacity 500ms ease' }
-
+        ) : (
+          <LoadingAnimation size={160} />
+        )
   return (
     <div
       className={`fixed inset-0 flex items-center justify-center ${fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
@@ -137,8 +139,7 @@ export default function InitialLoading() {
     >
       {isPublic ? (
         // Public pages: show GIF centered on pale-blue full-screen background
-        // If gifUrl is not yet available, do not render a boxed placeholder
-        // (avoids showing a white square). The background remains visible.
+            <LoadingAnimation size={96} />
         gifUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={gifUrl} alt="loading" className="w-40 h-40 object-contain" />
