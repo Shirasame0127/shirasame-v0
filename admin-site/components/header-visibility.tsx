@@ -44,10 +44,9 @@ export default function HeaderVisibility() {
               key={it.key}
               aria-label={it.label}
               onClick={() => router.push(it.href)}
-              className={`flex flex-col items-center justify-center gap-0.5 py-2 px-2 grow ${active ? 'text-primary' : 'text-muted-foreground'}`}
+              className={`flex-1 flex items-center justify-center py-2 ${active ? 'text-primary' : 'text-muted-foreground'}`}
             >
-              <it.Icon className="h-5 w-5" />
-              <span className="text-[10px] leading-3">{it.label}</span>
+              <it.Icon className="h-6 w-6" />
             </button>
           )
         })}
