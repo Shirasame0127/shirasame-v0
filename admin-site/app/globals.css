@@ -38,6 +38,9 @@
   --sidebar-accent-foreground: oklch(0.15 0.01 264);
   --sidebar-border: oklch(0.9 0.005 264);
   --sidebar-ring: oklch(0.35 0.15 264);
+  /* Admin layout header/footer heights (mobile/desktop aware) */
+  --admin-header-height: 0px; /* mobile: no top header */
+  --admin-footer-height: 3rem; /* mobile bottom nav height (h-12) */
 }
 
 .dark {
@@ -74,6 +77,14 @@
   --sidebar-accent-foreground: oklch(0.95 0.005 264);
   --sidebar-border: oklch(0.25 0.01 264);
   --sidebar-ring: oklch(0.65 0.2 264);
+}
+
+/* On medium+ screens the header is visible and footer is hidden */
+@media (min-width: 768px) {
+  :root {
+    --admin-header-height: 4rem; /* desktop header height (h-16) */
+    --admin-footer-height: 0px;
+  }
 }
 
 /* @theme inlineブロックからcalc()を削除し、具体的な値を直接指定 */
@@ -121,6 +132,20 @@
 }
 
 @layer base {
+  /* Prevent page-level scrolling and size main to available viewport
+     minus header/footer heights so the document itself cannot scroll. */
+  html,
+  body,
+  #__next {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  main {
+    height: calc(100vh - var(--admin-header-height) - var(--admin-footer-height));
+    overflow: hidden;
+  }
+
   * {
     @apply border-border outline-ring/50;
   }

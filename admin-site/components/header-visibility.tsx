@@ -36,7 +36,7 @@ export default function HeaderVisibility() {
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="flex md:hidden w-full items-center justify-around h-16">
+      <nav className="flex md:hidden w-full items-center justify-around h-12">
         {navItems.map((it) => {
           const active = isActive(it.href)
           return (
@@ -46,7 +46,7 @@ export default function HeaderVisibility() {
               onClick={() => router.push(it.href)}
               className={`flex-1 flex items-center justify-center py-2 ${active ? 'text-primary' : 'text-muted-foreground'}`}
             >
-              <it.Icon className="h-6 w-6" />
+              <it.Icon className="h-5 w-5" />
             </button>
           )
         })}
