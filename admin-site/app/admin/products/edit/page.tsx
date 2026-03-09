@@ -640,7 +640,6 @@ export default function ProductEditPageQuery() {
               />
           </CardContent>
         </Card>
-        {/* フォーム（元実装と同じ） */}
         <Card>
           <CardHeader>
             <CardTitle>基本情報</CardTitle>
@@ -656,9 +655,9 @@ export default function ProductEditPageQuery() {
             </div>
 
             <div className="space-y-2">
-              <Label>短い説明</Label>
+              <Label>ブランド名</Label>
               <Input
-                placeholder="カードに表示される簡単な説明"
+                placeholder="ブランド名を入力してください（例: ロジクール）"
                 value={shortDescription}
                 onChange={(e) => setShortDescription(e.target.value)}
               />
