@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import apiFetch from '@/lib/api-client'
 import { getPublicImageUrl } from '@/lib/image-url'
+import LoadingAnimation from '@/components/loading-animation'
 import { db } from '@/lib/db/storage'
 
 export default function InitialLoading() {
@@ -126,12 +127,9 @@ export default function InitialLoading() {
     isPublic = true
   }
 
-        gifUrl ? (
   const bgStyle = isPublic ? { backgroundColor: '#add8e6' } : undefined
   const transitionStyle = { transition: 'opacity 500ms ease' }
-        ) : (
-          <LoadingAnimation size={160} />
-        )
+
   return (
     <div
       className={`fixed inset-0 flex items-center justify-center ${fadeOut ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
@@ -139,11 +137,12 @@ export default function InitialLoading() {
     >
       {isPublic ? (
         // Public pages: show GIF centered on pale-blue full-screen background
-            <LoadingAnimation size={96} />
         gifUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={gifUrl} alt="loading" className="w-40 h-40 object-contain" />
-        ) : null
+        ) : (
+          <LoadingAnimation size={160} />
+        )
       ) : (
         // Non-public (admin) pages: preserve previous boxed look
         <div className="w-36 h-36 flex items-center justify-center rounded-md bg-white/90 overflow-hidden">
