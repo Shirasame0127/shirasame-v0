@@ -29,6 +29,8 @@ import {
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
+import { confirm as confirmDialog } from "@/components/ui/confirm"
+import { StarMark } from "@/components/brand"
 import apiFetch from '@/lib/api-client'
 import { getCurrentUser } from "@/lib/auth"
 
@@ -764,23 +766,24 @@ export default function AdminTagsPage() {
   }, [serverGroups, groupedTags])
 
   return (
-    <div className="w-full px-4 py-8">
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
+    <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
+      <div className="mb-8 flex items-end justify-between gap-4">
+        <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/admin" prefetch={false}>
+            <Link href="/admin" prefetch={false} aria-label="戻る">
               <ArrowLeft className="w-5 h-5" />
             </Link>
           </Button>
           <div>
-            <h1 className="text-3xl font-bold mb-2">タグ管理</h1>
-            <p className="text-muted-foreground">カスタムタグの管理とグループ化</p>
+            <p className="label-mono mb-2 flex items-center gap-2"><StarMark size={12} className="text-primary" /> Tags</p>
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">タグ管理</h1>
+            <p className="mt-1 text-sm text-muted-foreground">カスタムタグの管理とグループ化</p>
           </div>
         </div>
-        
+
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
-            <Button size="lg">
+            <Button>
               <Plus className="w-4 h-4 mr-2" />
               新規タグ
             </Button>
@@ -994,7 +997,7 @@ export default function AdminTagsPage() {
                             }}>編集</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={async () => {
-                              if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
+                              if (!(await confirmDialog({ title: 'グループを削除しますか？', description: `「${groupName}」を削除します。タグはグループ未設定になります。`, confirmText: '削除する' }))) return
                               try {
                                 const res = await apiFetch('/api/admin/tag-groups', {
                                   method: 'DELETE',
@@ -1092,7 +1095,7 @@ export default function AdminTagsPage() {
                               }}>編集</DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onSelect={async () => {
-                                if (!confirm(`グループ「${groupName}」を削除しますか？`)) return
+                                if (!(await confirmDialog({ title: 'グループを削除しますか？', description: `「${groupName}」を削除します。タグはグループ未設定になります。`, confirmText: '削除する' }))) return
                                 try {
                                   const res = await apiFetch('/api/admin/tag-groups', {
                                     method: 'DELETE',
@@ -1225,62 +1228,6 @@ export default function AdminTagsPage() {
               </div>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isGroupDialogOpen} onOpenChange={setIsGroupDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {editingGroupName ? "グループ名を変更" : "新しいグループを追加"}
-            </DialogTitle>
-            <DialogDescription>
-              {editingGroupName 
-                ? `「${editingGroupName}」グループの名前を変更します`
-                : "タグを整理するためのグループ名を入力してください"
-              }
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>{editingGroupName ? "新しいグループ名" : "グループ名"}</Label>
-              <Input
-                value={newGroupName}
-                onChange={(e) => setNewGroupName(e.target.value)}
-                placeholder="例: 作業環境、ガジェット、ソフトウェア"
-              />
-            </div>
-            {editingGroupName && (
-              <div className="space-y-2">
-                <Label>このグループを表示する条件</Label>
-                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
-                  {tags.filter((tag) => tag.group === TRIGGER_GROUP_NAME).map((t) => (
-                    <label key={t.id} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={selectedVisibility.includes(t.id)}
-                        onChange={(e) => {
-                          const v = t.id
-                          setSelectedVisibility((prev) => e.target.checked ? Array.from(new Set([...prev, v])) : prev.filter(x => x !== v))
-                        }}
-                      />
-                      <span className="truncate">{t.name}</span>
-                    </label>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">何も選ばれていない場合は「常に表示」</p>
-              </div>
-            )}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsGroupDialogOpen(false)}>
-                キャンセル
-              </Button>
-              <Button onClick={editingGroupName ? renameGroup : addNewGroup}>
-                <Save className="w-4 h-4 mr-1" />
-                {editingGroupName ? "変更" : "追加"}
-              </Button>
-            </div>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

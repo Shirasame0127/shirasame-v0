@@ -15,11 +15,13 @@ import { db } from "@/lib/db/storage"
 import { getCurrentUser } from "@/lib/auth"
 import apiFetch from "@/lib/api-client"
 import { ProductCard } from "@/components/product-card"
-import { Plus, Edit, Trash2, Save, X, GripVertical, MoreHorizontal } from 'lucide-react'
+import { Plus, Edit, Trash2, Save, X, MoreHorizontal, Layout } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { Collection } from "@/types/collection"
 import { useToast } from "@/hooks/use-toast"
+import { confirm } from "@/components/ui/confirm"
+import { StarMark } from "@/components/brand"
 
 export default function AdminCollectionsPage() {
   const [collections, setCollections] = useState<Collection[]>([])
@@ -227,31 +229,25 @@ export default function AdminCollectionsPage() {
     setDialogOpen(false)
   }
 
-  const handleDelete = (collectionId: string) => {
-    toast({
-      title: "削除の確認",
-      description: "このコレクションを削除してもよろしいですか？",
-      action: (
-        <Button
-          variant="destructive"
-          size="sm"
-              onClick={async () => {
-                try {
-                  const res = await apiFetch(`/api/admin/collections/${encodeURIComponent(collectionId)}`, { method: 'DELETE' })
-                  if (!res.ok) throw new Error('delete failed')
-                  db.collections.delete(collectionId)
-                  setCollections(collections.filter((col) => col.id !== collectionId))
-                  toast({ title: '削除完了', description: 'コレクションを削除しました' })
-                } catch (e) {
-                  console.error('delete collection failed', e)
-                  toast({ variant: 'destructive', title: '削除に失敗しました' })
-                }
-              }}
-        >
-          削除
-        </Button>
-      ),
+  const handleDelete = async (collectionId: string) => {
+    const target = collections.find((c) => c.id === collectionId)
+    const ok = await confirm({
+      title: 'コレクションを削除しますか？',
+      description: `「${target?.title || 'コレクション'}」を削除します。この操作は取り消せません。`,
+      confirmText: '削除する',
     })
+    if (!ok) return
+    const prev = collections
+    setCollections((cols) => cols.filter((col) => col.id !== collectionId)) // optimistic
+    try {
+      const res = await apiFetch(`/api/admin/collections/${encodeURIComponent(collectionId)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('delete failed')
+      try { db.collections.delete(collectionId) } catch {}
+      toast({ title: '削除しました' })
+    } catch (e) {
+      setCollections(prev) // roll back
+      toast({ variant: 'destructive', title: '削除に失敗しました' })
+    }
   }
 
   // SortableCard component for dnd-kit — provides sortable root behavior (attributes/listeners on wrapper)
@@ -508,17 +504,29 @@ export default function AdminCollectionsPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-8">
+    <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
+      <div className="mb-8 flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold mb-2">コレクション管理</h1>
-          <p className="text-muted-foreground">商品のグループを作成・管理</p>
+          <p className="label-mono mb-2 flex items-center gap-2"><StarMark size={12} className="text-primary" /> Collections</p>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">コレクション管理</h1>
+          <p className="mt-1 text-sm text-muted-foreground">商品のグループを作成・管理</p>
         </div>
-        <Button size="lg" className="gap-2" onClick={openCreateDialog}>
-          <Plus className="w-4 h-4" />
+        <Button onClick={openCreateDialog}>
+          <Plus className="h-4 w-4" />
           新規作成
         </Button>
       </div>
+
+      {collections.length === 0 && (
+        <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed py-16 text-center">
+          <Layout className="h-10 w-10 text-muted-foreground/60" />
+          <div>
+            <p className="font-medium">コレクションがまだありません</p>
+            <p className="mt-1 text-sm text-muted-foreground">商品をまとめるグループを作成しましょう。</p>
+          </div>
+          <Button onClick={openCreateDialog}><Plus className="h-4 w-4" />新規作成</Button>
+        </div>
+      )}
 
       <DndContext
             sensors={sensors}
@@ -532,6 +540,7 @@ export default function AdminCollectionsPage() {
               const oldIndex = collections.findIndex((c) => c.id === active.id)
               const newIndex = collections.findIndex((c) => c.id === over.id)
               if (oldIndex < 0 || newIndex < 0) return
+              const prevOrder = collections
               const next = arrayMove(collections, oldIndex, newIndex)
               setCollections(next)
               try {
@@ -540,13 +549,17 @@ export default function AdminCollectionsPage() {
 
               ;(async () => {
                 try {
-                  await apiFetch('/api/admin/collections/reorder', {
+                  const res = await apiFetch('/api/admin/collections/reorder', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ order: next.map((c, i) => ({ id: c.id, order: i })) }),
                   })
+                  if (!res.ok) throw new Error('reorder failed')
                 } catch (err) {
-                  console.warn('collections reorder persist failed', err)
+                  // roll back both the UI and the cached order on failure
+                  setCollections(prevOrder)
+                  try { localStorage.setItem('collections-order', JSON.stringify(prevOrder.map((c) => c.id))) } catch {}
+                  toast({ variant: 'destructive', title: '並び順の保存に失敗しました' })
                 }
               })()
             }}

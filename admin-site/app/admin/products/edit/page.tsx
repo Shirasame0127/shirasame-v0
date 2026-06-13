@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, Suspense } from "react"
 import AdminLoading from '@/components/admin-loading'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -63,7 +63,7 @@ function extractKeyFromUrl(u: any): string | null {
   }
 }
 
-export default function ProductEditPageQuery() {
+function ProductEditPageInner() {
   const router = useRouter()
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(true)
@@ -601,21 +601,21 @@ export default function ProductEditPageQuery() {
   const mainImageValue = getPublicImageUrl(db.images.getUpload(mainImageKey) || mainImageKey) || mainImagePreview || ""
 
   return (
-    <div className="w-full px-4 py-6">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+    <div className="mx-auto max-w-3xl px-4 py-6 md:px-8">
+      <div className="sticky top-0 z-10 -mx-4 mb-6 flex flex-wrap items-center justify-between gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur md:-mx-8 md:px-8">
+        <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/admin/products" prefetch={false}>
+            <Link href="/admin/products" prefetch={false} aria-label="戻る">
               <ArrowLeft className="w-5 h-5" />
             </Link>
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold">商品を編集</h1>
-            <p className="text-sm text-muted-foreground">{title}</p>
+          <div className="min-w-0">
+            <p className="label-mono">Edit product</p>
+            <h1 className="truncate text-xl font-bold">{title || '商品を編集'}</h1>
           </div>
         </div>
-        <Button onClick={handleSave} size="lg" disabled={!title || !mainImageKey}>
-          <Save className="w-4 h-4 mr-2" />
+        <Button onClick={handleSave} disabled={!title || !mainImageKey}>
+          <Save className="h-4 w-4" />
           保存
         </Button>
       </div>
@@ -994,5 +994,13 @@ export default function ProductEditPageQuery() {
         </Card>
       </div>
     </div>
+  )
+}
+
+export default function ProductEditPage() {
+  return (
+    <Suspense fallback={<AdminLoading />}>
+      <ProductEditPageInner />
+    </Suspense>
   )
 }

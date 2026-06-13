@@ -187,14 +187,10 @@ export const db = {
     countAdmin: async (userId?: string) => {
       try {
         const path = userId ? `/api/admin/products?count=true&limit=0&user_id=${encodeURIComponent(userId)}` : '/api/admin/products?count=true&limit=0'
-        const res = await apiFetch('GET', path)
-        if (!res) return null
-        try {
-          const json = await res.json().catch(() => null)
-          return json?.meta?.total ?? null
-        } catch (e) {
-          return null
-        }
+        // NOTE: the local apiFetch wrapper already returns parsed JSON, so do
+        // NOT call .json() again here (that always threw and returned null).
+        const json = await apiFetch('GET', path)
+        return json?.meta?.total ?? null
       } catch (e) {
         return null
       }
@@ -522,8 +518,9 @@ export const db = {
                 // Persist metadata explicitly (compat); public-worker may already have persisted
                 try {
                   // Persist metadata by calling the public-worker `/api/images/complete`.
-                  // Use apiFetch so BUILD_API_BASE / runtime API_BASE is respected.
-                  apiFetch('POST', '/api/images/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: returnedKey }) })
+                  // The local apiFetch wrapper takes (method, path, bodyObject) and
+                  // JSON-stringifies the body itself — pass the plain object.
+                  apiFetch('POST', '/api/images/complete', { key: returnedKey })
                     .then((r) => {
                       if (!r) console.warn('[v0] images.saveUpload: server save failed')
                     })
@@ -545,7 +542,7 @@ export const db = {
         const persistKey = (url && typeof url === 'string' && !url.startsWith('http') && !url.startsWith('/')) ? url : key
         // Best-effort: call the images/complete endpoint via apiPath so BUILD_API_BASE is respected
         try {
-          apiFetch('POST', '/api/images/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: persistKey }) })
+          apiFetch('POST', '/api/images/complete', { key: persistKey })
             .then((r) => {
               if (!r) console.warn('[v0] images.saveUpload: server save failed')
             })

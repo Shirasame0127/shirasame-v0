@@ -8,147 +8,137 @@ import { Switch } from '@/components/ui/switch'
 import { useState, useRef, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Edit, Trash2, MoreHorizontal } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import { confirm } from "@/components/ui/confirm"
 import type { Product } from "@/lib/db/schema"
 
 interface ProductListItemProps {
   product: Product
-  onUpdate?: () => void
+  onDeleted?: () => void
 }
 
-export function ProductListItem({ product, onUpdate }: ProductListItemProps) {
+export function ProductListItem({ product, onDeleted }: ProductListItemProps) {
   const router = useRouter()
+  const { toast } = useToast()
   const [publishedState, setPublishedState] = useState<boolean>(!!product.published)
+  const [deleting, setDeleting] = useState(false)
 
   const handleTogglePublished = async (newVal: boolean) => {
-    // optimistic
     const prev = publishedState
-    setPublishedState(newVal)
+    setPublishedState(newVal) // optimistic
     try {
-      const res = await apiFetch(`/api/admin/products/${product.id}/published`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ published: newVal }) })
-      if (!res || !res.ok) {
-        throw new Error('Failed')
-      }
-      if (onUpdate) onUpdate()
-    } catch (e) {
-      console.error('公開切替失敗', e)
-      alert('公開ステータスの切替に失敗しました')
+      const res = await apiFetch(`/api/admin/products/${product.id}/published`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ published: newVal }),
+      })
+      if (!res || !res.ok) throw new Error('Failed')
+      toast({ title: newVal ? '公開しました' : '下書きに戻しました' })
+    } catch {
       setPublishedState(prev)
+      toast({ title: '公開ステータスの切替に失敗しました', variant: 'destructive' })
     }
   }
-  // Prefer authoritative `main_image_key` column when present, otherwise fall back to images array
+
   const mainImageFromImages = product.images?.find((img) => img.role === "main") || product.images?.[0]
-  const mainImage = product.main_image_key ? { key: product.main_image_key } as any : mainImageFromImages
+  const mainImage = product.main_image_key ? ({ key: product.main_image_key } as any) : mainImageFromImages
 
   const handleDelete = async () => {
-    if (!product?.id) {
-      alert('削除対象のIDが見つかりません。しばらくしてから再度お試しください。')
-      return
-    }
-
-    if (!confirm(`「${product.title}」を削除してもよろしいですか？`)) return
-    
+    if (!product?.id) return
+    const ok = await confirm({
+      title: '商品を削除しますか？',
+      description: `「${product.title}」を削除します。この操作は取り消せません。`,
+      confirmText: '削除する',
+    })
+    if (!ok) return
+    setDeleting(true)
     try {
       const res = await apiFetch(`/api/admin/products/${product.id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete')
-
-      if (onUpdate) onUpdate()
-      window.location.reload()
-    } catch (error) {
-      console.error(error)
-      alert('削除に失敗しました')
+      toast({ title: '削除しました' })
+      onDeleted?.()
+    } catch {
+      toast({ title: '削除に失敗しました', variant: 'destructive' })
+      setDeleting(false)
     }
   }
 
   return (
-    <Card>
-      <CardContent className="h-24">
-        <div className="flex gap-4 h-full">
-          <div className="relative w-24 h-24 shrink-0 rounded-lg overflow-hidden bg-muted">
-            {
-              (() => {
-                // Resolve candidate the same way as `site-settings` then
-                // normalize to a public CDN URL before asking for resized variants.
-                const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || (mainImage as any)?.url || null
-                const candidate = (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/'))) ? raw : db.images.getUpload(String(raw)) || String(raw || '')
-                // Ensure we have a canonical public base URL (matches site-settings behavior)
-                const publicBase = getPublicImageUrl(candidate) || candidate || ''
-                const resp = responsiveImageForUsage(publicBase || null, 'list')
-                const placeholder = "/placeholder.svg?height=200&width=200"
-                return <img src={resp.src || (publicBase || placeholder)} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="w-full h-full object-cover" />
-              })()
-            }
+    <Card className={`gap-0 overflow-hidden py-0 transition-colors hover:border-primary/30 ${deleting ? 'pointer-events-none opacity-50' : ''}`}>
+      <div className="flex min-h-[6rem] gap-4 p-3">
+        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-md bg-muted">
+          {(() => {
+            const raw = (mainImage as any)?.key || (mainImage as any)?.basePath || (mainImage as any)?.url || null
+            const candidate = (typeof raw === 'string' && (raw.startsWith('http') || raw.startsWith('/'))) ? raw : db.images.getUpload(String(raw)) || String(raw || '')
+            const publicBase = getPublicImageUrl(candidate) || candidate || ''
+            const resp = responsiveImageForUsage(publicBase || null, 'list')
+            const placeholder = "/placeholder.svg?height=160&width=160"
+            return <img src={resp.src || (publicBase || placeholder)} srcSet={resp.srcSet || undefined} sizes={resp.sizes} alt={product.title} className="h-full w-full object-cover" />
+          })()}
+        </div>
+
+        <div className="flex min-w-0 flex-1 flex-col justify-between">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="line-clamp-2 font-medium leading-snug">{product.title}</h3>
+              {product.shortDescription && (
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{product.shortDescription}</p>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2" data-no-drag onPointerDown={(e) => e.stopPropagation()}>
+              <Badge variant={publishedState ? "default" : "secondary"} className={publishedState ? "" : "text-muted-foreground"}>
+                {publishedState ? "公開中" : "下書き"}
+              </Badge>
+              <Switch
+                checked={publishedState}
+                onCheckedChange={(v) => handleTogglePublished(!!v)}
+                onTouchStart={(e) => e.stopPropagation()}
+                aria-label="公開状態の切替"
+              />
+            </div>
           </div>
 
-          <div className="flex-1 min-w-0 flex flex-col justify-between relative">
-            {/* Top row: published badge + switch aligned to right */}
-            <div className="flex items-start justify-end">
-              <div className="flex items-center gap-2">
-                  <Badge variant={publishedState ? "default" : "secondary"}>
-                    {publishedState ? "公開中" : "下書き"}
-                  </Badge>
-                  <Switch
-                    data-no-drag
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                    checked={publishedState}
-                    onCheckedChange={(v) => handleTogglePublished(!!v)}
-                  />
-                </div>
+          <div className="flex items-end justify-between gap-2">
+            <div className="num-display text-sm text-foreground">
+              {typeof product.price === 'number' && product.showPrice !== false
+                ? `¥${product.price.toLocaleString()}`
+                : <span className="label-mono">price hidden</span>}
             </div>
-
-            {/* Middle row: product name */}
-            <div className="flex-1 flex items-center">
-              <h3 className="font-semibold line-clamp-2">{product.title}</h3>
-            </div>
-
-            {/* Bottom row: only ellipsis menu button which toggles actions */}
-            <div className="flex items-end justify-end">
-              <MenuActions productId={product?.id} onEdit={() => {
-                if (product?.id) router.push(`/admin/products/edit?id=${product.id}`)
-              }} onDelete={handleDelete} />
-            </div>
+            <MenuActions
+              onEdit={() => product?.id && router.push(`/admin/products/edit?id=${product.id}`)}
+              onDelete={handleDelete}
+            />
           </div>
         </div>
-      </CardContent>
+      </div>
     </Card>
   )
 }
 
-function MenuActions({ productId, onEdit, onDelete }: { productId?: string | null; onEdit: () => void; onDelete: () => void }) {
+function MenuActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
-      if (!ref.current) return
-      if (!ref.current.contains(e.target as Node)) setOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
   return (
-      <div className="relative" ref={ref}>
-      <Button
-        data-no-drag
-        variant="ghost"
-        size="icon"
-        aria-label="項目の操作"
-        onPointerDown={(e) => e.stopPropagation()}
-        onTouchStart={(e) => e.stopPropagation()}
-        onClick={() => setOpen((v) => !v)}
-      >
+    <div className="relative" ref={ref} data-no-drag onPointerDown={(e) => e.stopPropagation()}>
+      <Button variant="ghost" size="icon-sm" aria-label="操作メニュー" onTouchStart={(e) => e.stopPropagation()} onClick={() => setOpen((v) => !v)}>
         <MoreHorizontal className="h-5 w-5" />
       </Button>
       {open && (
-        <div className="absolute right-0 bottom-10 z-20 w-40 rounded-md border bg-card shadow-md">
-          <button className="w-full text-left px-3 py-2 hover:bg-muted flex items-center gap-2" data-no-drag onPointerDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={() => { setOpen(false); onEdit() }}>
-            <Edit className="w-4 h-4" /> 編集
+        <div className="absolute bottom-9 right-0 z-20 w-36 overflow-hidden rounded-md border bg-popover shadow-md">
+          <button className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-accent" onClick={() => { setOpen(false); onEdit() }}>
+            <Edit className="h-4 w-4" /> 編集
           </button>
-          <button className="w-full text-left px-3 py-2 hover:bg-muted text-destructive flex items-center gap-2" data-no-drag onPointerDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onClick={() => { setOpen(false); onDelete() }}>
-            <Trash2 className="w-4 h-4" /> 削除
+          <button className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10" onClick={() => { setOpen(false); onDelete() }}>
+            <Trash2 className="h-4 w-4" /> 削除
           </button>
         </div>
       )}

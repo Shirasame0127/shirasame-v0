@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { ImageUpload } from "@/components/image-upload"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
-import { ArrowLeft, Save, Plus, Trash2, X, Clipboard } from 'lucide-react'
+import { ArrowLeft, Save, Plus, Trash2, X, Clipboard, Loader2 } from 'lucide-react'
 import Link from "next/link"
 import { useRouter } from 'next/navigation'
 import { Badge } from "@/components/ui/badge"
@@ -68,6 +68,7 @@ export default function ProductNewPage() {
     { provider: "", url: "", label: "" },
   ])
   const [draftInitialized, setDraftInitialized] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({})
   const [availableTags, setAvailableTags] = useState<any[]>([])
@@ -279,6 +280,7 @@ export default function ProductNewPage() {
       return
     }
 
+    setSaving(true)
     const generatedProductId = productId || `prod-${Date.now()}`
 
     // Ensure we have canonical keys for main image and attachments.
@@ -298,8 +300,10 @@ export default function ProductNewPage() {
         console.error('main image upload failed', e)
       }
     }
-    if (!finalMainKey) {
-      toast({ variant: "destructive", title: "エラー", description: "画像のアップロードに失敗しました" })
+    // An image is required to publish, but a draft can be saved without one.
+    if (finalPublished && !finalMainKey) {
+      toast({ variant: "destructive", title: "エラー", description: "公開するには画像が必要です" })
+      setSaving(false)
       return
     }
 
@@ -328,8 +332,13 @@ export default function ProductNewPage() {
     // Guard: do not allow URL-shaped keys to be persisted
     if (attachmentImages.some((a) => typeof a.key === 'string' && a.key.startsWith('http'))) {
       toast({ variant: 'destructive', title: '保存中止', description: '添付画像のキーがURLになっています。キーのみを保存してください。' })
+      setSaving(false)
       return
     }
+
+    const mainImageEntry = finalMainKey
+      ? [{ id: `img-${Date.now()}`, productId: generatedProductId, key: finalMainKey, aspect: "1:1", role: "main" as const }]
+      : []
 
     const newProduct: Product = {
       id: generatedProductId,
@@ -341,17 +350,11 @@ export default function ProductNewPage() {
       notes: notes.trim() || undefined,
       relatedLinks: relatedLinks.filter((link) => link.trim()),
       images: [
-        {
-          id: `img-${Date.now()}`,
-          productId: generatedProductId,
-          key: finalMainKey,
-          aspect: "1:1",
-          role: "main" as const,
-        },
+        ...mainImageEntry,
         ...attachmentImages,
       ],
       // New authoritative product-level columns
-      main_image_key: finalMainKey,
+      main_image_key: finalMainKey || undefined,
       attachment_image_keys: attachmentImages.map((a) => a.key).filter(Boolean),
       affiliateLinks: affiliateLinks.filter((link) => link.url),
       tags,
@@ -372,6 +375,7 @@ export default function ProductNewPage() {
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: '保存に失敗しました' }))
         toast({ variant: 'destructive', title: 'エラー', description: err.error || '商品保存に失敗しました' })
+        setSaving(false)
         return
       }
 
@@ -383,38 +387,36 @@ export default function ProductNewPage() {
         toast({ variant: 'destructive', title: '一部保存に失敗しました', description: messages })
       }
 
-      const created = json.data || json
-
-      // Draft cleanup disabled: no server-side draft endpoint call.
-
-      toast({ title: '作成完了', description: '商品を追加しました' })
+      toast({ title: finalPublished ? '公開しました' : '下書きを保存しました', description: '商品を追加しました' })
       router.push('/admin/products')
     } catch (e) {
       console.error('product create error', e)
       toast({ variant: 'destructive', title: 'エラー', description: '商品作成中にエラーが発生しました' })
+      setSaving(false)
     }
   }
 
   return (
-    <div className="w-full px-4 py-6">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+    <div className="mx-auto max-w-3xl px-4 py-6 md:px-8">
+      <div className="sticky top-0 z-10 -mx-4 mb-6 flex flex-wrap items-center justify-between gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur md:-mx-8 md:px-8">
+        <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" asChild>
-            <Link href="/admin/products" prefetch={false}>
+            <Link href="/admin/products" prefetch={false} aria-label="戻る">
               <ArrowLeft className="w-5 h-5" />
             </Link>
           </Button>
           <div>
-            <h1 className="text-2xl font-bold">商品を追加</h1>
-            <p className="text-sm text-muted-foreground">新しい商品情報を登録</p>
+            <p className="label-mono">New product</p>
+            <h1 className="text-xl font-bold">商品を追加</h1>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => handleSave(false)} disabled={!title}>
-            下書きとして保存
+          <Button variant="outline" onClick={() => handleSave(false)} disabled={!title || saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            下書き保存
           </Button>
-          <Button onClick={() => handleSave(true)} size="lg" disabled={!title || !(imageFile || mainImageKey)}>
-            <Save className="w-4 h-4 mr-2" />
+          <Button onClick={() => handleSave(true)} disabled={!title || !(imageFile || mainImageKey) || saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             公開して保存
           </Button>
         </div>

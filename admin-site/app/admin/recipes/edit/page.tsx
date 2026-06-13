@@ -5,7 +5,7 @@ import type React from "react"
 // ===========================
 // インポート: 必要なライブラリとコンポーネント
 // ===========================
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, Suspense } from "react"
 import { useRouter, useParams, useSearchParams } from "next/navigation"
 import { db } from "@/lib/db/storage"
 import { Button } from "@/components/ui/button"
@@ -153,7 +153,7 @@ type DragTarget = { type: "dot" | "tag"; pinId: string } | null
 // ===========================
 // メインコンポーネント
 // ===========================
-export default function RecipeEditPage() {
+function RecipeEditPageInner() {
   const { toast } = useToast()
   const DEBUG_PINS = false
 
@@ -420,6 +420,7 @@ export default function RecipeEditPage() {
             tagBackgroundOpacity: p.tagBackgroundOpacity ?? (typeof p.tag_background_opacity !== 'undefined' ? p.tag_background_opacity : 0.8),
             tagBorderColor: p.tagBorderColor || p.tag_border_color || '#ffffff',
             tagShadow: p.tagShadow || p.tag_shadow || '0 2px 8px rgba(0,0,0,0.2)',
+            lineColor: p.lineColor || p.line_color || '#ffffff',
             lineType: p.lineType || p.line_type || 'solid',
             tagTextStrokeColor: p.tagTextStrokeColor || 'transparent',
             tagTextStrokeWidth: p.tagTextStrokeWidth || 0,
@@ -3030,5 +3031,13 @@ export default function RecipeEditPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+export default function RecipeEditPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center" />}>
+      <RecipeEditPageInner />
+    </Suspense>
   )
 }

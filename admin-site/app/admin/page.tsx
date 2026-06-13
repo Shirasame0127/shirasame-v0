@@ -2,261 +2,182 @@
 
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Package, Camera, Eye, TrendingUp, Plus, ArrowRight } from 'lucide-react'
+import { Package, Camera, Layout, Plus, ArrowRight, ExternalLink } from 'lucide-react'
 import Link from "next/link"
 import { useEffect, useState, useCallback } from "react"
 import AdminLoading from '@/components/admin-loading'
-import { usePathname } from 'next/navigation'
 import { db } from "@/lib/db/storage"
 import apiFetch from '@/lib/api-client'
 import { RecipesService } from '@/lib/services/recipes.service'
 import { auth } from "@/lib/auth"
-import type { Product, Recipe } from "@/lib/db/schema"
+import { StarMark } from "@/components/brand"
 import dynamic from 'next/dynamic'
 
 const AdminSaleCalendar = dynamic(() => import('@/components/admin-sale-calendar'), { ssr: false })
 
+type Counts = { total: number | null; published: number | null }
+
 export default function AdminDashboard() {
-  const [products, setProducts] = useState<Product[]>([])
-  const [recipes, setRecipes] = useState<Recipe[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [productCount, setProductCount] = useState<number | null>(null)
-  const [publishedCount, setPublishedCount] = useState<number | null>(null)
-  const [recipeCount, setRecipeCount] = useState<number | null>(null)
-  const [publishedRecipeCount, setPublishedRecipeCount] = useState<number | null>(null)
-  const [collectionCount, setCollectionCount] = useState<number | null>(null)
-  const [publishedCollectionCount, setPublishedCollectionCount] = useState<number | null>(null)
-  const [collections, setCollections] = useState<any[]>([])
+  const [products, setProducts] = useState<Counts>({ total: null, published: null })
+  const [recipes, setRecipes] = useState<Counts>({ total: null, published: null })
+  const [collections, setCollections] = useState<Counts>({ total: null, published: null })
 
-  const pathname = usePathname()
+  const loadData = useCallback(async (opts?: { background?: boolean }) => {
+    if (!opts?.background) setIsLoading(true)
+    const currentUser = auth.getCurrentUser()
+    const userId = currentUser?.id || (db.user.get() as any)?.id || undefined
 
-  const loadData = useCallback(async () => {
-    console.log("[v0] Dashboard: Loading data from DB")
-    setIsLoading(true)
+    try { await db.products.refreshAdmin(currentUser?.id) } catch {}
+    try { await (db.collections as any)?.refreshAdmin?.(currentUser?.id) } catch {}
 
-    try {
-      // Try to use minimal local mirror, but always refresh caches from server
-      const currentUser = auth.getCurrentUser()
+    const localProducts = db.products.getAll(userId)
+    const localRecipes = db.recipes.getAll(userId)
+    const localCollections = db.collections.getAll(userId)
 
-      // Refresh caches from server so we rely on server-side session (cookies)
-      // Pass user id where possible to allow server-side filtering if implemented
-      try {
-        await db.products.refreshAdmin(currentUser?.id)
-        await (db.collections as any)?.refreshAdmin?.(currentUser?.id).catch(() => {})
-      } catch (e) {
-        console.warn('[v0] products.refreshAdmin warning', e)
-      }
-      // Avoid proactively refreshing recipes here to prevent unnecessary
-      // /api/recipes requests when users interact with dashboard controls
-      // (e.g. clicking the products stat). Recipes will be refreshed on the
-      // dedicated recipes page or when explicitly requested.
+    // Run authoritative count fetches in parallel; fall back to local mirror.
+    const [prodRes, collRes, recipeCounts] = await Promise.allSettled([
+      apiFetch('/api/admin/products?count=true&limit=0').then((r) => (r.ok ? r.json() : null)),
+      apiFetch('/api/admin/collections/counts').then((r) => (r.ok ? r.json() : null)),
+      RecipesService.getCounts(),
+    ])
 
-      // Determine owner/user scope: prefer explicit signed-in user, else fallback to cached owner
-      const userId = currentUser?.id || (db.user.get() as any)?.id || undefined
-
-      const loadedProducts = db.products.getAll(userId)
-      const loadedRecipes = db.recipes.getAll(userId)
-      const loadedCollections = db.collections.getAll(userId)
-
-      // Fetch authoritative product count for dashboard (admin API)
-      try {
-        const cntRes = await apiFetch('/api/admin/products?count=true&limit=0')
-        if (cntRes && cntRes.ok) {
-          const cntJson = await cntRes.json().catch(() => null)
-          const total = cntJson?.meta?.total ?? (Array.isArray(cntJson?.data) ? cntJson.data.length : null)
-          const pub = cntJson?.meta?.publishedTotal ?? null
-          setProductCount(typeof total === 'number' ? total : loadedProducts.length)
-          setPublishedCount(typeof pub === 'number' ? pub : loadedProducts.filter((p) => p.published).length)
-        } else {
-          setProductCount(loadedProducts.length)
-          setPublishedCount(loadedProducts.filter((p) => p.published).length)
-        }
-      } catch (e) {
-        console.warn('[v0] failed to fetch product count', e)
-        setProductCount(loadedProducts.length)
-        setPublishedCount(loadedProducts.filter((p) => p.published).length)
-      }
-
-      // Fetch authoritative collections counts for dashboard
-      try {
-        const collRes = await apiFetch('/api/admin/collections/counts')
-        if (collRes && collRes.ok) {
-          const collJson = await collRes.json().catch(() => null)
-          const total = collJson?.data?.totalCount ?? null
-          const pub = collJson?.data?.publicCount ?? null
-          setCollectionCount(typeof total === 'number' ? total : loadedCollections.length)
-          setPublishedCollectionCount(typeof pub === 'number' ? pub : loadedCollections.filter((c) => c.visibility === 'public').length)
-        } else {
-          setCollectionCount(loadedCollections.length)
-          setPublishedCollectionCount(loadedCollections.filter((c) => c.visibility === 'public').length)
-        }
-      } catch (e) {
-        console.warn('[v0] failed to fetch collection counts', e)
-        setCollectionCount(loadedCollections.length)
-        setPublishedCollectionCount(loadedCollections.filter((c) => c.visibility === 'public').length)
-      }
-
-      // Fetch authoritative recipes counts for dashboard (use public /api/recipes/counts)
-      try {
-        const cnt = await RecipesService.getCounts()
-        setRecipeCount(typeof cnt.total === 'number' ? cnt.total : loadedRecipes.length)
-        setPublishedRecipeCount(typeof cnt.published === 'number' ? cnt.published : loadedRecipes.filter((r) => r.published).length)
-      } catch (e) {
-        console.warn('[v0] failed to fetch recipe counts', e)
-        setRecipeCount(loadedRecipes.length)
-        setPublishedRecipeCount(loadedRecipes.filter((r) => r.published).length)
-      }
-
-      console.log("[v0] Dashboard: Products loaded:", loadedProducts.length)
-      console.log("[v0] Dashboard: Recipes loaded:", loadedRecipes.length)
-
-      setProducts(loadedProducts)
-      setRecipes(loadedRecipes)
-      setCollections(loadedCollections)
-    } catch (error) {
-      console.error("[v0] Dashboard: Error loading data:", error)
-    } finally {
-      setIsLoading(false)
+    if (prodRes.status === 'fulfilled' && prodRes.value) {
+      const j = prodRes.value
+      const total = j?.meta?.total ?? (Array.isArray(j?.data) ? j.data.length : null)
+      setProducts({
+        total: typeof total === 'number' ? total : localProducts.length,
+        published: typeof j?.meta?.publishedTotal === 'number' ? j.meta.publishedTotal : localProducts.filter((p) => p.published).length,
+      })
+    } else {
+      setProducts({ total: localProducts.length, published: localProducts.filter((p) => p.published).length })
     }
+
+    if (collRes.status === 'fulfilled' && collRes.value) {
+      const d = collRes.value?.data
+      setCollections({
+        total: typeof d?.totalCount === 'number' ? d.totalCount : localCollections.length,
+        published: typeof d?.publicCount === 'number' ? d.publicCount : localCollections.filter((c: any) => c.visibility === 'public').length,
+      })
+    } else {
+      setCollections({ total: localCollections.length, published: localCollections.filter((c: any) => c.visibility === 'public').length })
+    }
+
+    if (recipeCounts.status === 'fulfilled') {
+      const c = recipeCounts.value
+      setRecipes({
+        total: typeof c.total === 'number' ? c.total : localRecipes.length,
+        published: typeof c.published === 'number' ? c.published : localRecipes.filter((r) => r.published).length,
+      })
+    } else {
+      setRecipes({ total: localRecipes.length, published: localRecipes.filter((r) => r.published).length })
+    }
+
+    setIsLoading(false)
   }, [])
 
   useEffect(() => {
-    // Load when component mounts or when route changes to /admin
-    if (pathname && pathname.startsWith('/admin')) {
-      loadData()
-    }
-
-    // Refresh when window/tab gains focus or becomes visible
-    const onFocus = () => {
-      console.log('[v0] Dashboard: window focus - refreshing data')
-      loadData()
-    }
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        console.log('[v0] Dashboard: visibility visible - refreshing data')
-        loadData()
-      }
-    }
-
+    loadData()
+    // Refresh in the background (no full-screen spinner) when the tab regains focus.
+    const onFocus = () => loadData({ background: true })
+    const onVisibility = () => { if (document.visibilityState === 'visible') loadData({ background: true }) }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
-    // Listen for global recipe changes (e.g. publish toggles) and refresh
-    const onRecipesChanged = () => {
-      console.log('[v0] Dashboard: recipes changed event - refreshing data')
-      loadData()
-    }
+    const onRecipesChanged = () => loadData({ background: true })
     window.addEventListener('recipes:changed', onRecipesChanged)
-
     return () => {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('recipes:changed', onRecipesChanged)
     }
-  }, [pathname, loadData])
+  }, [loadData])
 
-  if (isLoading) {
-    return <AdminLoading />
-  }
+  if (isLoading) return <AdminLoading />
 
   const stats = [
-    {
-      title: "商品数",
-      value: productCount ?? products.length,
-      icon: Package,
-      description: `${publishedCount ?? products.filter((p) => p.published).length}件公開中`,
-      link: "/admin/products",
-    },
-    {
-      title: "レシピ数",
-      value: recipeCount ?? recipes.length,
-      icon: Camera,
-      // show published count similar to products
-      description: `${publishedRecipeCount ?? recipes.filter((r) => r.published).length}件公開中`,
-      link: "/admin/recipes",
-    },
-    {
-      title: "総閲覧数",
-      value: "1,234",
-      icon: Eye,
-      description: "今月の合計",
-    },
-    {
-      title: "コレクション数",
-      value: collectionCount ?? collections.length,
-      icon: TrendingUp,
-      description: `${publishedCollectionCount ?? collections.filter((c) => c.visibility === 'public').length}件公開中`,
-      link: "/admin/collections",
-    },
+    { title: "商品", value: products.total, sub: products.published, icon: Package, link: "/admin/products" },
+    { title: "レシピ", value: recipes.total, sub: recipes.published, icon: Camera, link: "/admin/recipes" },
+    { title: "コレクション", value: collections.total, sub: collections.published, icon: Layout, link: "/admin/collections" },
   ]
 
   return (
-    <div className="w-full px-4 py-4 md:py-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold">ダッシュボード</h1>
+    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
+      <div className="mb-6 flex items-end justify-between gap-4">
+        <div>
+          <p className="label-mono mb-2 flex items-center gap-2">
+            <StarMark size={12} className="text-primary" /> Dashboard
+          </p>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">ダッシュボード</h1>
+        </div>
         <Button asChild variant="outline" size="sm">
-          <Link href="/" target="_blank" className="flex items-center gap-2">
-            <Eye className="w-4 h-4" />
+          <Link href="/" target="_blank" className="gap-2">
+            <ExternalLink className="h-4 w-4" />
             公開ページ
           </Link>
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {stats.map((stat) => {
           const Icon = stat.icon
-          const content = (
-            <Card key={stat.title} className="hover:bg-accent/50 transition-colors h-full">
-              <CardContent className="p-4 flex flex-col justify-between h-full">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-xs font-medium text-muted-foreground">{stat.title}</div>
-                    <Icon className="w-4 h-4 text-muted-foreground" />
+          return (
+            <Link key={stat.title} href={stat.link} prefetch={false} className="group">
+              <Card className="h-full gap-0 py-0 transition-colors hover:border-primary/40">
+                <CardContent className="flex items-start justify-between p-5">
+                  <div>
+                    <p className="label-mono">{stat.title}</p>
+                    <p className="num-display mt-3 text-4xl leading-none text-foreground">
+                      {stat.value ?? "—"}
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {stat.sub ?? 0}件公開中
+                    </p>
                   </div>
-                  <div className="text-2xl font-bold mb-1">{stat.value}</div>
-                </div>
-                <p className="text-xs text-muted-foreground">{stat.description}</p>
-              </CardContent>
-            </Card>
-          )
-
-          return stat.link ? (
-            <Link key={stat.title} href={stat.link} prefetch={false} className="h-full">
-              {content}
+                  <span className="rounded-md border bg-muted/40 p-2 text-muted-foreground transition-colors group-hover:text-primary">
+                    <Icon className="h-5 w-5" />
+                  </span>
+                </CardContent>
+              </Card>
             </Link>
-          ) : (
-            content
           )
         })}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <Button asChild variant="outline" className="h-auto py-4 bg-transparent">
-          <Link href="/admin/products/new" prefetch={false} className="flex flex-col items-center gap-2">
-            <Plus className="w-5 h-5" />
-            <span className="text-sm">商品を追加</span>
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Button asChild variant="outline" className="h-auto justify-start gap-3 py-4">
+          <Link href="/admin/products/new" prefetch={false}>
+            <Plus className="h-5 w-5 text-primary" />
+            <span>商品を追加</span>
           </Link>
         </Button>
-        <Button asChild variant="outline" className="h-auto py-4 bg-transparent">
-          <Link href="/admin/recipes/new" prefetch={false} className="flex flex-col items-center gap-2">
-            <Plus className="w-5 h-5" />
-            <span className="text-sm">レシピを作成</span>
+        <Button asChild variant="outline" className="h-auto justify-start gap-3 py-4">
+          <Link href="/admin/recipes/new" prefetch={false}>
+            <Plus className="h-5 w-5 text-primary" />
+            <span>レシピを作成</span>
+          </Link>
+        </Button>
+        <Button asChild variant="outline" className="h-auto justify-start gap-3 py-4">
+          <Link href="/admin/collections" prefetch={false}>
+            <Layout className="h-5 w-5 text-primary" />
+            <span>コレクション管理</span>
           </Link>
         </Button>
       </div>
 
-      <Card>
-        <div className="p-4 pb-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold">セール管理カレンダー</h3>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/admin/amazon-sales" prefetch={false}>
-                全て見る
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </Link>
-            </Button>
-          </div>
+      <Card className="gap-0 py-0">
+        <div className="flex items-center justify-between border-b px-5 py-4">
+          <h2 className="flex items-center gap-2 text-base font-semibold">
+            <StarMark size={14} className="text-primary" />
+            セール管理カレンダー
+          </h2>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/admin/amazon-sales" prefetch={false} className="gap-1">
+              全て見る
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
         </div>
-        <CardContent>
+        <CardContent className="p-4 md:p-5">
           <AdminSaleCalendar />
         </CardContent>
       </Card>

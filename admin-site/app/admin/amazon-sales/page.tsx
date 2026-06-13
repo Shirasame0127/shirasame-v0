@@ -6,11 +6,14 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
 import { db } from "@/lib/db/storage"
 import { getCurrentUser } from "@/lib/auth"
 import apiFetch from '@/lib/api-client'
 import { Plus, Trash2, Calendar } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
+import { confirm } from "@/components/ui/confirm"
+import { StarMark } from "@/components/brand"
 import type { AmazonSaleSchedule } from "@/lib/db/schema"
 
 // Amazonの主要大型セール一覧
@@ -100,13 +103,10 @@ export default function AdminAmazonSalesPage() {
     }
 
     created = json.data || json
-    console.log('[v0] Created Amazon sale schedule:', created)
 
-    // モック：Amazonリンクのある商品をチェックしてセール価格かどうか判定
-    // 作成 API のレスポンスから collectionId を取り出して渡す
+    // セール名タグが付いた商品をセールコレクションに追加（タグベース・決定論的）。
     if (created?.collectionId) {
-      // セールコレクションに商品を仮追加（モック）
-      checkAmazonProducts(created.collectionId, newSaleName, startDate, endDate)
+      addTaggedProductsToCollection(created.collectionId, newSaleName)
     }
 
     loadSchedules()
@@ -120,102 +120,62 @@ export default function AdminAmazonSalesPage() {
     })
   }
 
-  // モック：Amazon商品のセール判定
-  const checkAmazonProducts = (collectionId: string, saleName: string, startDate: Date, endDate: Date) => {
-    const now = new Date()
-    const isActiveSale = now >= startDate && now <= endDate
-
-    // if (!isActiveSale) { ... } のチェックを削除または緩和
-
-    const currentUser = getCurrentUser && getCurrentUser()
-    const uid = currentUser?.id || undefined
+  // セール名タグが付いた商品だけをセールコレクションに追加する（決定論的）。
+  // 以前は Math.random() で50%の実商品をランダムに追加しており、実データを
+  // 破壊していたため廃止した。
+  const addTaggedProductsToCollection = (collectionId: string, saleName: string) => {
+    const uid = (getCurrentUser && getCurrentUser())?.id || undefined
     const allProducts = db.products.getAll(uid)
     const collection = db.collections.getById(collectionId)
-
     if (!collection) return
 
-    const taggedProducts = allProducts.filter(product => 
-      product.tags && product.tags.includes(saleName)
-    )
+    const taggedProducts = allProducts.filter((product) => product.tags && product.tags.includes(saleName))
+    if (taggedProducts.length === 0) {
+      toast({ title: "セールコレクションを作成しました", description: `「${saleName}」タグの商品を追加すると自動で反映されます。` })
+      return
+    }
 
-    // Amazonリンクを持つ商品をフィルター
-    const amazonProducts = allProducts.filter(product => 
-      product.affiliateLinks?.some(link => 
-        link.url.includes('amazon.co.jp') || link.url.includes('amazon.com')
-      )
-    )
-
-    console.log("[v0] Found Amazon products:", amazonProducts.length)
-    console.log("[v0] Found Tagged products:", taggedProducts.length)
-
-    // モック：ランダムに50%の商品をセール中と判定（タグ付き商品は確定で追加）
-    const randomSaleProducts = amazonProducts.filter(() => Math.random() > 0.5)
-    
-    const saleProducts = [...taggedProducts, ...randomSaleProducts]
-
-    // セールコレクションに追加
-    const updatedProductIds = [...new Set([...collection.productIds, ...saleProducts.map(p => p.id)])]
-    db.collections.update(collectionId, {
-      productIds: updatedProductIds
-    })
-
-    console.log("[v0] Added products to sale collection:", {
-      collectionId,
-      saleName,
-      productCount: updatedProductIds.length
-    })
-
-    toast({
-      title: "セール商品を更新",
-      description: `${updatedProductIds.length}個の商品を${saleName}コレクションに追加しました`
-    })
+    const updatedProductIds = [...new Set([...(collection.productIds || []), ...taggedProducts.map((p) => p.id)])]
+    db.collections.update(collectionId, { productIds: updatedProductIds })
+    toast({ title: "セール商品を追加しました", description: `${taggedProducts.length}件の商品を「${saleName}」コレクションに追加しました` })
   }
 
-  const handleDeleteSchedule = async (scheduleId: string) => {
+  const handleDeleteSchedule = async (scheduleId: string, opts?: { silent?: boolean }) => {
     const schedule = schedules.find(s => s.id === scheduleId)
     if (!schedule) return
 
     try {
       const res = await apiFetch(`/api/admin/amazon-sale-schedules/${encodeURIComponent(scheduleId)}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('delete failed')
-      console.log('[v0] Deleted sale schedule:', scheduleId)
       loadSchedules()
+      if (!opts?.silent) {
+        toast({ title: "スケジュール削除", description: `${schedule.saleName}のスケジュールを削除しました` })
+      }
     } catch (e) {
-      console.error('failed to delete schedule', e)
-      toast({ variant: 'destructive', title: '削除失敗', description: 'スケジュールの削除に失敗しました' })
+      if (!opts?.silent) {
+        toast({ variant: 'destructive', title: '削除失敗', description: 'スケジュールの削除に失敗しました' })
+      }
     }
-
-    toast({
-      title: "スケジュール削除",
-      description: `${schedule.saleName}のスケジュールを削除しました`
-    })
   }
 
-  // 期限切れのスケジュールを自動削除
+  // 期限切れのスケジュールを自動削除（自動処理なのでトーストは出さない）
   useEffect(() => {
     const checkExpiredSchedules = () => {
       const now = new Date()
       schedules.forEach(schedule => {
-        const endDate = new Date(schedule.endDate)
-        if (endDate < now) {
-          console.log("[v0] Auto-deleting expired schedule:", schedule.saleName)
-          handleDeleteSchedule(schedule.id)
-        }
+        if (new Date(schedule.endDate) < now) handleDeleteSchedule(schedule.id, { silent: true })
       })
     }
-
-    // 1時間ごとにチェック
     const interval = setInterval(checkExpiredSchedules, 60 * 60 * 1000)
     return () => clearInterval(interval)
   }, [schedules])
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Amazonセールスケジュール</h1>
-          <p className="text-muted-foreground">大型セールの期間を設定して商品を自動管理</p>
-        </div>
+    <div className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-8">
+      <div className="mb-8">
+        <p className="label-mono mb-2 flex items-center gap-2"><StarMark size={12} className="text-primary" /> Sale schedule</p>
+        <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Amazonセールスケジュール</h1>
+        <p className="mt-1 text-sm text-muted-foreground">大型セールの期間を設定して商品を自動管理</p>
       </div>
 
       <div className="space-y-6">
@@ -286,23 +246,15 @@ export default function AdminAmazonSalesPage() {
                   const isExpired = now > endDate
 
                   return (
-                    <div key={schedule.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex-1">
+                    <div key={schedule.id} className="flex items-center justify-between gap-3 rounded-lg border p-4">
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <h3 className="font-semibold">{schedule.saleName}</h3>
-                          {isActive && (
-                            <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
-                              開催中
-                            </span>
-                          )}
-                          {isExpired && (
-                            <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
-                              終了
-                            </span>
-                          )}
+                          {isActive && <Badge variant="default">開催中</Badge>}
+                          {isExpired && <Badge variant="secondary" className="text-muted-foreground">終了</Badge>}
                         </div>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          <Calendar className="w-3 h-3 inline mr-1" />
+                        <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
+                          <Calendar className="h-3 w-3" />
                           {new Date(schedule.startDate).toLocaleString('ja-JP')} 〜{' '}
                           {new Date(schedule.endDate).toLocaleString('ja-JP')}
                         </p>
@@ -310,9 +262,15 @@ export default function AdminAmazonSalesPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => handleDeleteSchedule(schedule.id)}
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label="削除"
+                        onClick={async () => {
+                          if (await confirm({ title: 'スケジュールを削除しますか？', description: `「${schedule.saleName}」を削除します。`, confirmText: '削除する' })) {
+                            handleDeleteSchedule(schedule.id)
+                          }
+                        }}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   )

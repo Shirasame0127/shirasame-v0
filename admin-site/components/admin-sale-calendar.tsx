@@ -1,35 +1,42 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths, subMonths, isSameMonth, isSameDay, parseISO } from 'date-fns'
 import { db } from '@/lib/db/storage'
 import { getCurrentUser } from '@/lib/auth'
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
 
 export default function AdminSaleCalendar() {
+  const { toast } = useToast()
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [schedules, setSchedules] = useState<any[]>([])
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [form, setForm] = useState({ title: "", startDate: "", endDate: "" })
+
+  const refresh = useCallback(() => {
+    const uid = getCurrentUser()?.id || undefined
+    setSchedules(db.amazonSaleSchedules.getAll(uid))
+  }, [])
 
   useEffect(() => {
-    // load schedules from cache (refresh best-effort)
-    (async () => {
-      try {
-        const me = getCurrentUser && getCurrentUser()
-        const uid = me?.id || undefined
-        await db.amazonSaleSchedules.refresh(uid)
-      } catch {}
-      const me2 = getCurrentUser && getCurrentUser()
-      const uid2 = me2?.id || undefined
-      setSchedules(db.amazonSaleSchedules.getAll(uid2))
+    ;(async () => {
+      try { await db.amazonSaleSchedules.refresh(getCurrentUser()?.id || undefined) } catch {}
+      refresh()
     })()
-  }, [])
-
-  useEffect(() => {
-    // update when underlying cache changes periodically — simple interval
-    const me = getCurrentUser && getCurrentUser()
-    const uid = me?.id || undefined
-    const id = setInterval(() => setSchedules(db.amazonSaleSchedules.getAll(uid)), 2000)
-    return () => clearInterval(id)
-  }, [])
+    // Event-driven refresh instead of a constant 2s polling interval.
+    const onChanged = () => refresh()
+    window.addEventListener('sale-schedules:changed', onChanged)
+    window.addEventListener('focus', onChanged)
+    return () => {
+      window.removeEventListener('sale-schedules:changed', onChanged)
+      window.removeEventListener('focus', onChanged)
+    }
+  }, [refresh])
 
   const monthStart = startOfMonth(currentMonth)
   const monthEnd = endOfMonth(monthStart)
@@ -40,12 +47,12 @@ export default function AdminSaleCalendar() {
   let day = startDate
   while (day <= endDate) {
     const week: Date[] = []
-    for (let i = 0; i < 7; i++) {
-      week.push(day)
-      day = addDays(day, 1)
-    }
+    for (let i = 0; i < 7; i++) { week.push(day); day = addDays(day, 1) }
     rows.push(week)
   }
+
+  const startOfDay = (d: Date) => { const t = new Date(d); t.setHours(0, 0, 0, 0); return t }
+  const endOfDay = (d: Date) => { const t = new Date(d); t.setHours(23, 59, 59, 999); return t }
 
   function daySchedules(d: Date) {
     return schedules.filter((s) => {
@@ -53,65 +60,61 @@ export default function AdminSaleCalendar() {
         const sDate = typeof s.startDate === 'string' ? parseISO(s.startDate) : new Date(s.startDate)
         const eDate = typeof s.endDate === 'string' ? parseISO(s.endDate) : new Date(s.endDate)
         return d >= startOfDay(sDate) && d <= endOfDay(eDate)
-      } catch {
-        return false
-      }
+      } catch { return false }
     })
   }
 
-  function startOfDay(d: Date) { const t = new Date(d); t.setHours(0,0,0,0); return t }
-  function endOfDay(d: Date) { const t = new Date(d); t.setHours(23,59,59,999); return t }
+  const openAdd = (d: Date) => {
+    const ds = format(d, 'yyyy-MM-dd')
+    setForm({ title: "", startDate: ds, endDate: ds })
+    setDialogOpen(true)
+  }
 
-  const onPrev = () => setCurrentMonth(subMonths(currentMonth, 1))
-  const onNext = () => setCurrentMonth(addMonths(currentMonth, 1))
-
-  const onAdd = (d: Date) => {
-    const title = window.prompt('セール名を入力してください（キャンセルで中止）')
-    if (!title) return
-    const startStr = window.prompt('開始日 (YYYY-MM-DD)', format(d, 'yyyy-MM-dd'))
-    if (!startStr) return
-    const endStr = window.prompt('終了日 (YYYY-MM-DD)', startStr)
-    if (!endStr) return
+  const handleCreate = () => {
+    if (!form.title.trim() || !form.startDate || !form.endDate) {
+      toast({ title: "入力が不足しています", description: "セール名・開始日・終了日を入力してください。", variant: "destructive" })
+      return
+    }
     try {
-      const schedule = { id: `sale-${Date.now()}`, title, startDate: startStr, endDate: endStr }
-      const me3 = getCurrentUser && getCurrentUser()
-      const uid3 = me3?.id || undefined
-      const created = db.amazonSaleSchedules.create({ ...schedule, userId: uid3 })
-      setSchedules(db.amazonSaleSchedules.getAll(uid3))
-      console.log('[v0] Created sale schedule', created)
-    } catch (e) {
-      console.error('[v0] Failed to create schedule', e)
-      alert('作成に失敗しました')
+      const uid = getCurrentUser()?.id || undefined
+      db.amazonSaleSchedules.create({ id: `sale-${form.startDate}-${form.title}`, title: form.title.trim(), startDate: form.startDate, endDate: form.endDate, userId: uid })
+      setDialogOpen(false)
+      refresh()
+      try { window.dispatchEvent(new Event('sale-schedules:changed')) } catch {}
+      toast({ title: "セールを追加しました" })
+    } catch {
+      toast({ title: "作成に失敗しました", variant: "destructive" })
     }
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between px-4 py-2">
+      <div className="mb-2 flex items-center justify-between">
         <div className="text-sm font-medium">{format(monthStart, 'yyyy年 M月')}</div>
-        <div className="flex items-center gap-2">
-          <button className="btn btn-sm" onClick={onPrev} aria-label="前の月">‹</button>
-          <button className="btn btn-sm" onClick={onNext} aria-label="次の月">›</button>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon-sm" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} aria-label="前の月"><ChevronLeft className="h-4 w-4" /></Button>
+          <Button variant="outline" size="icon-sm" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} aria-label="次の月"><ChevronRight className="h-4 w-4" /></Button>
         </div>
       </div>
-      <div className="grid grid-cols-7 gap-px bg-border rounded-md overflow-hidden">
-        {['日','月','火','水','木','金','土'].map((d) => (
-          <div key={d} className="bg-muted text-center text-xs py-2">{d}</div>
+      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md border bg-border">
+        {['日', '月', '火', '水', '木', '金', '土'].map((d) => (
+          <div key={d} className="bg-muted py-2 text-center text-xs text-muted-foreground">{d}</div>
         ))}
         {rows.map((week, wi) => (
           <div key={wi} className="contents">
             {week.map((dayItem) => {
               const inMonth = isSameMonth(dayItem, monthStart)
               const todays = daySchedules(dayItem)
+              const isToday = isSameDay(dayItem, new Date())
               return (
-                <div key={dayItem.toISOString()} className={`min-h-[72px] p-2 bg-background ${inMonth ? 'text-base' : 'text-muted-foreground'}`}>
+                <div key={dayItem.toISOString()} className={`group min-h-[72px] bg-background p-1.5 ${inMonth ? '' : 'text-muted-foreground/50'}`}>
                   <div className="flex items-start justify-between">
-                    <div className={`text-xs ${isSameDay(dayItem, new Date()) ? 'font-bold' : ''}`}>{format(dayItem, 'd')}</div>
-                    <button className="text-xs text-muted-foreground" onClick={() => onAdd(dayItem)}>＋</button>
+                    <div className={`flex h-5 w-5 items-center justify-center text-xs ${isToday ? 'rounded-full bg-primary font-bold text-primary-foreground' : ''}`}>{format(dayItem, 'd')}</div>
+                    <button className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100" onClick={() => openAdd(dayItem)} aria-label="セールを追加"><Plus className="h-3.5 w-3.5" /></button>
                   </div>
                   <div className="mt-1 space-y-1">
-                    {todays.slice(0,2).map((s, i) => (
-                      <div key={i} className="text-[11px] truncate px-1 py-0.5 bg-primary/10 text-primary rounded">{s.title || 'セール'}</div>
+                    {todays.slice(0, 2).map((s, i) => (
+                      <div key={i} className="truncate rounded bg-primary/10 px-1 py-0.5 text-[11px] text-primary">{s.title || 'セール'}</div>
                     ))}
                     {todays.length > 2 && <div className="text-[11px] text-muted-foreground">+{todays.length - 2} more</div>}
                   </div>
@@ -121,6 +124,32 @@ export default function AdminSaleCalendar() {
           </div>
         ))}
       </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>セールを追加</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>セール名</Label>
+              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="例: タイムセール祭り" autoFocus />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>開始日</Label>
+                <Input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>終了日</Label>
+                <Input type="date" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>キャンセル</Button>
+            <Button onClick={handleCreate}>追加</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

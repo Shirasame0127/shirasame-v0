@@ -1,10 +1,9 @@
 import React from 'react'
-import HeaderVisibility from '@/components/header-visibility'
 import './globals.css'
 
 export const metadata = {
-  title: 'Dealer-管理画面',
-  description: '管理画面 - しらさめサイト管理',
+  title: 'Shirasame Console — 管理画面',
+  description: 'Shirasame 管理コンソール',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -13,25 +12,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&display=swap" rel="stylesheet" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Space+Mono:wght@400;700&display=swap"
+          rel="stylesheet"
+        />
       </head>
-      <body className="font-sans antialiased bg-background text-foreground pb-12 md:pb-0">
-        {/*
-          NOTE: Do NOT inject runtime `API_BASE` / `FORCE_API_BASE` into
-          admin-site HTML. Client must never call external public-worker
-          directly from the admin domain — browser-origin requests must
-          use the same-origin `/api` proxy so HttpOnly domain cookies are
-          sent. This script was removed intentionally to prevent the
-          client from being forced to an external API base.
-        */}
-        <main className="min-h-screen">
-          <HeaderVisibility />
-          <div className="w-full">
-            {children}
-          </div>
-        </main>
+      <body className="font-sans antialiased bg-background text-foreground">
+        {children}
       </body>
     </html>
   )
 }
-// (Duplicate metadata and RootLayout removed.)

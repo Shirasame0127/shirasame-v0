@@ -1,5 +1,11 @@
-export function cn(...parts: Array<string | false | undefined>) {
-  return parts.filter(Boolean).join(' ')
+import { clsx, type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+// Standard shadcn contract: resolve conditional classes (clsx) and let later
+// Tailwind utilities win over earlier conflicting ones (tailwind-merge) so
+// component `className` overrides actually take effect.
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
 }
 
 export function fileToBase64(file: File): Promise<string> {

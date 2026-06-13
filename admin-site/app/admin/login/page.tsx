@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import supabaseClient from '@/lib/supabase/client'
@@ -8,16 +8,20 @@ import apiFetch, { apiPath } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
+import { StarMark } from '@/components/brand'
 
-export default function LoginPage() {
+type LoginAction = 'login' | 'magic' | 'reset' | 'signup' | null
+
+function LoginPageInner() {
   const router = useRouter()
   const { toast } = useToast()
   const searchParams = useSearchParams()
-  const [isLoading, setIsLoading] = useState(false)
+  const [action, setAction] = useState<LoginAction>(null)
+  const busy = action !== null
 
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
@@ -35,99 +39,68 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (busy) return
     setLoginEmailError('')
     setLoginPasswordError('')
 
     let hasError = false
     const emailValid = /\S+@\S+\.\S+/.test(loginEmail)
-    if (!loginEmail) {
-      setLoginEmailError('メールアドレスを入力してください')
-      hasError = true
-    } else if (!emailValid) {
-      setLoginEmailError('有効なメールアドレスを入力してください')
-      hasError = true
-    }
-    if (!loginPassword) {
-      setLoginPasswordError('パスワードを入力してください')
-      hasError = true
-    }
-
+    if (!loginEmail) { setLoginEmailError('メールアドレスを入力してください'); hasError = true }
+    else if (!emailValid) { setLoginEmailError('有効なメールアドレスを入力してください'); hasError = true }
+    if (!loginPassword) { setLoginPasswordError('パスワードを入力してください'); hasError = true }
     if (hasError) return
 
-    setIsLoading(true)
-
+    setAction('login')
     const result = await auth.login(loginEmail, loginPassword)
-    
     if (result.success) {
-      toast({ title: 'ログイン成功', description: 'ようこそ！' })
-      try {
-        const r = searchParams?.get('r') || '/admin'
-        router.replace(r)
-      } catch {
-        try { window.location.href = (searchParams?.get('r') || '/admin') } catch { window.location.href = '/admin' }
-      }
+      toast({ title: 'ログインしました', description: 'ようこそ' })
+      const r = searchParams?.get('r') || '/admin'
+      try { router.replace(r) } catch { window.location.href = r }
     } else {
-      toast({ title: 'ログイン失敗', description: result.error, variant: 'destructive' })
+      toast({ title: 'ログインに失敗しました', description: result.error, variant: 'destructive' })
+      setAction(null)
     }
-
-    setIsLoading(false)
   }
 
   const handleSendMagicLink = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
-    if (!loginEmail) {
-      toast({ title: '入力エラー', description: 'メールアドレスを入力してください', variant: 'destructive' })
-      return
-    }
-    setIsLoading(true)
+    if (busy) return
+    if (!loginEmail) { toast({ title: '入力エラー', description: 'メールアドレスを入力してください', variant: 'destructive' }); return }
+    setAction('magic')
     try {
       const redirectTo = `${location.origin}/admin/login`
-      const { data, error } = await supabaseClient.auth.signInWithOtp({ email: loginEmail, options: { emailRedirectTo: redirectTo } })
-      if (error) {
-        toast({ title: '送信失敗', description: error.message, variant: 'destructive' })
-      } else {
-        toast({ title: 'メール送信済み', description: 'マジックリンクをメールで送信しました。メール内のリンクからログインしてください。' })
-      }
+      const { error } = await supabaseClient.auth.signInWithOtp({ email: loginEmail, options: { emailRedirectTo: redirectTo } })
+      if (error) toast({ title: '送信に失敗しました', description: error.message, variant: 'destructive' })
+      else toast({ title: 'メールを送信しました', description: 'マジックリンクから続行してください。' })
     } catch (e) {
-      console.error('[auth] magic link error', e)
       toast({ title: '送信中にエラー', description: String(e), variant: 'destructive' })
     }
-    setIsLoading(false)
+    setAction(null)
   }
 
   const handleSendPasswordReset = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
-    if (!loginEmail) {
-      toast({ title: '入力エラー', description: 'メールアドレスを入力してください', variant: 'destructive' })
-      return
-    }
-    setIsLoading(true)
+    if (busy) return
+    if (!loginEmail) { toast({ title: '入力エラー', description: 'メールアドレスを入力してください', variant: 'destructive' }); return }
+    setAction('reset')
     try {
       const redirectTo = `${location.origin}/admin/reset`
-      // supabase-js v2: resetPasswordForEmail(email, { redirectTo })
-      const { data, error } = await supabaseClient.auth.resetPasswordForEmail(loginEmail, { redirectTo })
-      if (error) {
-        toast({ title: '送信失敗', description: error.message || String(error), variant: 'destructive' })
-      } else {
-        toast({ title: 'メール送信済み', description: 'パスワード再設定用のリンクをメールで送信しました。メール内のリンクから操作してください。' })
-      }
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(loginEmail, { redirectTo })
+      if (error) toast({ title: '送信に失敗しました', description: error.message || String(error), variant: 'destructive' })
+      else toast({ title: 'メールを送信しました', description: 'パスワード再設定用のリンクを送信しました。' })
     } catch (e) {
-      console.error('[auth] password reset error', e)
       toast({ title: '送信中にエラー', description: String(e), variant: 'destructive' })
     }
-    setIsLoading(false)
+    setAction(null)
   }
 
   const handleGoogleLogin = async () => {
     try {
-      // Prefer an explicit admin API origin when configured so the OAuth
-      // flow runs on the admin domain (where the Worker can set cookies).
       const adminBase = (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE || '').replace(/\/$/, '')
       const dest = adminBase ? `${adminBase}/api/auth/google` : '/api/auth/google'
       window.location.href = dest
     } catch (e) {
-      console.error('[auth] google oauth start error', e)
-      toast({ title: 'Googleログイン失敗', description: '開始処理でエラーが発生しました: ' + String(e), variant: 'destructive' })
+      toast({ title: 'Googleログインに失敗しました', description: String(e), variant: 'destructive' })
     }
   }
 
@@ -141,24 +114,20 @@ export default function LoginPage() {
         const refresh_token = params.get('refresh_token')
         const expires_in = params.get('expires_in')
         if (access_token) {
-          try { console.log('[login] フラグメントでトークンを検出しました（トークンの値は出しません）', 'hasAccess=true', 'hasRefresh=' + (!!refresh_token), 'expires_in=' + (expires_in || '')) } catch (e) {}
-          // Send tokens to the proxy so it can set HttpOnly cookies for admin domain
-          (async () => {
+          ;(async () => {
             try {
               const body = { access_token: access_token || '', refresh_token: refresh_token || '', expires_in: expires_in || '' }
-              // Determine whether /api/auth/session resolves to external API base.
               try {
                 const target = apiPath('/api/auth/session')
                 let isExternal = false
                 try { const u = new URL(target, window.location.origin); isExternal = u.origin !== window.location.origin } catch (e) {}
-                    if (isExternal) {
-                  // Persist tokens locally for static admin
+                if (isExternal) {
                   try {
                     if (typeof localStorage !== 'undefined') {
                       localStorage.setItem('sb-access-token', access_token)
                       if (refresh_token) localStorage.setItem('sb-refresh-token', refresh_token)
                     }
-                    try { ;(window as any).__SUPABASE_SESSION = { access_token: access_token, refresh_token: refresh_token } } catch {}
+                    try { ;(window as any).__SUPABASE_SESSION = { access_token, refresh_token } } catch {}
                     try { window.history.replaceState({}, document.title, window.location.pathname + window.location.search) } catch (e) {}
                     try { router.replace('/admin') } catch { window.location.href = '/admin' }
                     return
@@ -171,7 +140,6 @@ export default function LoginPage() {
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(body),
                   })
-                  try { console.log('[login] /api/auth/session response', 'status=' + r.status, 'ok=' + r.ok) } catch (e) {}
                   if (r.status === 200) {
                     try { window.history.replaceState({}, document.title, window.location.pathname + window.location.search) } catch (e) {}
                     try { const dest = searchParams?.get('r') || '/admin'; router.replace(dest) } catch { window.location.href = (searchParams?.get('r') || '/admin') }
@@ -181,21 +149,16 @@ export default function LoginPage() {
               } catch (err) {
                 console.error('[login] /api/auth/session handling error', err)
               }
-
-              toast({ title: 'ログイン失敗', description: 'トークンを保存できませんでした。', variant: 'destructive' })
+              toast({ title: 'ログインに失敗しました', description: 'トークンを保存できませんでした。', variant: 'destructive' })
             } catch (err) {
-              try { console.error('[login] /api/auth/session ネットワークエラー', err) } catch (e) {}
-              toast({ title: 'ログイン失敗', description: 'ネットワークエラーが発生しました。', variant: 'destructive' })
+              toast({ title: 'ログインに失敗しました', description: 'ネットワークエラーが発生しました。', variant: 'destructive' })
             }
           })()
           return
         }
       }
-    } catch (e) {
-      // ignore and continue to other checks
-    }
+    } catch (e) { /* ignore */ }
 
-    let mounted = true
     const oauthError = searchParams?.get('oauth_error')
     if (oauthError) {
       const messages: Record<string, { title: string; desc: string }> = {
@@ -214,59 +177,48 @@ export default function LoginPage() {
         window.history.replaceState({}, '', sp.toString())
       } catch {}
     }
-
-    // NOTE: Do not perform automatic authentication checks when the login
-    // page is displayed. Calling /api/auth/whoami on mount can race with
-    // cookie propagation after OAuth redirects and cause spurious 401s.
-    // Authentication is performed only after explicit flows (fragment
-    // posting or session sync), which already redirect to /admin on success.
-    return () => { mounted = false }
-  }, [searchParams, toast])
+  }, [searchParams, toast, router])
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (busy) return
     setSignupEmailError('')
     setSignupPasswordError('')
     setSignupUsernameError('')
 
     const emailValid = /\S+@\S+\.\S+/.test(signupEmail)
-    if (!signupUsername) setSignupUsernameError('ユーザー名を入力してください')
-    if (!signupEmail) setSignupEmailError('メールアドレスを入力してください')
-    else if (!emailValid) setSignupEmailError('有効なメールアドレスを入力してください')
-    if (!signupPassword) setSignupPasswordError('パスワードを入力してください')
+    let hasError = false
+    if (!signupUsername) { setSignupUsernameError('ユーザー名を入力してください'); hasError = true }
+    if (!signupEmail) { setSignupEmailError('メールアドレスを入力してください'); hasError = true }
+    else if (!emailValid) { setSignupEmailError('有効なメールアドレスを入力してください'); hasError = true }
+    if (!signupPassword) { setSignupPasswordError('パスワードを入力してください'); hasError = true }
+    if (hasError) return
 
-    if (signupUsernameError || signupEmailError || signupPasswordError || !signupUsername || !signupEmail || !signupPassword || !emailValid) {
-      return
-    }
-
-    setIsLoading(true)
-
-    if (!signupEmail || !signupPassword || !signupUsername) {
-      toast({ title: '入力エラー', description: 'すべてのフィールドを入力してください', variant: 'destructive' })
-      setIsLoading(false)
-      return
-    }
-
+    setAction('signup')
     const result = await auth.signup(signupEmail, signupPassword, signupUsername)
-    
     if (result.success) {
-      toast({ title: 'アカウント作成成功', description: 'ようこそ！' })
+      toast({ title: 'アカウントを作成しました', description: 'ようこそ' })
       window.location.href = '/admin'
     } else {
-      toast({ title: 'アカウント作成失敗', description: result.error, variant: 'destructive' })
+      toast({ title: 'アカウント作成に失敗しました', description: result.error, variant: 'destructive' })
+      setAction(null)
     }
-
-    setIsLoading(false)
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>ガジェット紹介サイト</CardTitle>
-          <CardDescription>管理画面へログイン</CardDescription>
-        </CardHeader>
-        <CardContent>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
+      {/* faint editorial star motif */}
+      <StarMark size={420} variant="outline" strokeWidth={0.5} className="pointer-events-none absolute -right-24 -top-24 text-primary/5" />
+      <StarMark size={240} variant="outline" strokeWidth={0.5} className="pointer-events-none absolute -bottom-16 -left-10 text-foreground/5" />
+
+      <Card className="relative w-full max-w-md">
+        <CardContent className="p-7">
+          <div className="mb-6 flex flex-col items-center text-center">
+            <StarMark size={30} className="mb-3 text-primary" />
+            <div className="font-display text-3xl tracking-tight">Shirasame</div>
+            <p className="label-mono mt-2">Admin Console</p>
+          </div>
+
           <Tabs defaultValue="login">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="login">ログイン</TabsTrigger>
@@ -274,78 +226,100 @@ export default function LoginPage() {
             </TabsList>
 
             <TabsContent value="login">
-              <form onSubmit={handleLogin} className="space-y-4">
+              <form onSubmit={handleLogin} className="space-y-4 pt-2">
                 <div className="space-y-2">
                   <Label htmlFor="login-email">メールアドレス</Label>
-                  <Input
-                    id="login-email"
-                    type="email"
-                    placeholder="email@example.com"
-                    value={loginEmail}
-                    onChange={(e) => { setLoginEmail(e.target.value); setLoginEmailError('') }}
-                    required
-                  />
-                  {loginEmailError ? <p className="text-sm text-destructive mt-1">{loginEmailError}</p> : null}
+                  <Input id="login-email" type="email" placeholder="email@example.com" value={loginEmail}
+                    onChange={(e) => { setLoginEmail(e.target.value); setLoginEmailError('') }} disabled={busy} required />
+                  {loginEmailError && <p className="text-sm text-destructive">{loginEmailError}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="login-password">パスワード</Label>
                   <div className="relative">
-                    <Input
-                      id="login-password"
-                      type={showLoginPassword ? 'text' : 'password'}
-                      value={loginPassword}
-                      onChange={(e) => { setLoginPassword(e.target.value); setLoginPasswordError('') }}
-                      required
-                    />
-                    {loginPasswordError ? <p className="text-sm text-destructive mt-1">{loginPasswordError}</p> : null}
-                    <button
-                      type="button"
-                      onClick={() => setShowLoginPassword((s) => !s)}
-                      aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-sm opacity-70 hover:opacity-100"
-                    >
-                      {showLoginPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
+                    <Input id="login-password" type={showLoginPassword ? 'text' : 'password'} value={loginPassword} className="pr-10"
+                      onChange={(e) => { setLoginPassword(e.target.value); setLoginPasswordError('') }} disabled={busy} required />
+                    <button type="button" onClick={() => setShowLoginPassword((s) => !s)} aria-label={showLoginPassword ? 'パスワードを隠す' : 'パスワードを表示'}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground opacity-70 hover:opacity-100">
+                      {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  {loginPasswordError && <p className="text-sm text-destructive">{loginPasswordError}</p>}
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>{isLoading ? 'ログイン中...' : 'ログイン'}</Button>
+                <Button type="submit" className="w-full" disabled={busy}>
+                  {action === 'login' && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {action === 'login' ? 'ログイン中…' : 'ログイン'}
+                </Button>
                 <div className="flex items-center gap-2">
-                  <Button type="button" variant="outline" onClick={handleSendMagicLink} disabled={isLoading} className="flex-1">メール認証</Button>
-                  <Button type="button" variant="link" onClick={handleSendPasswordReset} disabled={isLoading} className="flex-1">パスワードをリセット</Button>
+                  <Button type="button" variant="outline" onClick={handleSendMagicLink} disabled={busy} className="flex-1">
+                    {action === 'magic' && <Loader2 className="h-4 w-4 animate-spin" />}
+                    メール認証
+                  </Button>
+                  <Button type="button" variant="link" onClick={handleSendPasswordReset} disabled={busy} className="flex-1">
+                    {action === 'reset' && <Loader2 className="h-4 w-4 animate-spin" />}
+                    パスワードをリセット
+                  </Button>
                 </div>
+
+                <div className="flex items-center gap-3 py-1">
+                  <span className="h-px flex-1 bg-border" />
+                  <span className="label-mono">or</span>
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+                <Button type="button" variant="outline" onClick={handleGoogleLogin} disabled={busy} className="w-full gap-2">
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z" />
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.26 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z" />
+                    <path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84Z" />
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38Z" />
+                  </svg>
+                  Googleでログイン
+                </Button>
               </form>
             </TabsContent>
 
             <TabsContent value="signup">
-              <form onSubmit={handleSignup} className="space-y-4">
+              <form onSubmit={handleSignup} className="space-y-4 pt-2">
                 <div className="space-y-2">
                   <Label htmlFor="signup-username">ユーザー名</Label>
-                  <Input id="signup-username" type="text" placeholder="username" value={signupUsername} onChange={(e) => { setSignupUsername(e.target.value); setSignupUsernameError('') }} required />
-                  {signupUsernameError ? <p className="text-sm text-destructive mt-1">{signupUsernameError}</p> : null}
+                  <Input id="signup-username" type="text" placeholder="username" value={signupUsername}
+                    onChange={(e) => { setSignupUsername(e.target.value); setSignupUsernameError('') }} disabled={busy} required />
+                  {signupUsernameError && <p className="text-sm text-destructive">{signupUsernameError}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-email">メールアドレス</Label>
-                  <Input id="signup-email" type="email" placeholder="email@example.com" value={signupEmail} onChange={(e) => { setSignupEmail(e.target.value); setSignupEmailError('') }} required />
-                  {signupEmailError ? <p className="text-sm text-destructive mt-1">{signupEmailError}</p> : null}
+                  <Input id="signup-email" type="email" placeholder="email@example.com" value={signupEmail}
+                    onChange={(e) => { setSignupEmail(e.target.value); setSignupEmailError('') }} disabled={busy} required />
+                  {signupEmailError && <p className="text-sm text-destructive">{signupEmailError}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-password">パスワード</Label>
                   <div className="relative">
-                    <Input id="signup-password" type={showSignupPassword ? 'text' : 'password'} value={signupPassword} onChange={(e) => { setSignupPassword(e.target.value); setSignupPasswordError('') }} required />
-                    {signupPasswordError ? <p className="text-sm text-destructive mt-1">{signupPasswordError}</p> : null}
-                    <button type="button" onClick={() => setShowSignupPassword((s) => !s)} aria-label={showSignupPassword ? 'Hide password' : 'Show password'} className="absolute right-2 top-1/2 -translate-y-1/2 text-sm opacity-70 hover:opacity-100">{showSignupPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+                    <Input id="signup-password" type={showSignupPassword ? 'text' : 'password'} value={signupPassword} className="pr-10"
+                      onChange={(e) => { setSignupPassword(e.target.value); setSignupPasswordError('') }} disabled={busy} required />
+                    <button type="button" onClick={() => setShowSignupPassword((s) => !s)} aria-label={showSignupPassword ? 'パスワードを隠す' : 'パスワードを表示'}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground opacity-70 hover:opacity-100">
+                      {showSignupPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
+                  {signupPasswordError && <p className="text-sm text-destructive">{signupPasswordError}</p>}
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>{isLoading ? 'アカウント作成中...' : 'アカウント作成'}</Button>
+                <Button type="submit" className="w-full" disabled={busy}>
+                  {action === 'signup' && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {action === 'signup' ? 'アカウント作成中…' : 'アカウント作成'}
+                </Button>
               </form>
             </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-background" />}>
+      <LoginPageInner />
+    </Suspense>
   )
 }

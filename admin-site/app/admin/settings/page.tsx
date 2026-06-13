@@ -942,21 +942,21 @@ export default function AdminSettingsPage() {
   })()
 
   return (
-    <div className="w-full px-4 py-8">
+    <div className="mx-auto max-w-3xl px-4 py-6 md:px-8 md:py-8">
       {/* Display a visible error banner when users API fails so admins notice problems */}
       {loadError && (
-        <div className="mb-4 p-3 rounded bg-red-50 border border-red-200 text-red-800">
+        <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
           <strong>ユーザー情報の取得に失敗しました:</strong>
           <div>{loadError}</div>
         </div>
       )}
-      <div className="flex items-center justify-between mb-8">
+      <div className="sticky top-0 z-10 -mx-4 mb-8 flex items-center justify-between gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur md:-mx-8 md:px-8">
         <div>
-          <h1 className="text-3xl font-bold mb-2">設定</h1>
-          <p className="text-muted-foreground">サイトとプロフィールの設定</p>
+          <p className="label-mono">Settings</p>
+          <h1 className="text-xl font-bold">設定</h1>
         </div>
-        <Button onClick={handleSave} size="lg">
-          <Save className="w-4 h-4 mr-2" />
+        <Button onClick={handleSave}>
+          <Save className="h-4 w-4" />
           保存
         </Button>
       </div>
