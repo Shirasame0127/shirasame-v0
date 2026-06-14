@@ -113,6 +113,22 @@ export default function InitialLoading() {
     }
   }, [])
 
+  // Safety net: never let the splash gate the site for more than ~7s, even if
+  // the animation chain or the (stale-closure) gif-hide path is interrupted.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      try { setSlideUp(true) } catch {}
+      window.setTimeout(() => {
+        try { setMountedVisible(false) } catch {}
+        try {
+          ;(window as any).__v0_initial_loading = false
+          window.dispatchEvent(new CustomEvent('v0-initial-loading', { detail: false }))
+        } catch {}
+      }, SLIDE_DURATION)
+    }, 7000)
+    return () => window.clearTimeout(id)
+  }, [])
+
   // Start slot animation when needed
   useEffect(() => {
     if (!showCustomAnim) return

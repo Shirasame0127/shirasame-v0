@@ -265,6 +265,7 @@ export default function HomePage() {
   const [hasMore, setHasMore] = useState<boolean>(true)
   const sentinelRefGallery = useRef<HTMLDivElement | null>(null)
   const sentinelRefAll = useRef<HTMLDivElement | null>(null)
+  const sentinelRefOverlay = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     // Preload main images for visible products and recipe items so modal shows immediately
@@ -752,7 +753,9 @@ export default function HomePage() {
   const filteredAndSortedProducts = products.filter(productMatches).sort((a, b) => {
     switch (sortMode) {
       case "newest": return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      case "clicks": return Math.random() - 0.5
+      // Use a real popularity metric when available; otherwise keep stable order
+      // (previously Math.random() reshuffled the grid on every keystroke/render).
+      case "clicks": return (((b as any).clickCount ?? (b as any).clicks ?? 0) - ((a as any).clickCount ?? (a as any).clicks ?? 0))
       case "price-asc": return (a.price || 0) - (b.price || 0)
       case "price-desc": return (b.price || 0) - (a.price || 0)
       default: return 0
@@ -1140,7 +1143,7 @@ export default function HomePage() {
 
   useEffect(() => {
     // Choose the appropriate sentinel depending on which view/overlay is visible.
-    const node = isAllOverlayOpen ? sentinelRefAll.current : (displayMode === 'gallery' ? sentinelRefGallery.current : sentinelRefAll.current)
+    const node = isAllOverlayOpen ? sentinelRefOverlay.current : (displayMode === 'gallery' ? sentinelRefGallery.current : sentinelRefAll.current)
     if (!node) return
     // Observe a single sentinel element placed at the bottom of the gallery/all-items.
     // rootMargin ~300px so loadMore triggers slightly before the user reaches the bottom.
@@ -1161,7 +1164,15 @@ export default function HomePage() {
     }
   }, [loadMore, loadingMore, hasMore, displayMode, isAllOverlayOpen])
 
-  if (!isLoaded) { return null }
+  if (!isLoaded) {
+    // Lightweight fallback so that if the splash dismisses before data is ready
+    // the visitor sees a calm loading state instead of a blank screen.
+    return (
+      <div className="min-h-screen animated-grid-bg flex items-center justify-center">
+        <div className="h-8 w-8 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin" aria-label="読み込み中" />
+      </div>
+    )
+  }
 
   const changeDisplayMode = (mode: 'normal' | 'gallery') => {
     if (mode === displayMode) return
@@ -1235,7 +1246,7 @@ export default function HomePage() {
                       <Sheet open={isFilterSheetOpen} onOpenChange={setIsFilterSheetOpen}>
                           <SheetContent side="right" className="bg-white h-full max-w-[360px] w-[min(360px,90vw)] rounded-l-2xl px-4 pb-0 flex flex-col">
                           <SheetHeader className="pb-4 border-b">
-                            <SheetTitle className="text.base">絞り込み・並び替え</SheetTitle>
+                            <SheetTitle className="text-base">絞り込み・並び替え</SheetTitle>
                           </SheetHeader>
                           <div className="flex-1 overflow-y-auto py-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                             <div className="mx-auto w-full max-w-md px-1">
@@ -1399,7 +1410,7 @@ export default function HomePage() {
                   const isEvenIndex = index % 2 === 0
                   const imageFirst = isEvenIndex
                   return (
-                    <div key={recipe.id} className="p-3 md:p-6 bg-card shadow-md rounded-t-md rounded-b-md bg-linear-to-b from-card to-transparent">
+                    <div key={recipe.id} className="p-3 md:p-6 bg-card shadow-md rounded-md">
                       <h3 className="font-heading text-lg sm:text-lg font-semibold mb-6 text-center">{recipe.title}</h3>
                       <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-start bg-transparent">
                         <div className={`w-full md:w-1/2 ${imageFirst ? "md:order-1" : "md:order-2"}`}>
@@ -1482,7 +1493,7 @@ export default function HomePage() {
 
                   <SheetContent side="right" className="bg-white h-full max-w-[360px] w-[min(360px,90vw)] rounded-l-2xl px-4 pb-0 flex flex-col">
                     <SheetHeader className="pb-4 border-b">
-                      <SheetTitle className="text.base">絞り込み・並び替え</SheetTitle>
+                      <SheetTitle className="text-base">絞り込み・並び替え</SheetTitle>
                     </SheetHeader>
                     <div className="flex-1 overflow-y-auto py-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                       <div className="mx-auto w-full max-w-md px-1">
@@ -1581,7 +1592,7 @@ export default function HomePage() {
               element is observed for infinite-scroll. We intentionally observe
               a single sentinel node rather than many item nodes to avoid
               noisy intersection events caused by Masonry/item reflows. */}
-            <div ref={sentinelRefAll as any} style={{ height: '1px' }} />
+            <div ref={sentinelRefOverlay as any} style={{ height: '1px' }} />
           </div>
         </section>
       )}

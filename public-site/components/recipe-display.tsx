@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useRef, useState, useEffect } from "react"
 // Use API-provided image URLs; do not generate CDN URLs on the client
 import type { Product } from "@shared/types"
 
@@ -86,7 +86,25 @@ export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, produ
   const items: any[] = (arguments && (arguments as any)[0] && (arguments as any)[0].items) || []
   const pinAreaRef = useRef<HTMLDivElement>(null)
   const [imageLoaded, setImageLoaded] = useState(false)
+  const [areaWidth, setAreaWidth] = useState(0)
   const handleImageLoad = () => setImageLoaded(true)
+
+  // Recompute pin pixel sizes when the image area resizes (rotation, window
+  // resize, layout reflow). Without this, px-derived dot/tag/line sizes kept
+  // their old values while percent-based anchors moved → tags drifted off-image.
+  useEffect(() => {
+    const el = pinAreaRef.current
+    if (!el) return
+    const measure = () => setAreaWidth(el.getBoundingClientRect().width)
+    measure()
+    let ro: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => measure())
+      ro.observe(el)
+    }
+    window.addEventListener('resize', measure)
+    return () => { try { ro?.disconnect() } catch {}; window.removeEventListener('resize', measure) }
+  }, [imageLoaded])
 
   return (
     <div className="relative w-full max-w-5xl mx-auto">
@@ -141,9 +159,9 @@ export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, produ
               const handleKey = (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleActivate() } }
           // If product is not found, still allow rendering the pin (requirements say show nothing only when pins empty)
           // but clicking should not error
-          const pinAreaRect = pinAreaRef.current?.getBoundingClientRect()
-          if (!pinAreaRect || pinAreaRect.width === 0) return null
-          const imageWidthPx = pinAreaRect.width
+          const measuredWidth = areaWidth || pinAreaRef.current?.getBoundingClientRect().width || 0
+          if (!measuredWidth) return null
+          const imageWidthPx = measuredWidth
           // Resolve coordinates: prefer dotX/dotY (numbers), fall back to legacy percent fields
           const toNum = (v: any, def: number) => {
             if (v === null || typeof v === 'undefined' || v === '') return def
@@ -204,7 +222,7 @@ export function RecipeDisplay({ recipeTitle, imageDataUrl, imageUrl, pins, produ
                     <line x1={`${dotXPercent}%`} y1={`${dotYPercent}%`} x2={`${tagXPercent}%`} y2={`${tagYPercent}%`} stroke={(pin as any).lineColor || "#ffffff"} strokeWidth={lineWidthPx} strokeDasharray={(pin as any).lineType === "dashed" ? `${lineWidthPx * 4} ${lineWidthPx * 2}` : (pin as any).lineType === "dotted" ? `${lineWidthPx} ${lineWidthPx}` : undefined} />
                   </svg>
 
-                  <div className="absolute cursor-pointer hover:scale-125 transition-transform z-20" role={product ? 'button' : undefined} tabIndex={0} aria-label={(pin as any).tagDisplayText || pin.tagText || (product ? product.title : 'pin')} onKeyDown={handleKey} style={{ left: `${dotXPercent}%`, top: `${dotYPercent}%`, transform: "translate(-50%, -50%)", width: dotSizePx, height: dotSizePx }} onClick={handleActivate}>
+                  <div className={`absolute transition-transform z-20 ${product ? 'cursor-pointer hover:scale-125' : 'pointer-events-none'}`} role={product ? 'button' : undefined} tabIndex={product ? 0 : -1} aria-label={(pin as any).tagDisplayText || pin.tagText || (product ? product.title : 'pin')} onKeyDown={handleKey} style={{ left: `${dotXPercent}%`, top: `${dotYPercent}%`, transform: "translate(-50%, -50%)", width: dotSizePx, height: dotSizePx }} onClick={handleActivate}>
                     <div className="w-full h-full ring-2 ring-white/30" style={{ backgroundColor: pin.dotColor || "#ffffff", borderRadius: (pin as any).dotShape === "circle" ? "50%" : (pin as any).dotShape === "square" ? "0" : (pin as any).dotShape === "diamond" ? "15%" : "0", clipPath: (pin as any).dotShape === "triangle" ? "polygon(50% 0%, 0% 100%, 100% 100%)" : (pin as any).dotShape === "diamond" ? "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)" : undefined }} />
                   </div>
 

@@ -56,7 +56,7 @@ export function SocialLinks({ links, className }: Props) {
     if (k.includes("email") || k.includes("mail") || k.includes("@")) return { icon: <Mail className="w-4 h-4" />, color: 'hover:bg-gray-600' }
     if (k.includes("form") || k.includes("file") || k.includes("contact")) return { icon: <FileText className="w-4 h-4" />, color: 'hover:bg-blue-600' }
     if (k.includes("github")) return { icon: <Github className="w-4 h-4" />, color: 'hover:bg-gray-800' }
-    return { icon: <Globe className="w-4 h-4" />, color: 'hover:bg-muted' }
+    return { icon: <Globe className="w-4 h-4" />, color: 'hover:bg-gray-700' }
   }
 
   return (
@@ -68,10 +68,10 @@ export function SocialLinks({ links, className }: Props) {
         const displayName = (link as any).label || link.username || key
         return (
           <Link key={key} href={link.url} target="_blank" rel="noopener noreferrer" className={cn(isLastAndOdd ? 'col-span-2' : '', 'group')}> 
-            <Card className={`px-3 py-2 transition-all ${cfg.color} h-full rounded-b-2xl border border-gray-200 bg-white shadow-sm`}> 
-              <div className="flex items-center gap-2 justify-center">
+            <Card className={`px-3 py-2 transition-all ${cfg.color} h-full rounded-xl border border-gray-200 bg-white shadow-sm`}>
+              <div className="flex min-w-0 items-center gap-2 justify-center">
                   <span className="text-current group-hover:text-white flex-shrink-0 self-center [&>svg]:w-[20px] [&>svg]:h-[20px]">{cfg.icon}</span>
-                            <span className="font-medium text-sm leading-tight truncate text-current group-hover:text-white self-center ml-2">{displayName}</span>
+                            <span className="min-w-0 font-medium text-sm leading-tight truncate text-current group-hover:text-white self-center">{displayName}</span>
               </div>
             </Card>
           </Link>

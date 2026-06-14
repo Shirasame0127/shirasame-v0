@@ -95,7 +95,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
               <Button
                 variant="default"
                 size="sm"
-                className="shadow-gray-800 h-9 w-25 s rounded-full bg-slate-600 text-white hover:bg-sky-500 focus:ring-2 focus:ring-sky-300"
+                className="h-9 w-25 rounded-full bg-slate-600 text-white shadow-md hover:bg-sky-500 focus:ring-2 focus:ring-sky-300"
               >
                 Contact
               </Button>
@@ -104,10 +104,10 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
               data-hamburger-button
               variant="ghost"
               size="icon-lg"
-              className="rounded-full bg-white/10 dark:bg-black/20 hover:bg-white/20 dark:hover:bg-black/30 backdrop-blur-sm shadow-lg ring-1 ring-white/10 dark:ring-black/20 w-12 h-12 p-2"
+              className="rounded-full bg-white/40 dark:bg-black/30 hover:bg-white/60 dark:hover:bg-black/40 backdrop-blur-sm shadow-lg ring-1 ring-black/5 dark:ring-white/10 w-12 h-12 p-2"
               onClick={() => setIsMenuOpen(!isMenuOpen)}
             >
-              {isMenuOpen ? <X className="w-12 h-12" /> : <Menu className="w-12 h-12" />}
+              {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </Button>
           </div>
         </div>
@@ -115,7 +115,7 @@ export function PublicNav({ logoUrl, siteName }: PublicNavProps) {
 
       <div
         ref={menuRef}
-        className={`fixed top-0 right-0 w-80 max-h-[90vh] overflow-auto bg-white border-l shadow-2xl z-60 rounded-l-xl menu-slide ${isMenuOpen ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
+        className={`fixed top-0 right-0 w-80 max-h-[90vh] overflow-auto bg-white dark:bg-slate-900 border-l shadow-2xl z-60 rounded-l-xl menu-slide ${isMenuOpen ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}
       >
         <nav className="p-6 space-y-4">
           <div className="space-y-2">

@@ -35,12 +35,16 @@ export default function ProductMasonry({ items, className, columns = 7, fullWidt
               let jpg: string | null = null
 
               const jpgUrl = raw || '/placeholder.svg'
+              // Reserve space before the image loads to prevent column reflow (CLS).
+              const aspectRatio = it.aspect ? String(it.aspect).replace(':', '/') : '1 / 1'
               const imgEl = (
                 <img
                   src={jpgUrl}
                   alt={it.title || ''}
                   loading="lazy"
+                  decoding="async"
                   draggable={false}
+                  style={{ aspectRatio }}
                   onDragStart={(e) => e.preventDefault()}
                   onContextMenu={(e) => e.preventDefault()}
                   className="w-full h-auto object-cover rounded-lg transition duration-300 ease-out group-hover:brightness-105 no-download"
@@ -49,14 +53,14 @@ export default function ProductMasonry({ items, className, columns = 7, fullWidt
 
               if (it.href && !onItemClick) {
                 return (
-                  <Link href={it.href} className="group block rounded-lg overflow-hidden relative transform transition-transform duration-300 ease-out motion-safe:will-change-transform hover:scale-[1.02] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onContextMenu={(e) => e.preventDefault()}>
+                  <Link href={it.href} className="group block rounded-lg overflow-hidden relative transform transition-transform duration-300 ease-out motion-safe:will-change-transform relative hover:z-10 hover:scale-[1.015] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50" onContextMenu={(e) => e.preventDefault()}>
                     {imgEl}
                   </Link>
                 )
               }
 
               return (
-                <div role={onItemClick ? 'button' : undefined} onClick={onItemClick ? () => onItemClick(it.id) : undefined} onKeyDown={onItemClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onItemClick(it.id) } } : undefined} tabIndex={onItemClick ? 0 : -1} aria-label={it.title || 'ギャラリー画像'} className={`group block rounded-lg overflow-hidden relative transform transition-transform duration-300 ease-out motion-safe:will-change-transform hover:scale-[1.02] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${onItemClick ? 'cursor-pointer' : ''}`} onContextMenu={(e) => e.preventDefault()}>
+                <div role={onItemClick ? 'button' : undefined} onClick={onItemClick ? () => onItemClick(it.id) : undefined} onKeyDown={onItemClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onItemClick(it.id) } } : undefined} tabIndex={onItemClick ? 0 : -1} aria-label={it.title || 'ギャラリー画像'} className={`group block rounded-lg overflow-hidden relative transform transition-transform duration-300 ease-out motion-safe:will-change-transform relative hover:z-10 hover:scale-[1.015] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${onItemClick ? 'cursor-pointer' : ''}`} onContextMenu={(e) => e.preventDefault()}>
                   {imgEl}
                 </div>
               )

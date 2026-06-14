@@ -43,12 +43,12 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
 
   if (!isLoaded) {
     return (
-      <div className="relative w-full bg-muted animate-pulse aspect-square sm:aspect-[16/9] h-auto" />
+      <div className="relative w-full bg-muted animate-pulse aspect-[4/3] sm:aspect-[16/9] h-auto" />
     )
   }
 
   return (
-    <div className="relative overflow-hidden w-full aspect-square sm:aspect-[16/9] h-auto">
+    <div className="relative overflow-hidden w-full aspect-[4/3] sm:aspect-[16/9] h-auto">
       {/* decorative pastel floating circles (visual only) */}
       <div aria-hidden className="pointer-events-none">
         <div

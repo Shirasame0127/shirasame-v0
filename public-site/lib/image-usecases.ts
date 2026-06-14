@@ -73,8 +73,8 @@ export function getPublicImageUrl(raw?: string | null, domainOverride?: string |
         if (key.startsWith('images/')) key = key.slice('images/'.length)
         const bucket = (typeof process !== 'undefined' ? (process.env?.R2_BUCKET || '') : '') as string
         if (bucket && key.startsWith(`${bucket}/`)) key = key.slice(bucket.length + 1)
-        key = key.replace(/(^|\/)uploads\/+:uploads\//, '$1uploads/')
-        key = key.replace(/\/+/, '/')
+        key = key.replace(/(^|\/)uploads\/+uploads\//g, '$1uploads/')
+        key = key.replace(/\/+/g, '/')
         return `${imagesRoot}/${key}`
       } catch {
         return raw.split(/[?#]/)[0]
@@ -88,9 +88,9 @@ export function getPublicImageUrl(raw?: string | null, domainOverride?: string |
       if (bucket && key.startsWith(`${bucket}/`)) key = key.slice(bucket.length + 1)
       key = key.replace(/^\/+/, '')
       // Normalize duplicated uploads prefix like "uploads/uploads/..." => "uploads/..."
-      key = key.replace(/(^|\/)uploads\/+uploads\//, '$1uploads/')
+      key = key.replace(/(^|\/)uploads\/+uploads\//g, '$1uploads/')
       // Collapse multiple slashes
-      key = key.replace(/\/+/, '/')
+      key = key.replace(/\/+/g, '/')
       if (key) return `${imagesRoot}/${key}`
     } catch {}
     return raw
@@ -100,8 +100,10 @@ export function getPublicImageUrl(raw?: string | null, domainOverride?: string |
   // If a key was accidentally stored with a leading `images/` segment,
   // strip it to avoid constructing URLs like `/images/images/...`.
   if (k.startsWith('images/')) k = k.slice('images/'.length)
-  k = k.replace(/(^|\/)uploads\/+uploads\//, '$1uploads/')
-  k = k.replace(/\+/, '/')
+  k = k.replace(/(^|\/)uploads\/+uploads\//g, '$1uploads/')
+  // Collapse accidental duplicate slashes (previously this errantly replaced
+  // a literal '+' with '/', corrupting keys that contain a '+').
+  k = k.replace(/\/+/g, '/')
   return `${imagesRoot}/${k}`
 }
 

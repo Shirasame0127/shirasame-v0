@@ -59,6 +59,14 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
     }
   }, [isOpen])
 
+  // Escape-to-close for keyboard/accessibility.
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
+
   const leftImageRef = useRef<HTMLDivElement | null>(null)
   const [modalMinHeight, setModalMinHeight] = useState<number | undefined>(undefined)
   const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null)
@@ -152,21 +160,22 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
 
   const modalClassName = useVerticalLayout
     ? 'relative w-[90%] sm:w-1/2 sm:max-w-[400px] h-auto max-h-[85vh] bg-white dark:bg-slate-900 rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-auto flex flex-col'
-    : 'relative w-[95%] sm:w-[85%] lg:w-[75%] max-w-5xl h-auto max-h-[80vh] sm:h-[40vh] bg-white dark:bg-slate-900 rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-auto sm:overflow-hidden flex flex-col sm:flex-row'
+    : 'relative w-[95%] sm:w-[85%] lg:w-[75%] max-w-5xl max-h-[85vh] bg-white dark:bg-slate-900 rounded-lg border shadow-lg animate-in zoom-in-95 fade-in-0 overflow-hidden flex flex-col sm:flex-row'
 
-  const leftImageClassName = useVerticalLayout ? 'flex-shrink-0 w-full p-4 flex items-center justify-center' : 'flex-shrink-0 sm:w-1/2 p-6 sm:border-r flex items-center justify-center sm:h-full'
-  // Force square (1:1) image container to avoid layout shift and ensure consistent presentation
+  const leftImageClassName = useVerticalLayout ? 'flex-shrink-0 w-full p-4 flex items-center justify-center' : 'flex-shrink-0 sm:w-1/2 p-6 sm:border-r flex items-center justify-center'
+  // Square framing for a consistent grid; the image uses object-contain so
+  // non-square product photos are letterboxed (never cropped).
   const innerImageClassName = useVerticalLayout
-    ? 'relative w-full max-w-sm mx-auto rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center aspect-square'
-    : 'relative w-full max-w-[640px] rounded-lg overflow-hidden bg-white dark:bg-slate-800 shadow-sm flex items-center justify-center aspect-square'
-  const rightContentClassName = useVerticalLayout ? 'flex-1 pt-4 pb-6 px-6 space-y-4 text-left [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2 overflow-auto' : 'flex-1 pt-4 pb-6 px-6 space-y-4 text-left sm:overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded sm:[&::-webkit-scrollbar]:w-2'
+    ? 'relative w-full max-w-sm mx-auto rounded-lg overflow-hidden bg-muted shadow-sm flex items-center justify-center aspect-square'
+    : 'relative w-full max-w-[640px] rounded-lg overflow-hidden bg-muted shadow-sm flex items-center justify-center aspect-square'
+  const rightContentClassName = 'flex-1 pt-4 pb-6 px-6 space-y-4 text-left overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded'
 
   return (
     <div className="fixed inset-0 z-80 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-in fade-in-0" onClick={onClose} />
 
-      <div className={modalClassName} style={!useVerticalLayout && modalMinHeight ? { minHeight: `${modalMinHeight}px` } : undefined}>
-        <button onClick={onClose} className="absolute right-3 top-3 rounded-sm opacity-90 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10 bg-white/95 dark:bg-black/70 p-1.5">
+      <div role="dialog" aria-modal="true" aria-label={product?.title || '商品の詳細'} className={modalClassName} style={!useVerticalLayout && modalMinHeight ? { minHeight: `${modalMinHeight}px` } : undefined}>
+        <button onClick={onClose} aria-label="閉じる" className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border bg-white text-gray-700 shadow-sm transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 dark:bg-slate-800 dark:text-gray-100 dark:hover:bg-slate-700">
           <X className="h-4 w-4" />
           <span className="sr-only">閉じる</span>
         </button>
@@ -215,7 +224,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                       finalSrcSet = displaySrcSet || undefined
                     }
 
-                    return <img src={finalSrc || "/placeholder.svg"} srcSet={finalSrcSet} alt={product.title || '商品画像'} className="w-full h-full object-cover" onLoad={(e) => { try { const t = e.currentTarget as HTMLImageElement; setImageAspectRatio(t.naturalWidth / t.naturalHeight); } catch {} }} />
+                    return <img src={finalSrc || "/placeholder.svg"} srcSet={finalSrcSet} alt={product.title || '商品画像'} className="w-full h-full object-contain" onLoad={(e) => { try { const t = e.currentTarget as HTMLImageElement; setImageAspectRatio(t.naturalWidth / t.naturalHeight); } catch {} }} />
                   })()
                 }
             {saleName && (
@@ -238,19 +247,19 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
             </div>
           ) : (
             <>
-              {hasTags && (
-                <div className="flex flex-wrap gap-2">
-                  {product?.tags?.map((tag: any) => (
-                    <span key={tag} className="inline-flex items-center bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-gray-100 text-xs font-medium px-2 py-0.5 rounded-full">{tag}</span>
-                  ))}
-                </div>
-              )}
+              <h1 className="text-xl font-bold" style={{ marginBottom: textSpacing.titleMarginBottom }}>{product?.title || ''}</h1>
 
               {hasShortDescription && (
                 <p className="text-sm text-muted-foreground" style={{ marginBottom: '0em' }}>{product?.shortDescription}</p>
               )}
 
-              <h1 className="text-xl font-bold" style={{ marginBottom: textSpacing.titleMarginBottom }}>{product?.title || ''}</h1>
+              {hasTags && (
+                <div className="flex flex-wrap gap-2">
+                  {product?.tags?.map((tag: any) => (
+                    <span key={tag} className="inline-flex items-center bg-muted text-foreground/80 text-xs font-medium px-2 py-0.5 rounded-full">{tag}</span>
+                  ))}
+                </div>
+              )}
 
               {hasPrice ? (
                 <div className="flex items-center gap-3">
@@ -274,8 +283,8 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
               )}
 
               {hasBody && (
-                <Card>
-                  <CardContent className="px-2">
+                <Card className="py-4">
+                  <CardContent className="px-4">
                     <h2 className="font-semibold mb-2 text-sm">商品詳細</h2>
                     <p className="text-sm leading-relaxed">{product?.body}</p>
                   </CardContent>
@@ -284,7 +293,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
 
               {hasAffiliateLinks && (
                 <div className="space-y-3">
-                  <h3 className="font-semibold text-sm text-center">購入リンク</h3>
+                  <h3 className="font-semibold text-sm">購入リンク</h3>
                   <div className="space-y-2">
                     {product?.affiliateLinks?.map((link: any, index: number) => {
                       let label = link.label
@@ -296,14 +305,14 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
                       if (isTikTok) {
                         const tLabel = link.label || 'TikTokで見る'
                         return (
-                          <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
+                          <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-primary hover:bg-primary/90`}>
                             <span className="truncate ">{tLabel}</span>
                             <ExternalLink className="w-4 h-4" />
                           </a>
                         )
                       }
                       return (
-                        <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-[#153b8a] hover:bg-[#0f2f6f]`}>
+                        <a key={index} href={link.url} target="_blank" rel="noopener noreferrer" className={`block ${commonClass} bg-primary hover:bg-primary/90`}>
                           <span className="truncate">{label}</span>
                           <ExternalLink className="w-4 h-4" />
                         </a>
@@ -315,7 +324,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
 
               {hasAttachments && (
                 <div>
-                  <h3 className="font-semibold mb-2 text-sm text-center">添付画像</h3>
+                  <h3 className="font-semibold mb-2 text-sm">添付画像</h3>
                     <div className="grid grid-cols-2 gap-2">
                       {attachmentImages.map((img: any, idx: number) => (
                         <div key={`${product?.id ?? 'p'}-att-${idx}`} className="relative aspect-square rounded-md overflow-hidden bg-white dark:bg-slate-800 shadow-sm">
@@ -328,7 +337,7 @@ export function ProductDetailModal({ product, isOpen, onClose, initialImageUrl, 
 
               {hasRelatedLinks && (
                 <div>
-                  <h3 className="font-semibold mb-2 text-sm text-center">関連リンク</h3>
+                  <h3 className="font-semibold mb-2 text-sm">関連リンク</h3>
                   <div className="space-y-2">
                     {(product?.relatedLinks || []).map((link: string, index: number) => (
                       <div key={index}>
