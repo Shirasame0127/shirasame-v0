@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Check, Menu, X } from "lucide-react"
+import { Check, Mail, Menu, X } from "lucide-react"
 import { HOME_VIEWS, type HomeView } from "@/components/home/views"
 import { FONT_CHOICES, applyFont, readStoredFont, type FontChoice } from "@/lib/font-choice"
 
@@ -152,11 +152,22 @@ export default function MagazineNav({
         {/* Only the index trigger lives up here — the wordmark is the masthead's
             job, and repeating it in the corner just competed with it. */}
         <div className="flex h-16 items-center justify-end gap-2 px-3 sm:px-5">
+          {/* Contact sits in the same cluster as the index trigger and fades out
+              with it once the strip pins and takes over both. Icon-only on a
+              phone, where two labelled pills crowd the corner. */}
           <a
             href="#profile"
-            className="m-subheading pointer-events-auto flex h-12 items-center rounded-full border-2 border-[var(--m-rule)] bg-[var(--m-paper)]/90 px-4 text-sm text-[var(--m-teal)] backdrop-blur-sm transition-colors hover:bg-[#eaf7f7]"
+            aria-label="連絡先を見る"
+            tabIndex={floatingTriggerHidden ? -1 : undefined}
+            aria-hidden={floatingTriggerHidden || undefined}
+            className={`m-subheading pointer-events-auto flex h-12 items-center gap-2 rounded-full border-2 border-[var(--m-rule)] bg-[var(--m-paper)]/90 px-3 text-sm text-[var(--m-teal)] backdrop-blur-sm transition-all duration-300 hover:bg-[#eaf7f7] motion-reduce:transition-none sm:px-4 ${
+              floatingTriggerHidden
+                ? "pointer-events-none -translate-y-2 scale-90 opacity-0"
+                : "translate-y-0 scale-100 opacity-100"
+            }`}
           >
-            Contact
+            <Mail className="h-5 w-5 shrink-0" aria-hidden />
+            <span className="hidden sm:inline">Contact</span>
           </a>
           <button
             ref={triggerRef}

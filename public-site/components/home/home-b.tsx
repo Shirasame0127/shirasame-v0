@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
-import { Filter, Menu, RefreshCw, Search, X } from "lucide-react"
+import { Filter, Mail, Menu, RefreshCw, Search, X } from "lucide-react"
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { ProfileHeader } from "@/components/profile-header"
@@ -133,7 +133,7 @@ function PanelHeader({
         {meta && <span className="m-display shrink-0 text-xs text-white/85">{meta}</span>}
       </div>
       {description && (
-        <p className="m-copy border-x-2 border-b-2 border-[var(--m-rule)] bg-white px-4 py-2 text-[13px]">
+        <p className="m-copy border-x-2 border-b-2 border-[var(--m-rule)] bg-white px-4 py-2 text-sm">
           {description}
         </p>
       )}
@@ -444,8 +444,23 @@ export default function HomeB({ data }: { data: HomeData }) {
               })}
             </ul>
 
-            {/* The menu is absorbed into the strip once it pins. It grows in from
-              zero width so the tabs slide over rather than jumping. */}
+              {/* Contact and the index are absorbed into the strip once it pins.
+                Both grow in from zero width so the tabs slide over rather than
+                jumping. */}
+            <a
+              href="#profile"
+              aria-label="連絡先を見る"
+              tabIndex={isStripStuck ? undefined : -1}
+              aria-hidden={isStripStuck ? undefined : true}
+              className={`flex h-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border-[var(--m-rule)] bg-white text-[var(--m-teal)] transition-all duration-300 motion-reduce:transition-none ${
+                isStripStuck
+                  ? "w-10 scale-100 border-2 opacity-100"
+                  : "pointer-events-none w-0 scale-75 border-0 opacity-0"
+              }`}
+            >
+              <Mail className="h-5 w-5 shrink-0" aria-hidden />
+            </a>
+
             <button
               type="button"
               onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -535,7 +550,7 @@ export default function HomeB({ data }: { data: HomeData }) {
           <div className="min-w-0 flex-1">
             <div className="mb-6">
               <h2 className="m-heading text-3xl text-[var(--m-teal)] sm:text-4xl">{meta.title}</h2>
-              <p className="m-copy mt-1 text-[13px]">{meta.subtitle}</p>
+              <p className="m-copy mt-1.5 text-sm">{meta.subtitle}</p>
             </div>
 
             {status === "loading" ? (

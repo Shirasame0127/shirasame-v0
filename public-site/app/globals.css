@@ -558,7 +558,10 @@ input, textarea, select, option, button, [contenteditable="true"], code, pre {
 .m-copy {
   color: var(--m-pink);
   font-family: "Quicksand", "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Noto Sans JP", sans-serif;
-  font-weight: 500;
+  /* 700, not 600: the Quicksand webfont is loaded at 300/400/500/700 only, so
+     600 would be synthesised or snapped to whichever neighbour the browser
+     prefers. At 500 this read too light against the graph paper. */
+  font-weight: 700;
   line-height: 1.6;
 }
 
