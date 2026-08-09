@@ -73,7 +73,7 @@ function ItemCard({
   return (
     <button onClick={onClick} className="group block w-full text-left">
       <div
-        className={`m-panel relative overflow-hidden transition-colors group-hover:border-[var(--m-pink)] ${
+        className={`m-panel relative overflow-hidden transition-colors group-hover:border-[var(--m-pink-soft)] ${
           showTitle ? "p-1.5" : "p-0"
         }`}
       >
@@ -125,7 +125,7 @@ function PanelHeader({
   return (
     <header className={attached ? "" : "mb-4"}>
       <div className="flex items-center justify-between gap-3 rounded-t-xl bg-[var(--m-teal)] px-4 py-2.5">
-        <h3 className="m-display truncate text-base text-white">{title}</h3>
+        <h3 className="m-subheading truncate text-base text-white">{title}</h3>
         {meta && <span className="m-display shrink-0 text-xs text-white/85">{meta}</span>}
       </div>
       {description && (

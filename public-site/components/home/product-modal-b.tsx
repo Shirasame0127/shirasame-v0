@@ -235,9 +235,9 @@ export default function ProductModalB({
 
           <div className="min-w-0 flex-1 space-y-5 px-4 pb-8 pt-2 md:px-6 md:py-6">
             <header>
-              <h2 className="m-display text-2xl leading-snug text-[var(--m-ink)]">{title}</h2>
+              <h2 className="m-heading text-2xl leading-snug text-[var(--m-ink)]">{title}</h2>
               {/* Pink marker rule under the title, echoing the cover copy. */}
-              <div className="mt-2 h-[3px] w-16 rounded-full bg-[var(--m-pink)]" />
+              <div className="mt-2 h-[3px] w-16 rounded-full bg-[var(--m-pink-soft)]" />
             </header>
 
             {loadingDetail && (
@@ -272,21 +272,21 @@ export default function ProductModalB({
 
             {body && (
               <section className="m-panel-soft p-4">
-                <h3 className="m-display mb-2 text-sm text-[var(--m-teal)]">商品詳細</h3>
+                <h3 className="m-subheading mb-2 text-sm text-[var(--m-teal)]">商品詳細</h3>
                 <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--m-ink)]">{body}</p>
               </section>
             )}
 
             {notes && (
               <section className="m-panel-soft p-4">
-                <h3 className="m-display mb-2 text-sm text-[var(--m-teal)]">メモ</h3>
+                <h3 className="m-subheading mb-2 text-sm text-[var(--m-teal)]">メモ</h3>
                 <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--m-ink-soft)]">{notes}</p>
               </section>
             )}
 
             {affiliateLinks.length > 0 && (
               <section className="space-y-2">
-                <h3 className="m-display text-sm text-[var(--m-teal)]">購入リンク</h3>
+                <h3 className="m-subheading text-sm text-[var(--m-teal)]">購入リンク</h3>
                 {affiliateLinks.map((link: any, i: number) => {
                   let label = link.label
                   if (!label) {
@@ -314,7 +314,7 @@ export default function ProductModalB({
 
             {relatedLinks.length > 0 && (
               <section className="space-y-2">
-                <h3 className="m-display text-sm text-[var(--m-teal)]">関連リンク</h3>
+                <h3 className="m-subheading text-sm text-[var(--m-teal)]">関連リンク</h3>
                 {relatedLinks.map((url, i) => (
                   <EmbeddedLink
                     key={`${url}-${i}`}
