@@ -503,6 +503,18 @@ input, textarea, select, option, button, [contenteditable="true"], code, pre {
   letter-spacing: 0.01em;
 }
 
+/* Section titles (Collection, Recipe, All Items, Gallery).
+   Uses the same display face the previous design showed — Oswald, which it got
+   from the `h1,h2,h5,h6` base rule, not from the `font-heading` utility. That
+   utility emits no CSS at all, because --font-heading is declared on :root and
+   never registered with @theme, so every `font-heading` class in this codebase
+   is inert. Referencing the variable directly is what actually applies it. */
+.m-heading {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
 /* Pink cover copy. Slight tilt so it reads as hand-added, like the original. */
 .m-copy {
   color: var(--m-pink);

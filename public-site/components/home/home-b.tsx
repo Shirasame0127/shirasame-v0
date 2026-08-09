@@ -496,7 +496,7 @@ export default function HomeB({ data }: { data: HomeData }) {
         <div className="isolate order-2 flex gap-5 border-x-2 border-b-2 border-[var(--m-rule)] bg-white/50 px-3 pb-10 pt-6 sm:order-3 sm:px-6">
           <div className="min-w-0 flex-1">
             <div className="mb-6">
-              <h2 className="m-wordmark text-3xl sm:text-4xl">{meta.title}</h2>
+              <h2 className="m-heading text-3xl text-[var(--m-teal)] sm:text-4xl">{meta.title}</h2>
               <p className="m-copy mt-1 text-[13px]">{meta.subtitle}</p>
             </div>
 

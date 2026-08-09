@@ -11,6 +11,11 @@ import "./globals.css"
 export const metadata: Metadata = {
   title: "しらさめ - ガジェット＆デスク紹介",
   description: "ガジェットとデスク周りが好きなクリエイター、しらさめの商品紹介サイト。おすすめのデスク環境とガジェットをシェアします。",
+  // The icon is a plain file under public/. Next turns `app/icon.*` into a
+  // route handler, and next-on-pages rejects any route that does not opt into
+  // the edge runtime — which an SVG file cannot do. Serving it statically
+  // sidesteps that entirely.
+  icons: { icon: "/icon.svg" },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
