@@ -21,7 +21,18 @@ export default function ProductMasonry({ items, className, columns = 7, fullWidt
   const baseColsClass = COL_MAP[mobileCols] || "columns-2"
   const responsiveClass = `${SM_MAP[smCols]} ${MD_MAP[mdCols]} ${LG_MAP[lgCols]}`
   const outerClass = className ?? ""
-  const baseStyle: React.CSSProperties = fullWidth ? { width: '100dvw', marginLeft: 'calc((100% - 100dvw) / 2)', boxSizing: 'border-box' } : {}
+  // Full-bleed breakout out of the page's max-w-7xl container.
+  // `--sbw` (set by AppInitializer) is the classic-scrollbar width; subtracting
+  // it keeps the element exactly as wide as the visible viewport. The previous
+  // `100dvw` version always overflowed by the scrollbar width, which forced an
+  // `overflow-x: hidden` on <body> that broke sticky positioning page-wide.
+  const baseStyle: React.CSSProperties = fullWidth
+    ? {
+        width: 'calc(100vw - var(--sbw, 0px))',
+        marginInline: 'calc(50% - 50vw + var(--sbw, 0px) / 2)',
+        boxSizing: 'border-box',
+      }
+    : {}
   const containerStyle: React.CSSProperties = { ...baseStyle, paddingInline: 'clamp(5px, 2vw, 50px)' }
 
   return (
