@@ -15,8 +15,8 @@ import type { Collection, Product, User } from "@shared/types"
  *  2. Failures surface as an error state with a retry, instead of a
  *     `console.error` and a permanently blank screen.
  *  3. It only calls endpoints the public worker actually serves. A also calls
- *     `/gallery/ids` and `/amazon-sale-schedules`, neither of which is
- *     registered under `/api/public/*` — both 404 on every load.
+ *     `/gallery/ids`, which is not registered under `/api/public/*` and 404s on
+ *     every load.
  */
 
 export const FIRST_PAGE_SIZE = 24
@@ -37,6 +37,14 @@ export type GalleryItem = {
   shortDescription?: string | null
 }
 
+export type SaleSchedule = {
+  id: string
+  saleName: string
+  startDate: string
+  endDate: string
+  collectionId: string | null
+}
+
 export type HomeData = {
   status: "loading" | "ready" | "error"
   error: string | null
@@ -49,6 +57,8 @@ export type HomeData = {
   collections: any[]
   user: User | null
   tagGroups: Record<string, string[]>
+  /** productId -> the name of the sale currently running for it. */
+  activeSaleMap: Map<string, string>
 }
 
 async function getJson(path: string): Promise<any> {
@@ -201,6 +211,7 @@ export function useHomeData(): HomeData {
   const [rawCollections, setRawCollections] = useState<any[]>([])
   const [user, setUser] = useState<User | null>(null)
   const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({})
+  const [saleSchedules, setSaleSchedules] = useState<SaleSchedule[]>([])
   const [reloadToken, setReloadToken] = useState(0)
 
   const retry = useCallback(() => setReloadToken((n) => n + 1), [])
@@ -216,13 +227,14 @@ export function useHomeData(): HomeData {
       try {
         // First page + all the small side resources go out together, so the
         // page can render as soon as the slowest of them lands.
-        const [firstPage, colJson, recJson, profileJson, groupsJson, tagsJson] = await Promise.all([
+        const [firstPage, colJson, recJson, profileJson, groupsJson, tagsJson, saleJson] = await Promise.all([
           getJson(`/gallery?limit=${FIRST_PAGE_SIZE}&offset=0&shuffle=true`),
           getJsonSafe("/collections", { data: [] }),
           getJsonSafe("/recipes", { data: [] }),
           getJsonSafe("/profile", null),
           getJsonSafe("/tag-groups", { data: [] }),
           getJsonSafe("/tags", { data: [] }),
+          getJsonSafe("/amazon-sale-schedules", { data: [] }),
         ])
         if (!aliveRef.current) return
 
@@ -235,6 +247,7 @@ export function useHomeData(): HomeData {
         )
         setUser(normalizeUser(profileJson?.data ?? profileJson))
         setTagGroups(buildTagGroups(groupsJson, tagsJson))
+        setSaleSchedules(asArray(saleJson) as SaleSchedule[])
         setStatus("ready")
 
         // Everything above the fold is on screen now; stream the remainder.
@@ -283,6 +296,24 @@ export function useHomeData(): HomeData {
     [rawCollections, products],
   )
 
+  // A sale applies to a collection, so every product in that collection carries
+  // its badge for as long as the window is open.
+  const activeSaleMap = useMemo(() => {
+    const map = new Map<string, string>()
+    const now = Date.now()
+    for (const sale of saleSchedules) {
+      const start = Date.parse(sale.startDate)
+      const end = Date.parse(sale.endDate)
+      if (Number.isNaN(start) || Number.isNaN(end)) continue
+      if (now < start || now > end) continue
+      const collection = collections.find((c: any) => String(c.id) === String(sale.collectionId))
+      for (const product of collection?.products || []) {
+        map.set(String(product.id), sale.saleName)
+      }
+    }
+    return map
+  }, [saleSchedules, collections])
+
   return {
     status,
     error,
@@ -294,5 +325,6 @@ export function useHomeData(): HomeData {
     collections,
     user,
     tagGroups,
+    activeSaleMap,
   }
 }

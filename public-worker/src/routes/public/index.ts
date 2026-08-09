@@ -7,6 +7,7 @@ import { collectionsHandler } from './collections'
 import { recipesHandler } from './recipes'
 import { tagGroupsHandler } from './tag-groups'
 import { tagsHandler } from './tags'
+import { saleSchedulesHandler } from './sale-schedules'
 import { getSupabase } from '../../supabase'
 import { getPublicImageUrl } from '../../../../shared/lib/image-usecases'
 
@@ -46,6 +47,7 @@ export function registerPublicRoutes(app: any) {
   app.get('/api/public/recipes', recipesHandler)
   app.get('/api/public/tag-groups', tagGroupsHandler)
   app.get('/api/public/tags', tagsHandler)
+  app.get('/api/public/amazon-sale-schedules', saleSchedulesHandler)
 
   // Gallery endpoint: returns flattened image items across products
   app.get('/api/public/gallery', async (c: any) => {

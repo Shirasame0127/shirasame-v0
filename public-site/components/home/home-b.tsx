@@ -62,19 +62,26 @@ function ItemCard({
   product,
   onClick,
   showTitle = true,
+  saleName,
 }: {
   product: any
   onClick: () => void
   showTitle?: boolean
+  saleName?: string | null
 }) {
   const src = product?.main_image?.src || product?.images?.[0]?.url || "/placeholder.svg"
   return (
     <button onClick={onClick} className="group block w-full text-left">
       <div
-        className={`m-panel overflow-hidden transition-colors group-hover:border-[var(--m-pink)] ${
+        className={`m-panel relative overflow-hidden transition-colors group-hover:border-[var(--m-pink)] ${
           showTitle ? "p-1.5" : "p-0"
         }`}
       >
+        {saleName && (
+          <span className="m-label absolute left-1.5 top-1.5 z-10 rounded-full bg-[var(--m-pink)] px-2 py-0.5 text-[10px] leading-none text-white shadow-sm">
+            {saleName}
+          </span>
+        )}
         <div className={`aspect-square overflow-hidden bg-white ${showTitle ? "rounded-lg" : "rounded-xl"}`}>
           <img
             src={src}
@@ -142,6 +149,7 @@ export default function HomeB({ data }: { data: HomeData }) {
     collections,
     user,
     tagGroups,
+    activeSaleMap,
   } = data
 
   const initial = useRef(readInitialState())
@@ -533,6 +541,7 @@ export default function HomeB({ data }: { data: HomeData }) {
                                   key={product.id}
                                   product={product}
                                   showTitle={false}
+                                  saleName={activeSaleMap.get(String(product.id))}
                                   onClick={() => openProduct(product, product?.images?.[0]?.url)}
                                 />
                               ))}
@@ -557,6 +566,7 @@ export default function HomeB({ data }: { data: HomeData }) {
                             <ItemCard
                               key={`all-${product.id}`}
                               product={product}
+                              saleName={activeSaleMap.get(String(product.id))}
                               onClick={() => openProduct(product, product?.images?.[0]?.url)}
                             />
                           ))}
@@ -645,6 +655,7 @@ export default function HomeB({ data }: { data: HomeData }) {
                         <ItemCard
                           key={product.id}
                           product={product}
+                          saleName={activeSaleMap.get(String(product.id))}
                           onClick={() => openProduct(product, product?.images?.[0]?.url)}
                         />
                       ))}

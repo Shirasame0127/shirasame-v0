@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="しらさめ">
+  <!-- Placeholder mark. 白雨 is a passing shower, so the strokes read as rain;
+       the teal matches the site's panel rules. Pure vector and no text, so it
+       stays legible at 16px and does not depend on a font being installed.
+       Swap this file for a real brand asset when one exists. -->
+  <rect width="64" height="64" rx="14" fill="#2196ac"/>
+  <g fill="#ffffff">
+    <path d="M20 12 C22 26 20 38 13 52 C18 38 18 26 20 12 Z"/>
+    <path d="M34 8 C36 24 34 38 26 54 C31 38 32 24 34 8 Z"/>
+    <path d="M48 14 C50 27 48 39 41 52 C46 39 46 27 48 14 Z"/>
+  </g>
+</svg>
