@@ -151,7 +151,13 @@ export default function MagazineNav({
       <header className="pointer-events-none fixed inset-x-0 top-0 z-50">
         {/* Only the index trigger lives up here — the wordmark is the masthead's
             job, and repeating it in the corner just competed with it. */}
-        <div className="flex h-16 items-center justify-end px-3 sm:px-5">
+        <div className="flex h-16 items-center justify-end gap-2 px-3 sm:px-5">
+          <a
+            href="#profile"
+            className="m-subheading pointer-events-auto flex h-12 items-center rounded-full border-2 border-[var(--m-rule)] bg-[var(--m-paper)]/90 px-4 text-sm text-[var(--m-teal)] backdrop-blur-sm transition-colors hover:bg-[#eaf7f7]"
+          >
+            Contact
+          </a>
           <button
             ref={triggerRef}
             type="button"

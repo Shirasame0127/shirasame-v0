@@ -10,15 +10,15 @@
  */
 
 export const FONT_CHOICES = [
-  { id: "oswald", label: "Oswald", note: "細く高さのある欧文。現在の見出し" },
+  { id: "oswald", label: "Oswald", note: "細く高さのある欧文" },
   { id: "shikaku", label: "しかくふと", note: "同梱の角ゴシック。ロゴと同じ書体" },
-  { id: "round", label: "丸ゴシック", note: "やわらかい印象。本文になじむ" },
+  { id: "round", label: "丸ゴシック", note: "やわらかい印象。既定の書体" },
   { id: "mincho", label: "明朝", note: "雑誌の本文見出しらしい佇まい" },
 ] as const
 
 export type FontChoice = (typeof FONT_CHOICES)[number]["id"]
 
-export const DEFAULT_FONT: FontChoice = "oswald"
+export const DEFAULT_FONT: FontChoice = "round"
 
 const STORAGE_KEY = "shirasame.font"
 

@@ -495,8 +495,11 @@ input, textarea, select, option, button, [contenteditable="true"], code, pre {
   line-height: 0.9;
 }
 
+/* Labels, tabs and small captions. Follows the reader's choice too — leaving
+   these on the bundled display face meant picking a typeface changed the
+   headings but not the sub-headings around them. */
 .m-display {
-  font-family: var(--m-display);
+  font-family: var(--m-title);
 }
 
 /* Captions and product names. Uses the body stack (which has real Japanese

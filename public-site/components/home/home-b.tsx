@@ -7,6 +7,7 @@ import { Filter, Menu, RefreshCw, Search, X } from "lucide-react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { ProfileHeader } from "@/components/profile-header"
 import MagazineNav, { MAGAZINE_PANEL_ID } from "@/components/home/magazine-nav"
+import { SocialLinks } from "@/components/social-links"
 import GalleryGrid from "@/components/home/gallery-grid"
 import ProductModalB from "@/components/home/product-modal-b"
 import { STRIP_VIEWS, isHomeView, viewMeta, type HomeView } from "@/components/home/views"
@@ -272,6 +273,14 @@ export default function HomeB({ data }: { data: HomeData }) {
     setSearchText("")
     setSelectedTags([])
   }
+
+  // The API hands the avatar back under several names depending on age.
+  const profileImage =
+    (user as any)?.profileImage ||
+    (user as any)?.profile_image ||
+    (user as any)?.avatarUrl ||
+    (user as any)?.avatar_url ||
+    null
 
   const meta = viewMeta(view)
   const showSearch = view === "items" || view === "gallery"
@@ -746,13 +755,37 @@ export default function HomeB({ data }: { data: HomeData }) {
 
         {/* ---- Colophon: the strapline and profile blurb, in the 奥付 position
              a Japanese magazine puts them — the back, not the cover. ---- */}
-        <section className="order-5 border-x-2 border-b-2 border-[var(--m-rule)] bg-white/70 px-4 py-8 text-center sm:order-4">
+        {/* Colophon, and the profile: the avatar and the contact links were part
+            of the previous design and were dropped in this rebuild. `id` matches
+            the Contact link in the header. */}
+        <section
+          id="profile"
+          className="order-5 scroll-mt-24 border-x-2 border-b-2 border-[var(--m-rule)] bg-white/70 px-4 py-10 text-center sm:order-4"
+        >
+          {profileImage && (
+            <img
+              src={profileImage}
+              alt={user?.displayName || ""}
+              width={112}
+              height={112}
+              loading="lazy"
+              decoding="async"
+              className="mx-auto mb-4 h-28 w-28 rounded-full border-2 border-[var(--m-rule)] object-cover shadow-md"
+            />
+          )}
+
           <p className="m-subheading text-sm tracking-[0.3em] text-[var(--m-teal)]">［ SHIRASAME ］</p>
           <p className="m-subheading mt-2 text-xs tracking-[0.2em] text-[var(--m-ink-soft)]">{TAGLINE}</p>
           {user?.bio && (
             <p className="m-subheading mx-auto mt-5 max-w-xl whitespace-pre-wrap text-sm font-normal leading-relaxed text-[var(--m-ink)]">
               {user.bio}
             </p>
+          )}
+
+          {user?.socialLinks && (
+            <div className="mt-6 flex justify-center">
+              <SocialLinks links={user.socialLinks} />
+            </div>
           )}
         </section>
 
