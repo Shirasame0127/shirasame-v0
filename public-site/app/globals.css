@@ -556,7 +556,10 @@ input, textarea, select, option, button, [contenteditable="true"], code, pre {
    Rounded gothic: this is the one place that is prose rather than a label, and
    the squared display face made it hard to read at 13px. */
 .m-copy {
-  color: var(--m-pink);
+  /* Dark grey rather than the cover pink: at 13-14px the pink read as decoration
+     competing with the heading above it, and this is the line that explains what
+     the section is. 7.9:1 against the paper. */
+  color: #4b525a;
   font-family: "Quicksand", "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Noto Sans JP", sans-serif;
   /* 700, not 600: the Quicksand webfont is loaded at 300/400/500/700 only, so
      600 would be synthesised or snapped to whichever neighbour the browser
