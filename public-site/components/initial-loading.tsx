@@ -1,14 +1,12 @@
 "use client"
 
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import apiFetch, { apiPath } from '@/lib/api-client'
 const api = (p: string) => apiPath(p)
 
 // Configuration for the slot animation
 const LATIN = 'SHIRASAME'
-const HIRAGANA = 'しらさめ'
-const KANJI = '白雨'
 const LOCK_INTERVAL = 600 // ms between locking each letter
 const RANDOM_INTERVAL = 50 // ms for cycling random chars
 const SPIN_DURATION = 400 // ms for spin animation
@@ -35,10 +33,30 @@ export default function InitialLoading() {
   const timeoutsRef = useRef<number[]>([])
   const wrapperRef = useRef<HTMLDivElement | null>(null)
   const [word, setWord] = useState(LATIN)
-  const [phase, setPhase] = useState<'random' | 'locked' | 'toHira' | 'hira' | 'toKanji' | 'kanji' | 'toWelcome' | 'welcome' | 'done'>('random')
+  // 'random' cycles the slots, 'toWelcome' spins, 'welcome' holds the final word.
+  const [phase, setPhase] = useState<'random' | 'toWelcome' | 'welcome'>('random')
 
-  // total animation duration used to keep loading visible
-  const totalAnimationDuration = LATIN.length * LOCK_INTERVAL + SPIN_DURATION + SHAKE_DURATION + SPIN_DURATION
+  const WELCOME = 'welcome!'
+  const WELCOME_DURATION = 500 // how long "welcome!" stays before sliding away
+
+  // Slide the overlay away and let the rest of the app know. Guarded so the
+  // safety net below cannot repeat it after the animation already finished —
+  // that used to re-fire `v0-initial-loading` a second time.
+  const dismissedRef = useRef(false)
+  const finish = useCallback(() => {
+    if (dismissedRef.current) return
+    dismissedRef.current = true
+    setSlideUp(true)
+    setFadeOut(true)
+    const id = window.setTimeout(() => {
+      setMountedVisible(false)
+      try {
+        ;(window as any).__v0_initial_loading = false
+        window.dispatchEvent(new CustomEvent('v0-initial-loading', { detail: false }))
+      } catch {}
+    }, SLIDE_DURATION)
+    timeoutsRef.current.push(id)
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -113,21 +131,12 @@ export default function InitialLoading() {
     }
   }, [])
 
-  // Safety net: never let the splash gate the site for more than ~7s, even if
-  // the animation chain or the (stale-closure) gif-hide path is interrupted.
+  // Safety net: never let the splash gate the site if the chain is interrupted.
+  // The sequence now finishes at ~2.4s, so 4s is a comfortable backstop.
   useEffect(() => {
-    const id = window.setTimeout(() => {
-      try { setSlideUp(true) } catch {}
-      window.setTimeout(() => {
-        try { setMountedVisible(false) } catch {}
-        try {
-          ;(window as any).__v0_initial_loading = false
-          window.dispatchEvent(new CustomEvent('v0-initial-loading', { detail: false }))
-        } catch {}
-      }, SLIDE_DURATION)
-    }, 7000)
+    const id = window.setTimeout(finish, 4000)
     return () => window.clearTimeout(id)
-  }, [])
+  }, [finish])
 
   // Start slot animation when needed
   useEffect(() => {
@@ -155,25 +164,15 @@ export default function InitialLoading() {
 
         // if last slot, trigger next phase after small delay
         if (i === LATIN.length - 1) {
+          // Straight from the locked word to "welcome!" — one spin, no
+          // intermediate しらさめ / 白雨 steps. The swap lands mid-spin at
+          // ~1.9s instead of ~3.4s.
           const t1 = window.setTimeout(() => {
-            setPhase('locked')
-            // begin rotate to hiragana
-            setPhase('toHira')
-            // perform spin: at half spin, swap to hiragana
+            setPhase('toWelcome')
             const t2 = window.setTimeout(() => {
-              setWord(HIRAGANA)
-              setPhase('hira')
-              // short shake then to kanji
-              const t3 = window.setTimeout(() => {
-                setPhase('toKanji')
-                const t4 = window.setTimeout(() => {
-                  setWord(KANJI)
-                  setPhase('kanji')
-                  const t5 = window.setTimeout(() => setPhase('done'), SPIN_DURATION)
-                  timeoutsRef.current.push(t5)
-                }, SPIN_DURATION / 2)
-                timeoutsRef.current.push(t4)
-              }, SHAKE_DURATION)
+              setWord(WELCOME)
+              setPhase('welcome')
+              const t3 = window.setTimeout(() => finish(), WELCOME_DURATION)
               timeoutsRef.current.push(t3)
             }, SPIN_DURATION / 2)
             timeoutsRef.current.push(t2)
@@ -190,45 +189,6 @@ export default function InitialLoading() {
     }
   }, [showCustomAnim])
 
-  // When the animation sequence reaches 'done', transition to 'welcome!' then slide up
-  useEffect(() => {
-    if (phase !== 'done') return
-    // ensure KANJI is shown at 'done'
-    setWord(KANJI)
-    // after short delay, perform a spin-to-'welcome!' using same animation
-    const welcomeDelay = 200 // ms before starting the spin-to-welcome
-    const welcomeDuration = 500 // show welcome for 500ms as requested
-
-    const tStart = window.setTimeout(() => {
-      // start the spin/drop animation to welcome
-      setPhase('toWelcome')
-      // at half spin, swap the word to 'welcome!'
-      const tSwap = window.setTimeout(() => {
-        setWord('welcome!')
-        setPhase('welcome')
-        // after showing welcome for welcomeDuration, slide up
-        const tSlide = window.setTimeout(() => {
-          setSlideUp(true)
-          setFadeOut(true)
-          const tUnmount = window.setTimeout(() => {
-            setMountedVisible(false)
-            try {
-              ;(window as any).__v0_initial_loading = false
-              window.dispatchEvent(new CustomEvent('v0-initial-loading', { detail: false }))
-            } catch {}
-          }, SLIDE_DURATION)
-          timeoutsRef.current.push(tUnmount)
-        }, welcomeDuration)
-        timeoutsRef.current.push(tSlide)
-      }, SPIN_DURATION / 2)
-      timeoutsRef.current.push(tSwap)
-    }, welcomeDelay)
-    timeoutsRef.current.push(tStart)
-
-    return () => {
-      try { window.clearTimeout(tStart) } catch {}
-    }
-  }, [phase])
 
   if (!mountedVisible) return null
 
@@ -257,11 +217,9 @@ export default function InitialLoading() {
       .shika-word .word-translate { display:inline-block; }
       .shika-word .word-inner { display:inline-block; transform-origin:center; transition: transform ${SPIN_DURATION}ms ease; }
       .shika-word.spin .word-inner { transform: rotateX(80deg); }
-      .shika-word.toHira .word-inner { animation: spinForward ${SPIN_DURATION}ms forwards; }
-      .shika-word.toKanji .word-inner { animation: spinForward ${SPIN_DURATION}ms forwards; }
       .shika-word.toWelcome .word-inner { animation: spinForward ${SPIN_DURATION}ms forwards; }
       /* dropDown moves the translated wrapper down while spin runs */
-      .shika-word.toHira .word-translate, .shika-word.toKanji .word-translate, .shika-word.toWelcome .word-translate { animation: dropDown ${SPIN_DURATION}ms forwards; }
+      .shika-word.toWelcome .word-translate { animation: dropDown ${SPIN_DURATION}ms forwards; }
       @keyframes dropDown { 0% { transform: translateY(0); } 80% { transform: translateY(12px); } 100% { transform: translateY(12px); } }
       @keyframes spinForward { 0% { transform: rotateX(0deg); } 50% { transform: rotateX(90deg); } 100% { transform: rotateX(0deg); } }
       .shika-word.shake .word-translate { animation: shake  ${SHAKE_DURATION}ms; }
@@ -308,12 +266,12 @@ export default function InitialLoading() {
       </div>
       <div className="shika-loading">
         {showCustomAnim ? (
-          phase === 'random' || phase === 'locked' ? (
+          phase === 'random' ? (
                 <div style={{ fontSize: 40, letterSpacing: 2 }}>
                   {slots.map((ch, i) => (<span key={i} className={`slot-char ${lockedSlots[i] ? 'slot-locked' : ''}`}>{ch || '\u00A0'}</span>))}
                 </div>
           ) : (
-            <div className={`shika-word ${phase === 'toHira' ? 'toHira' : ''} ${phase === 'toKanji' ? 'toKanji' : ''} ${phase === 'toWelcome' ? 'toWelcome' : ''} ${(phase === 'hira' || phase === 'kanji' || phase === 'welcome') ? 'shake' : ''}`} ref={wrapperRef} style={{ fontSize: 48 }}>
+            <div className={`shika-word ${phase === 'toWelcome' ? 'toWelcome' : ''} ${phase === 'welcome' ? 'shake' : ''}`} ref={wrapperRef} style={{ fontSize: 48 }}>
               <span className="word-translate"><span className="word-inner">{word}</span></span>
             </div>
           )
