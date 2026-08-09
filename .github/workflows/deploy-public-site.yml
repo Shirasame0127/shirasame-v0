@@ -27,27 +27,26 @@ jobs:
         working-directory: public-site
         run: pnpm run build
 
+      # next-on-pages writes to .vercel/output/static; it has no --output flag.
       - name: Build for Pages using next-on-pages
         working-directory: public-site
-        env:
-          # Provide these via GitHub Secrets in the repo settings
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          # next-on-pages requires a Unix-like shell (WSL/Ubuntu runner is fine)
-          pnpm dlx @cloudflare/next-on-pages@1 . --output out
+        run: pnpm dlx @cloudflare/next-on-pages@1
 
+      # Secret names here must match what the repository actually holds:
+      # CF_API_TOKEN / CF_ACCOUNT_ID / CF_PROJECT_NAME. Wrangler reads the
+      # CLOUDFLARE_* environment variables, hence the remapping.
       - name: Publish to Cloudflare Pages
         working-directory: public-site
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          PROJECT_NAME: ${{ secrets.CF_PROJECT_NAME }}
         run: |
-          # Replace PROJECT_NAME with your Pages project name saved in Secrets
-          if [ -z "$PROJECT_NAME" ]; then
-            echo "PROJECT_NAME not set via env; expecting secret CF_PAGES_PROJECT_NAME"
+          if [ -z "$PROJECT_NAME" ] || [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "CF_PROJECT_NAME / CF_API_TOKEN secrets are not set; cannot publish." >&2
+            exit 1
           fi
-          npx wrangler pages publish ./out --project-name "$PROJECT_NAME"
-        env:
-          PROJECT_NAME: ${{ secrets.CF_PAGES_PROJECT_NAME }}
+          npx wrangler@3 pages deploy .vercel/output/static --project-name "$PROJECT_NAME" --branch main
 
       - name: Done
         run: echo "public-site deployed via Pages workflow"

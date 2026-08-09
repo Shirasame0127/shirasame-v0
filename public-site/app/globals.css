@@ -2,6 +2,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;700&display=swap');
 @import "tailwindcss";
 
+/* Tailwind v4 wires `dark:` to `prefers-color-scheme` by default. This site has
+   no dark design — its tokens are light and several rules force white with
+   `!important` — so an OS-level dark preference used to fire every `dark:*`
+   utility (nav panels, modal surfaces) against a light page and produce a
+   half-dark, unreadable result. Bind the variant to an explicit `.dark` class
+   instead, which nothing sets, so light stays light until a real dark theme
+   exists. Variant C, which does have a dark palette, drives it from its own
+   `[data-ab="c"]` tokens rather than these utilities. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: oklch(0.99 0.002 264);
   --foreground: oklch(33.265% 0.0038 264.586);
@@ -87,9 +97,21 @@
 
 @layer base {
   * { border-color: var(--border); }
-  /* The full-bleed gallery uses a 100dvw breakout; guard against the resulting
-     horizontal scrollbar/overflow on desktop. */
-  html, body { overflow-x: hidden; }
+  /* Full-bleed breakout safety net.
+     `overflow-x: hidden` used to live here, but `overflow` on <body> makes it a
+     scroll container, which silently kills `position: sticky` for every
+     descendant (the gallery search bar). `clip` clips without creating a scroll
+     container, so sticky keeps working.
+     `--sbw` is the classic-scrollbar width, measured once on the client
+     (see components/app-initializer.tsx). It lets the breakout compute an exact
+     viewport width instead of `100vw`, which includes the scrollbar and
+     therefore always overflowed by ~15px on Windows. */
+  :root { --sbw: 0px; }
+  /* Tell the browser this page is light so form controls, scrollbars and
+     autofill stop rendering dark against the light surfaces. */
+  :root { color-scheme: light; }
+  html { scrollbar-gutter: stable; }
+  html, body { overflow-x: clip; }
   /* Apply requested global body font stack */
   body { background-color: var(--background); color: var(--foreground); font-family: 'Quicksand', 'Zen Maru Gothic', 'メイリオ', sans-serif; }
   code, pre, kbd, samp { font-family: var(--font-mono); }
@@ -237,7 +259,10 @@
 /* Animated checkerboard background for public pages (stronger + single-direction scroll) */
 .animated-grid-bg {
   position: relative;
-  overflow: hidden;
+  /* `clip` instead of `hidden`: this element wraps the whole page, and
+     `overflow: hidden` here made it a scroll container that broke the sticky
+     gallery search bar nested inside it. */
+  overflow: clip;
 }
 
 /* draw the checkerboard in a ::before layer so we can apply an SVG displacement filter */
@@ -330,3 +355,213 @@ input, textarea, select, option, button, [contenteditable="true"], code, pre {
   -webkit-touch-callout: default !important;
 }
 
+
+/* ---------------------------------------------------------------------------
+   Variant C palette.
+
+   Scoped to `[data-ab="c"]` (stamped on <html> before first paint by
+   AB_BOOTSTRAP_SCRIPT) so the redesign does not inherit the pastel tokens that
+   variants A and B share. `.c-root` opts an element into the palette's
+   background and text colour.
+   --------------------------------------------------------------------------- */
+[data-ab="c"] {
+  --c-bg: oklch(0.16 0.012 264);
+  --c-surface: oklch(0.20 0.014 264);
+  --c-raise: oklch(0.25 0.014 264);
+  --c-line: oklch(0.32 0.014 264);
+  --c-ink: oklch(0.96 0.004 264);
+  --c-muted: oklch(0.70 0.012 264);
+  --c-accent: oklch(0.82 0.16 85);
+  --c-accent-ink: oklch(0.18 0.02 85);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-ab="c"]:not([data-theme="dark"]) {
+    --c-bg: oklch(0.98 0.003 264);
+    --c-surface: oklch(1 0 0);
+    --c-raise: oklch(0.95 0.005 264);
+    --c-line: oklch(0.88 0.006 264);
+    --c-ink: oklch(0.22 0.012 264);
+    --c-muted: oklch(0.48 0.012 264);
+    --c-accent: oklch(0.55 0.16 264);
+    --c-accent-ink: oklch(0.99 0.002 264);
+  }
+}
+
+/* C is the one variant with a real dark palette, and it follows the system
+   preference — declare both so its controls match whichever side is active. */
+[data-ab="c"] {
+  color-scheme: light dark;
+}
+
+[data-ab="c"] body {
+  background-color: var(--c-bg);
+  color: var(--c-ink);
+}
+
+.c-root {
+  background-color: var(--c-bg);
+  color: var(--c-ink);
+}
+
+/* Variant C draws its own masthead; the shared animated checkerboard and the
+   WebGL wave canvas belong to A and B. */
+[data-ab="c"] .animated-grid-bg::before {
+  content: none;
+}
+
+/* The redesign's own selection colour — the global user-select lockdown still
+   applies, this only covers the places that do allow selection. */
+[data-ab="c"] ::selection {
+  background: var(--c-accent);
+  color: var(--c-accent-ink);
+}
+
+/* AbSwitcher is shared by the A/B hamburger menu and variant C's own panel.
+   Inside C, remap the tokens it uses so it reads against the dark surface. */
+[data-ab="c"] [aria-label="表示デザインの切り替え"] {
+  --muted-foreground: var(--c-muted);
+  --accent: var(--c-raise);
+  color: var(--c-ink);
+}
+
+/* ===========================================================================
+   Variant B — magazine cover theme.
+
+   Modelled on a Japanese comic-magazine cover: pale graph paper, thin mint
+   panel rules, a centred wordmark band, vertical Japanese section titles and
+   pink handwritten-style copy. Scoped to `[data-ab="b"]` so variants A and C
+   are untouched.
+
+   Vertical text is desktop-only on purpose — 縦書き headings are decorative,
+   and forcing them on a phone costs more legibility than they are worth.
+   =========================================================================== */
+
+@font-face {
+  font-family: "Shikakufuto";
+  src: url("/Shikakufuto_ver20251224.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+[data-ab="b"] {
+  --m-paper: #fffdf8;
+  --m-panel: #ffffff;
+  --m-grid: rgba(120, 205, 205, 0.28);
+  --m-rule: #7fcfd0;
+  --m-rule-soft: #bfe6e6;
+  --m-teal: #2196ac;
+  --m-ink: #1f2328;
+  --m-ink-soft: #5b636c;
+  --m-pink: #ff5f92;
+  --m-display: "Shikakufuto", "Quicksand", "Zen Maru Gothic", sans-serif;
+}
+
+/* Graph paper. Two 1px gradients at a 26px pitch, over the cream base. */
+.m-paper {
+  background-color: var(--m-paper);
+  background-image:
+    linear-gradient(to right, var(--m-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--m-grid) 1px, transparent 1px);
+  background-size: 26px 26px;
+  color: var(--m-ink);
+}
+
+/* Framed content block — the magazine's panel rule. */
+.m-panel {
+  background: var(--m-panel);
+  border: 2px solid var(--m-rule);
+  border-radius: 14px;
+}
+
+.m-panel-soft {
+  background: var(--m-panel);
+  border: 1.5px solid var(--m-rule-soft);
+  border-radius: 12px;
+}
+
+/* Wordmark: heavy, wide, teal — the cover logotype. */
+.m-wordmark {
+  font-family: var(--m-display);
+  color: var(--m-teal);
+  letter-spacing: 0.08em;
+  line-height: 0.9;
+}
+
+.m-display {
+  font-family: var(--m-display);
+}
+
+/* Captions and product names. Uses the body stack (which has real Japanese
+   coverage) at a size and line-height tuned for reading, not for display. */
+.m-label {
+  font-family: "Quicksand", "Zen Maru Gothic", "Hiragino Sans", "Noto Sans JP", "メイリオ", sans-serif;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+}
+
+/* Pink cover copy. Slight tilt so it reads as hand-added, like the original. */
+.m-copy {
+  color: var(--m-pink);
+  font-family: var(--m-display);
+  line-height: 1.5;
+}
+
+/* Vertical Japanese heading, desktop only. */
+.m-vertical {
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  font-family: var(--m-display);
+  letter-spacing: 0.12em;
+  line-height: 1.05;
+}
+
+/* Speech bubble with a tail, used for counts and short asides. */
+.m-bubble {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 2px solid var(--m-rule);
+  background: var(--m-panel);
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+}
+
+.m-bubble::after {
+  content: "";
+  position: absolute;
+  left: 1.25rem;
+  bottom: -7px;
+  width: 10px;
+  height: 10px;
+  background: var(--m-panel);
+  border-right: 2px solid var(--m-rule);
+  border-bottom: 2px solid var(--m-rule);
+  transform: rotate(45deg);
+}
+
+/* Rules that flank the masthead. */
+.m-rule-line {
+  height: 2px;
+  background: var(--m-rule);
+}
+
+/* The recipe photo sits flush under its title bar, so the shared component's
+   own `rounded-md` has to go — the surrounding frame owns the corners. */
+[data-ab="b"] .m-recipe-figure img {
+  border-radius: 0;
+}
+
+/* Variant B replaces the shared animated checkerboard with graph paper. */
+[data-ab="b"] .animated-grid-bg::before {
+  content: none;
+}
+
+/* The AbSwitcher lives inside B's hamburger menu; keep it on-theme. */
+[data-ab="b"] [aria-label="表示デザインの切り替え"] {
+  --accent: #eaf7f7;
+}
