@@ -82,7 +82,10 @@ function ItemCard({
             {saleName}
           </span>
         )}
-        <div className={`aspect-square overflow-hidden bg-white ${showTitle ? "rounded-lg" : "rounded-xl"}`}>
+        {/* With padding, the image needs its own smaller radius inside the frame.
+            Without it, the frame's own radius is the only one that should show —
+            a second radius here left a visible mismatch at the corners. */}
+        <div className={`aspect-square overflow-hidden bg-white ${showTitle ? "rounded-lg" : ""}`}>
           <img
             src={src}
             alt={product?.title || ""}
@@ -359,10 +362,36 @@ export default function HomeB({ data }: { data: HomeData }) {
 
           <div className="mt-8 flex items-center gap-3">
             <span className="m-rule-line flex-1" />
-            <h1 className="m-wordmark text-center text-5xl sm:text-6xl lg:text-7xl">
+            {/* Keeps its own face whatever the reader picks in the index panel,
+                and never wraps — "白雨(しらさめ)" was breaking at the bracket on
+                narrow screens, so the size scales with the viewport instead. */}
+            <h1 className="m-wordmark whitespace-nowrap text-center text-[clamp(1.75rem,8.5vw,4.5rem)]">
               {user?.displayName || "しらさめ"}
             </h1>
             <span className="m-rule-line flex-1" />
+          </div>
+
+          {/* Outbound links carried over from the previous design. */}
+          <div className="mt-6 flex flex-col items-center gap-2">
+            <a
+              href="https://shirasame.my.canva.site/shirasame"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="m-subheading inline-flex items-center rounded-full bg-[var(--m-ink)] px-6 py-3 text-sm text-white shadow-md transition-colors hover:bg-black"
+            >
+              このサイトになかったアイテムはこちら
+            </a>
+            <a
+              href="https://shirasame-store.booth.pm/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="m-subheading inline-flex items-center gap-2 rounded-full bg-[#ff6a00] px-6 py-3 text-sm text-white shadow-md transition-colors hover:bg-[#e55a00]"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-xs font-bold text-[#ff6a00]">
+                B
+              </span>
+              壁紙やグッズはこちら（Booth）
+            </a>
           </div>
         </section>
 
@@ -718,10 +747,12 @@ export default function HomeB({ data }: { data: HomeData }) {
         {/* ---- Colophon: the strapline and profile blurb, in the 奥付 position
              a Japanese magazine puts them — the back, not the cover. ---- */}
         <section className="order-5 border-x-2 border-b-2 border-[var(--m-rule)] bg-white/70 px-4 py-8 text-center sm:order-4">
-          <p className="m-display text-sm tracking-[0.35em] text-[var(--m-teal)]">［ SHIRASAME ］</p>
-          <p className="m-display mt-2 text-xs tracking-[0.3em] text-[var(--m-ink-soft)]">{TAGLINE}</p>
+          <p className="m-subheading text-sm tracking-[0.3em] text-[var(--m-teal)]">［ SHIRASAME ］</p>
+          <p className="m-subheading mt-2 text-xs tracking-[0.2em] text-[var(--m-ink-soft)]">{TAGLINE}</p>
           {user?.bio && (
-            <p className="m-copy mx-auto mt-5 max-w-xl whitespace-pre-wrap text-sm">{user.bio}</p>
+            <p className="m-subheading mx-auto mt-5 max-w-xl whitespace-pre-wrap text-sm font-normal leading-relaxed text-[var(--m-ink)]">
+              {user.bio}
+            </p>
           )}
         </section>
 

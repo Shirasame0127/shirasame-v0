@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import Script from "next/script"
 import { AppInitializer } from "@/components/app-initializer"
 import { AbProvider, AB_BOOTSTRAP_SCRIPT } from "@/lib/ab"
+import { FONT_BOOTSTRAP_SCRIPT } from "@/lib/font-choice"
 import { AbAnalytics } from "@/components/ab-analytics"
 import InitialLoading from "@/components/initial-loading-client"
 import NoSelectClient from "@/components/no-select-client"
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Paints `data-ab` before first paint so variant CSS applies without a
             flash. React resolves the same bucket again in AbProvider. */}
         <script dangerouslySetInnerHTML={{ __html: AB_BOOTSTRAP_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: FONT_BOOTSTRAP_SCRIPT }} />
       </head>
       <body className="font-sans antialiased">
         {(() => {

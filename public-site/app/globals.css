@@ -515,18 +515,36 @@ input, textarea, select, option, button, [contenteditable="true"], code, pre {
    utility emits no CSS at all, because --font-heading is declared on :root and
    never registered with @theme, so every `font-heading` class in this codebase
    is inert. Referencing the variable directly is what actually applies it. */
+/* Heading face, switchable from the index panel. `--m-title` is redefined per
+   `data-font` value below; every heading class reads it, so one attribute
+   changes them all. Latin-only faces list the Japanese fallbacks explicitly so
+   collection and recipe names land somewhere chosen rather than on whatever
+   generic sans the platform picks. */
+:root {
+  --m-title: "Oswald", "Hiragino Sans", "Noto Sans JP", "Zen Maru Gothic", sans-serif;
+}
+
+[data-font="shikaku"] {
+  --m-title: "Shikakufuto", "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+
+[data-font="round"] {
+  --m-title: "Quicksand", "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Noto Sans JP", sans-serif;
+}
+
+[data-font="mincho"] {
+  --m-title: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", "Times New Roman", serif;
+}
+
 .m-heading {
-  /* Oswald carries no Japanese glyphs, so collection and recipe names fall
-     through to these; naming them keeps that fallback deliberate instead of
-     landing on whatever generic sans the platform picks. */
-  font-family: var(--font-heading), "Hiragino Sans", "Noto Sans JP", "Zen Maru Gothic", sans-serif;
+  font-family: var(--m-title);
   font-weight: 700;
   letter-spacing: 0.01em;
 }
 
 /* Sub-headings: same face, lighter weight so the hierarchy still reads. */
 .m-subheading {
-  font-family: var(--font-heading), "Hiragino Sans", "Noto Sans JP", "Zen Maru Gothic", sans-serif;
+  font-family: var(--m-title);
   font-weight: 600;
   letter-spacing: 0.02em;
 }

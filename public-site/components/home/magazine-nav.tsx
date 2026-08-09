@@ -1,8 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useRef } from "react"
-import { Menu, X } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Check, Menu, X } from "lucide-react"
 import { HOME_VIEWS, type HomeView } from "@/components/home/views"
+import { FONT_CHOICES, applyFont, readStoredFont, type FontChoice } from "@/lib/font-choice"
 
 /**
  * Variant B's navigation: a fixed header button that opens a full-screen index.
@@ -52,6 +53,15 @@ export default function MagazineNav({
   floatingTriggerHidden?: boolean
 }) {
   const panelId = MAGAZINE_PANEL_ID
+  // Seeded on mount rather than in useState, so the server render and the first
+  // client render agree before localStorage is read.
+  const [font, setFont] = useState<FontChoice | null>(null)
+  useEffect(() => setFont(readStoredFont()), [])
+
+  const chooseFont = useCallback((next: FontChoice) => {
+    setFont(next)
+    applyFont(next)
+  }, [])
   const panelRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
@@ -262,6 +272,36 @@ export default function MagazineNav({
             )}
           </nav>
 
+          <section className="mt-10 rounded-xl border-2 border-[var(--m-rule)] bg-white p-4">
+            <h2 className="m-subheading mb-1 text-sm text-[var(--m-teal)]">見出しの書体</h2>
+            <p className="m-label mb-3 text-[11px] text-[var(--m-ink-soft)]">
+              このサイトの見出しに使う書体を選べます
+            </p>
+            <div className="space-y-1">
+              {FONT_CHOICES.map((f) => {
+                const active = font === f.id
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => chooseFont(f.id)}
+                    aria-pressed={active}
+                    className={`flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left transition-colors ${
+                      active ? "bg-[#eaf7f7]" : "hover:bg-[#f4fbfb]"
+                    }`}
+                  >
+                    <span className="mt-0.5 w-4 shrink-0 text-[var(--m-teal)]">
+                      {active && <Check className="h-4 w-4" aria-hidden />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="m-subheading block text-sm text-[var(--m-ink)]">{f.label}</span>
+                      <span className="m-label block text-[11px] text-[var(--m-ink-soft)]">{f.note}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
         </div>
       </div>
     </>
