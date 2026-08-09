@@ -1,8 +1,11 @@
 name: Build and Deploy public-site to Cloudflare Pages
 
+# Cloudflare Pages builds and deploys this project directly from `main` through
+# its own GitHub integration (project `shirasame-box`, root `public-site`), so
+# this workflow is a second, competing publisher of the same commit. Kept for
+# manual use — e.g. republishing without a push — but no longer runs on push.
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
