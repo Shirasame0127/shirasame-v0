@@ -495,11 +495,10 @@ input, textarea, select, option, button, [contenteditable="true"], code, pre {
   line-height: 0.9;
 }
 
-/* Labels, tabs and small captions. Follows the reader's choice too — leaving
-   these on the bundled display face meant picking a typeface changed the
-   headings but not the sub-headings around them. */
+/* Labels, tabs and small captions keep the bundled display face regardless of
+   the reader's heading choice. */
 .m-display {
-  font-family: var(--m-title);
+  font-family: var(--m-display);
 }
 
 /* Captions and product names. Uses the body stack (which has real Japanese
@@ -552,11 +551,15 @@ input, textarea, select, option, button, [contenteditable="true"], code, pre {
   letter-spacing: 0.02em;
 }
 
-/* Pink cover copy. Slight tilt so it reads as hand-added, like the original. */
+/* The line under each section title ("テーマごとにまとめたアイテムです"), the
+   description on each collection/recipe panel, and the modal's short blurb.
+   Rounded gothic: this is the one place that is prose rather than a label, and
+   the squared display face made it hard to read at 13px. */
 .m-copy {
   color: var(--m-pink);
-  font-family: var(--m-display);
-  line-height: 1.5;
+  font-family: "Quicksand", "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Noto Sans JP", sans-serif;
+  font-weight: 500;
+  line-height: 1.6;
 }
 
 /* Vertical Japanese heading, desktop only. */
