@@ -1686,7 +1686,7 @@ function RecipeEditPageInner() {
             <Button
               size="sm"
               onClick={handleSave}
-              className="bg-cyan-500 hover:bg-cyan-600 text-white transition-all duration-200"
+              className="bg-[var(--editor-accent-strong)] hover:bg-[var(--editor-accent-deep)] text-white transition-all duration-200"
             >
               <Check className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">完了</span>
@@ -1756,7 +1756,7 @@ function RecipeEditPageInner() {
               <Button
                 onClick={() => fileInputRef.current?.click()}
                 size="lg"
-                className="bg-cyan-500 hover:bg-cyan-600 text-white transition-all duration-200"
+                className="bg-[var(--editor-accent-strong)] hover:bg-[var(--editor-accent-deep)] text-white transition-all duration-200"
               >
                 <Upload className="w-5 h-5 mr-2" />
                 画像をアップロード
@@ -2096,19 +2096,19 @@ function RecipeEditPageInner() {
                       <TabsList className="w-full bg-zinc-950/50 p-1 h-9 grid grid-cols-3 gap-1">
                       <TabsTrigger
                         value="style"
-                        className="text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-cyan-400 text-zinc-400 h-7"
+                        className="text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-[var(--editor-accent)] text-zinc-400 h-7"
                       >
                         スタイル
                       </TabsTrigger>
                       <TabsTrigger
                         value="font"
-                        className="text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-cyan-400 text-zinc-400 h-7"
+                        className="text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-[var(--editor-accent)] text-zinc-400 h-7"
                       >
                         フォント
                       </TabsTrigger>
                       <TabsTrigger
                         value="pin"
-                        className="text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-cyan-400 text-zinc-400 h-7"
+                        className="text-xs data-[state=active]:bg-zinc-800 data-[state=active]:text-[var(--editor-accent)] text-zinc-400 h-7"
                       >
                         ピン設定
                       </TabsTrigger>
@@ -2141,43 +2141,43 @@ function RecipeEditPageInner() {
                         <TabsList className="w-full bg-transparent p-0 h-auto flex gap-4 overflow-x-auto no-scrollbar">
                           <TabsTrigger
                             value="theme"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-[var(--editor-accent)] data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[var(--editor-accent)] rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             テーマ
                           </TabsTrigger>
                           <TabsTrigger
                             value="stroke"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-[var(--editor-accent)] data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[var(--editor-accent)] rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             ストローク
                           </TabsTrigger>
                           <TabsTrigger
                             value="background"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-[var(--editor-accent)] data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[var(--editor-accent)] rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             背景
                           </TabsTrigger>
                           <TabsTrigger
                             value="shadow"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-[var(--editor-accent)] data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[var(--editor-accent)] rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             シャドウ
                           </TabsTrigger>
                           <TabsTrigger
                             value="space"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-[var(--editor-accent)] data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[var(--editor-accent)] rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             スペース
                           </TabsTrigger>
                           <TabsTrigger
                             value="typography"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-[var(--editor-accent)] data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[var(--editor-accent)] rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             書体
                           </TabsTrigger>
                           <TabsTrigger
                             value="case"
-                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-cyan-400 rounded-none text-zinc-500 h-auto shrink-0"
+                            className="text-[10px] px-0 pb-1 bg-transparent data-[state=active]:bg-transparent data-[state=active]:text-[var(--editor-accent)] data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[var(--editor-accent)] rounded-none text-zinc-500 h-auto shrink-0"
                           >
                             大/小文字
                           </TabsTrigger>
@@ -2208,7 +2208,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">フォントサイズ</p>
-                            <span className="text-cyan-400 text-xs">{selectedPin.tagFontSizePercent.toFixed(1)}%</span>
+                            <span className="text-[var(--editor-accent)] text-xs">{selectedPin.tagFontSizePercent.toFixed(1)}%</span>
                           </div>
                           <Slider
                             value={[selectedPin.tagFontSizePercent]}
@@ -2221,7 +2221,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">不透明度</p>
-                            <span className="text-cyan-400 text-xs">
+                            <span className="text-[var(--editor-accent)] text-xs">
                               {Math.round(selectedPin.tagBackgroundOpacity * 100)}%
                             </span>
                           </div>
@@ -2270,7 +2270,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">ストローク幅</p>
-                            <span className="text-cyan-400 text-xs">{selectedPin.tagTextStrokeWidth.toFixed(1)}%</span>
+                            <span className="text-[var(--editor-accent)] text-xs">{selectedPin.tagTextStrokeWidth.toFixed(1)}%</span>
                           </div>
                           <Slider
                             value={[selectedPin.tagTextStrokeWidth]}
@@ -2315,7 +2315,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">角丸</p>
-                            <span className="text-cyan-400 text-xs">
+                            <span className="text-[var(--editor-accent)] text-xs">
                               {selectedPin.tagBorderRadiusPercent.toFixed(1)}%
                             </span>
                           </div>
@@ -2330,7 +2330,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">幅 (0=自動)</p>
-                            <span className="text-cyan-400 text-xs">
+                            <span className="text-[var(--editor-accent)] text-xs">
                               {selectedPin.tagBackgroundWidthPercent.toFixed(1)}%
                             </span>
                           </div>
@@ -2345,7 +2345,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">高さ (0=自動)</p>
-                            <span className="text-cyan-400 text-xs">
+                            <span className="text-[var(--editor-accent)] text-xs">
                               {selectedPin.tagBackgroundHeightPercent.toFixed(1)}%
                             </span>
                           </div>
@@ -2360,7 +2360,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">Xオフセット</p>
-                            <span className="text-cyan-400 text-xs">
+                            <span className="text-[var(--editor-accent)] text-xs">
                               {selectedPin.tagBackgroundOffsetXPercent.toFixed(1)}%
                             </span>
                           </div>
@@ -2375,7 +2375,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">Yオフセット</p>
-                            <span className="text-cyan-400 text-xs">
+                            <span className="text-[var(--editor-accent)] text-xs">
                               {selectedPin.tagBackgroundOffsetYPercent.toFixed(1)}%
                             </span>
                           </div>
@@ -2413,7 +2413,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">不透明度</p>
-                            <span className="text-cyan-400 text-xs">
+                            <span className="text-[var(--editor-accent)] text-xs">
                               {Math.round(selectedPin.tagShadowOpacity * 100)}%
                             </span>
                           </div>
@@ -2428,7 +2428,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">ぼかし</p>
-                            <span className="text-cyan-400 text-xs">{selectedPin.tagShadowBlur}px</span>
+                            <span className="text-[var(--editor-accent)] text-xs">{selectedPin.tagShadowBlur}px</span>
                           </div>
                           <Slider
                             value={[selectedPin.tagShadowBlur]}
@@ -2441,7 +2441,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">距離</p>
-                            <span className="text-cyan-400 text-xs">{selectedPin.tagShadowDistance}px</span>
+                            <span className="text-[var(--editor-accent)] text-xs">{selectedPin.tagShadowDistance}px</span>
                           </div>
                           <Slider
                             value={[selectedPin.tagShadowDistance]}
@@ -2454,7 +2454,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">アングル</p>
-                            <span className="text-cyan-400 text-xs">{selectedPin.tagShadowAngle}°</span>
+                            <span className="text-[var(--editor-accent)] text-xs">{selectedPin.tagShadowAngle}°</span>
                           </div>
                           <Slider
                             value={[selectedPin.tagShadowAngle]}
@@ -2473,19 +2473,19 @@ function RecipeEditPageInner() {
                           <div className="flex gap-2 bg-zinc-800 p-1 rounded-md">
                             <button
                               onClick={() => updatePin(selectedPin.id, { tagTextAlign: "left" })}
-                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagTextAlign === "left" ? "bg-cyan-500 text-white" : "text-zinc-400 hover:text-white"}`}
+                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagTextAlign === "left" ? "bg-[var(--editor-accent-strong)] text-white" : "text-zinc-400 hover:text-white"}`}
                             >
                               <AlignLeft className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => updatePin(selectedPin.id, { tagTextAlign: "center" })}
-                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagTextAlign === "center" ? "bg-cyan-500 text-white" : "text-zinc-400 hover:text-white"}`}
+                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagTextAlign === "center" ? "bg-[var(--editor-accent-strong)] text-white" : "text-zinc-400 hover:text-white"}`}
                             >
                               <AlignCenter className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => updatePin(selectedPin.id, { tagTextAlign: "right" })}
-                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagTextAlign === "right" ? "bg-cyan-500 text-white" : "text-zinc-400 hover:text-white"}`}
+                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagTextAlign === "right" ? "bg-[var(--editor-accent-strong)] text-white" : "text-zinc-400 hover:text-white"}`}
                             >
                               <AlignRight className="w-4 h-4" />
                             </button>
@@ -2497,7 +2497,7 @@ function RecipeEditPageInner() {
                             onClick={() =>
                               updatePin(selectedPin.id, { tagVerticalWriting: !selectedPin.tagVerticalWriting })
                             }
-                            className={`w-10 h-5 rounded-full relative transition-colors ${selectedPin.tagVerticalWriting ? "bg-cyan-500" : "bg-zinc-700"}`}
+                            className={`w-10 h-5 rounded-full relative transition-colors ${selectedPin.tagVerticalWriting ? "bg-[var(--editor-accent-strong)]" : "bg-zinc-700"}`}
                           >
                             <div
                               className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-transform ${selectedPin.tagVerticalWriting ? "left-6" : "left-1"}`}
@@ -2507,7 +2507,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">文字間隔</p>
-                            <span className="text-cyan-400 text-xs">{selectedPin.tagLetterSpacing.toFixed(2)}em</span>
+                            <span className="text-[var(--editor-accent)] text-xs">{selectedPin.tagLetterSpacing.toFixed(2)}em</span>
                           </div>
                           <Slider
                             value={[selectedPin.tagLetterSpacing]}
@@ -2520,7 +2520,7 @@ function RecipeEditPageInner() {
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
                             <p className="text-white text-xs font-medium">行間隔</p>
-                            <span className="text-cyan-400 text-xs">{selectedPin.tagLineHeight.toFixed(1)}</span>
+                            <span className="text-[var(--editor-accent)] text-xs">{selectedPin.tagLineHeight.toFixed(1)}</span>
                           </div>
                           <Slider
                             value={[selectedPin.tagLineHeight]}
@@ -2539,19 +2539,19 @@ function RecipeEditPageInner() {
                           <div className="flex gap-2 bg-zinc-800 p-1 rounded-md">
                             <button
                               onClick={() => updatePin(selectedPin.id, { tagBold: !selectedPin.tagBold })}
-                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagBold ? "bg-cyan-500 text-white" : "text-zinc-400 hover:text-white"}`}
+                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagBold ? "bg-[var(--editor-accent-strong)] text-white" : "text-zinc-400 hover:text-white"}`}
                             >
                               <Bold className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => updatePin(selectedPin.id, { tagItalic: !selectedPin.tagItalic })}
-                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagItalic ? "bg-cyan-500 text-white" : "text-zinc-400 hover:text-white"}`}
+                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagItalic ? "bg-[var(--editor-accent-strong)] text-white" : "text-zinc-400 hover:text-white"}`}
                             >
                               <Italic className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => updatePin(selectedPin.id, { tagUnderline: !selectedPin.tagUnderline })}
-                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagUnderline ? "bg-cyan-500 text-white" : "text-zinc-400 hover:text-white"}`}
+                              className={`flex-1 py-1 rounded text-xs flex justify-center ${selectedPin.tagUnderline ? "bg-[var(--editor-accent-strong)] text-white" : "text-zinc-400 hover:text-white"}`}
                             >
                               <Underline className="w-4 h-4" />
                             </button>
@@ -2566,19 +2566,19 @@ function RecipeEditPageInner() {
                           <div className="flex flex-col gap-2">
                             <button
                               onClick={() => updatePin(selectedPin.id, { tagTextTransform: "none" })}
-                              className={`px-3 py-2 rounded text-xs text-left ${selectedPin.tagTextTransform === "none" ? "bg-cyan-500 text-white" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`}
+                              className={`px-3 py-2 rounded text-xs text-left ${selectedPin.tagTextTransform === "none" ? "bg-[var(--editor-accent-strong)] text-white" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`}
                             >
                               指定なし (None)
                             </button>
                             <button
                               onClick={() => updatePin(selectedPin.id, { tagTextTransform: "uppercase" })}
-                              className={`px-3 py-2 rounded text-xs text-left ${selectedPin.tagTextTransform === "uppercase" ? "bg-cyan-500 text-white" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`}
+                              className={`px-3 py-2 rounded text-xs text-left ${selectedPin.tagTextTransform === "uppercase" ? "bg-[var(--editor-accent-strong)] text-white" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`}
                             >
                               大文字 (UPPERCASE)
                             </button>
                             <button
                               onClick={() => updatePin(selectedPin.id, { tagTextTransform: "lowercase" })}
-                              className={`px-3 py-2 rounded text-xs text-left ${selectedPin.tagTextTransform === "lowercase" ? "bg-cyan-500 text-white" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`}
+                              className={`px-3 py-2 rounded text-xs text-left ${selectedPin.tagTextTransform === "lowercase" ? "bg-[var(--editor-accent-strong)] text-white" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"}`}
                             >
                               小文字 (lowercase)
                             </button>
@@ -2599,7 +2599,7 @@ function RecipeEditPageInner() {
                           onClick={() => setFontCategory("all")}
                           className={`px-3 py-1.5 rounded-full text-xs transition-all duration-200 flex-none border ${
                             fontCategory === "all"
-                              ? "bg-cyan-500/20 border-cyan-500 text-cyan-400"
+                              ? "bg-[var(--editor-accent-strong)]/20 border-[var(--editor-accent-strong)] text-[var(--editor-accent)]"
                               : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700"
                           }`}
                         >
@@ -2609,7 +2609,7 @@ function RecipeEditPageInner() {
                           onClick={() => setFontCategory("japanese")}
                           className={`px-3 py-1.5 rounded-full text-xs transition-all duration-200 flex-none border ${
                             fontCategory === "japanese"
-                              ? "bg-cyan-500/20 border-cyan-500 text-cyan-400"
+                              ? "bg-[var(--editor-accent-strong)]/20 border-[var(--editor-accent-strong)] text-[var(--editor-accent)]"
                               : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700"
                           }`}
                         >
@@ -2619,7 +2619,7 @@ function RecipeEditPageInner() {
                           onClick={() => setFontCategory("english")}
                           className={`px-3 py-1.5 rounded-full text-xs transition-all duration-200 flex-none border ${
                             fontCategory === "english"
-                              ? "bg-cyan-500/20 border-cyan-500 text-cyan-400"
+                              ? "bg-[var(--editor-accent-strong)]/20 border-[var(--editor-accent-strong)] text-[var(--editor-accent)]"
                               : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700"
                           }`}
                         >
@@ -2629,7 +2629,7 @@ function RecipeEditPageInner() {
                           onClick={() => setFontCategory("favorite")}
                           className={`px-3 py-1.5 rounded-full text-xs transition-all duration-200 flex-none border ${
                             fontCategory === "favorite"
-                              ? "bg-cyan-500/20 border-cyan-500 text-cyan-400"
+                              ? "bg-[var(--editor-accent-strong)]/20 border-[var(--editor-accent-strong)] text-[var(--editor-accent)]"
                               : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700"
                           }`}
                         >
@@ -2639,7 +2639,7 @@ function RecipeEditPageInner() {
                           onClick={() => setFontCategory("custom")}
                           className={`px-3 py-1.5 rounded-full text-xs transition-all duration-200 flex-none border ${
                             fontCategory === "custom"
-                              ? "bg-cyan-500/20 border-cyan-500 text-cyan-400"
+                              ? "bg-[var(--editor-accent-strong)]/20 border-[var(--editor-accent-strong)] text-[var(--editor-accent)]"
                               : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700"
                           }`}
                         >
@@ -2670,7 +2670,7 @@ function RecipeEditPageInner() {
                           <Button
                             onClick={() => document.getElementById("font-upload")?.click()}
                             disabled={isUploadingFont}
-                            className="w-full bg-cyan-500 hover:bg-cyan-600 text-white text-xs h-8"
+                            className="w-full bg-[var(--editor-accent-strong)] hover:bg-[var(--editor-accent-deep)] text-white text-xs h-8"
                           >
                             {isUploadingFont ? "アップロード中..." : "フォントをアップロード"}
                           </Button>
@@ -2694,7 +2694,7 @@ function RecipeEditPageInner() {
                                 key={font.id}
                                 className={`p-2 rounded-lg border text-left text-xs transition-all duration-200 ${
                                   selectedPin.tagFontFamily === font.family
-                                    ? "border-cyan-400 bg-cyan-400/10 text-white shadow-lg shadow-cyan-400/20"
+                                    ? "border-[var(--editor-accent)] bg-[var(--editor-accent)]/10 text-white shadow-lg shadow-[var(--editor-accent)]/20"
                                     : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600"
                                 }`}
                               >
@@ -2745,7 +2745,7 @@ function RecipeEditPageInner() {
                                 }}
                                 className={`p-2 rounded-lg border text-left text-xs transition-all duration-200 truncate ${
                                   selectedPin.tagFontFamily === font.family
-                                    ? "border-cyan-400 bg-cyan-400/10 text-white shadow-lg shadow-cyan-400/20"
+                                    ? "border-[var(--editor-accent)] bg-[var(--editor-accent)]/10 text-white shadow-lg shadow-[var(--editor-accent)]/20"
                                     : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600"
                                 }`}
                                 style={{ fontFamily: font.family }}
@@ -2761,7 +2761,7 @@ function RecipeEditPageInner() {
                               key={font.family}
                               className={`p-2 rounded-lg border text-left text-xs transition-all duration-200 ${
                                 selectedPin.tagFontFamily === font.family
-                                  ? "border-cyan-400 bg-cyan-400/10 text-white shadow-lg shadow-cyan-400/20"
+                                  ? "border-[var(--editor-accent)] bg-[var(--editor-accent)]/10 text-white shadow-lg shadow-[var(--editor-accent)]/20"
                                   : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600"
                               }`}
                             >
@@ -2844,14 +2844,14 @@ function RecipeEditPageInner() {
                         <div className="flex gap-2 bg-zinc-800 p-1 rounded-md">
                           <button
                             onClick={() => updatePin(selectedPin.id, { dotShape: "circle" })}
-                            className={`flex-1 py-2 rounded text-xs flex justify-center items-center gap-2 ${selectedPin.dotShape === "circle" ? "bg-cyan-500 text-white" : "text-zinc-400 hover:text-white"}`}
+                            className={`flex-1 py-2 rounded text-xs flex justify-center items-center gap-2 ${selectedPin.dotShape === "circle" ? "bg-[var(--editor-accent-strong)] text-white" : "text-zinc-400 hover:text-white"}`}
                           >
                             <div className="w-3 h-3 rounded-full bg-current" />
                             円形
                           </button>
                           <button
                             onClick={() => updatePin(selectedPin.id, { dotShape: "square" })}
-                            className={`flex-1 py-2 rounded text-xs flex justify-center items-center gap-2 ${selectedPin.dotShape === "square" ? "bg-cyan-500 text-white" : "text-zinc-400 hover:text-white"}`}
+                            className={`flex-1 py-2 rounded text-xs flex justify-center items-center gap-2 ${selectedPin.dotShape === "square" ? "bg-[var(--editor-accent-strong)] text-white" : "text-zinc-400 hover:text-white"}`}
                           >
                             <div className="w-3 h-3 bg-current" />
                             四角
@@ -2882,7 +2882,7 @@ function RecipeEditPageInner() {
                       <div className="space-y-1.5">
                         <div className="flex justify-between">
                           <p className="text-white text-xs font-medium">点のサイズ</p>
-                          <span className="text-cyan-400 text-xs">{selectedPin.dotSizePercent.toFixed(1)}%</span>
+                          <span className="text-[var(--editor-accent)] text-xs">{selectedPin.dotSizePercent.toFixed(1)}%</span>
                         </div>
                         <Slider
                           value={[selectedPin.dotSizePercent]}
@@ -3024,7 +3024,7 @@ function RecipeEditPageInner() {
             <Button variant="outline" onClick={() => setShowTitleModal(false)}>
               キャンセル
             </Button>
-            <Button onClick={handleSaveWithTitle} className="bg-cyan-500 hover:bg-cyan-600">
+            <Button onClick={handleSaveWithTitle} className="bg-[var(--editor-accent-strong)] hover:bg-[var(--editor-accent-deep)]">
               保存
             </Button>
           </div>

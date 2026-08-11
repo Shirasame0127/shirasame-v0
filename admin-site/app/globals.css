@@ -14,54 +14,61 @@
    ========================================================================= */
 
 :root {
-  /* Surfaces */
-  --background: oklch(0.985 0.004 255); /* paper */
-  --foreground: oklch(0.21 0.02 266);   /* ink */
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0.02 266);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.02 266);
+  /* Surfaces — the same cream paper and mint rules the public site uses, so the
+     two halves of the product read as one brand. */
+  --background: #fffdf8;      /* paper */
+  --foreground: #1f2328;      /* ink */
+  --card: #ffffff;
+  --card-foreground: #1f2328;
+  --popover: #ffffff;
+  --popover-foreground: #1f2328;
 
-  /* Brand: cobalt */
-  --primary: oklch(0.47 0.25 264);
-  --primary-foreground: oklch(0.99 0.004 255);
+  /* Brand: teal. Deeper than the public site's #2196ac — that measures 3.49:1
+     for white text, which is fine for its large display headings but not for a
+     tool this dense in small labels and buttons. #16707f is 5.74:1. */
+  --primary: #16707f;
+  --primary-foreground: #ffffff;
 
   /* Neutrals */
-  --secondary: oklch(0.955 0.008 264);
-  --secondary-foreground: oklch(0.26 0.02 266);
-  --muted: oklch(0.965 0.006 264);
-  --muted-foreground: oklch(0.5 0.02 264);
+  --secondary: #eef7f7;
+  --secondary-foreground: #1f2328;
+  --muted: #f4faf9;
+  --muted-foreground: #5b636c;
 
-  /* Accent is now a subtle neutral hover surface (NOT a brand color) */
-  --accent: oklch(0.95 0.012 264);
-  --accent-foreground: oklch(0.3 0.05 264);
+  /* Accent stays a quiet hover surface, not a brand colour */
+  --accent: #eaf7f7;
+  --accent-foreground: #16707f;
 
-  --destructive: oklch(0.585 0.22 25);
-  --destructive-foreground: oklch(0.99 0.004 255);
+  --destructive: #c2185b;
+  --destructive-foreground: #ffffff;
 
   /* Hairlines + focus */
-  --border: oklch(0.9 0.008 264);
-  --input: oklch(0.9 0.008 264);
-  --ring: oklch(0.47 0.25 264);
+  --border: #cfe9e9;
+  --input: #b7dfe0;
+  --ring: #16707f;
 
-  /* Charts: tonal cobalt → ink (no garish hues) */
-  --chart-1: oklch(0.47 0.25 264);
-  --chart-2: oklch(0.62 0.18 256);
-  --chart-3: oklch(0.74 0.12 244);
-  --chart-4: oklch(0.4 0.04 264);
-  --chart-5: oklch(0.6 0.02 264);
+  /* Charts: tonal teal, no garish hues */
+  --chart-1: #16707f;
+  --chart-2: #2196ac;
+  --chart-3: #7fcfd0;
+  --chart-4: #5b636c;
+  --chart-5: #c2185b;
 
   --radius: 0.5rem;
 
   /* Sidebar */
-  --sidebar: oklch(0.992 0.003 255);
-  --sidebar-foreground: oklch(0.21 0.02 266);
-  --sidebar-primary: oklch(0.47 0.25 264);
-  --sidebar-primary-foreground: oklch(0.99 0.004 255);
-  --sidebar-accent: oklch(0.95 0.012 264);
-  --sidebar-accent-foreground: oklch(0.3 0.05 264);
-  --sidebar-border: oklch(0.9 0.008 264);
-  --sidebar-ring: oklch(0.47 0.25 264);
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1f2328;
+  --sidebar-primary: #16707f;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eaf7f7;
+  --sidebar-accent-foreground: #16707f;
+  --sidebar-border: #cfe9e9;
+  --sidebar-ring: #16707f;
+
+  /* Graph-paper grid, matching the public site but fainter — this UI is far
+     denser and a strong grid competes with the content. */
+  --admin-grid: rgba(120, 205, 205, 0.16);
 
   /* Admin layout chrome heights (responsive-aware) */
   --admin-header-height: 0px; /* mobile: no top header */
@@ -69,45 +76,69 @@
 }
 
 .dark {
-  --background: oklch(0.17 0.018 266); /* deep ink-navy */
-  --foreground: oklch(0.95 0.008 255);
-  --card: oklch(0.205 0.022 266);
-  --card-foreground: oklch(0.95 0.008 255);
-  --popover: oklch(0.205 0.022 266);
-  --popover-foreground: oklch(0.95 0.008 255);
+  --background: #14191b;      /* deep ink, tinted toward the brand teal */
+  --foreground: #eef3f3;
+  --card: #1a2124;
+  --card-foreground: #eef3f3;
+  --popover: #1a2124;
+  --popover-foreground: #eef3f3;
 
-  --primary: oklch(0.7 0.18 264);
-  --primary-foreground: oklch(0.16 0.02 266);
+  /* Light enough to carry dark text on top, and to read as a link on ink. */
+  --primary: #6fc9d3;
+  --primary-foreground: #10262a;
 
-  --secondary: oklch(0.26 0.025 266);
-  --secondary-foreground: oklch(0.95 0.008 255);
-  --muted: oklch(0.24 0.02 266);
-  --muted-foreground: oklch(0.68 0.02 264);
+  --secondary: #232c30;
+  --secondary-foreground: #eef3f3;
+  --muted: #1f272a;
+  --muted-foreground: #a3b0b2;
 
-  --accent: oklch(0.28 0.03 266);
-  --accent-foreground: oklch(0.95 0.008 255);
+  --accent: #263337;
+  --accent-foreground: #eef3f3;
 
-  --destructive: oklch(0.62 0.2 25);
-  --destructive-foreground: oklch(0.98 0.004 255);
+  --destructive: #f06292;
+  --destructive-foreground: #2a0d18;
 
-  --border: oklch(0.3 0.02 266);
-  --input: oklch(0.32 0.02 266);
-  --ring: oklch(0.7 0.18 264);
+  --border: #2c383c;
+  --input: #33413f;
+  --ring: #6fc9d3;
 
-  --chart-1: oklch(0.7 0.18 264);
-  --chart-2: oklch(0.74 0.14 252);
-  --chart-3: oklch(0.8 0.1 242);
-  --chart-4: oklch(0.6 0.04 264);
-  --chart-5: oklch(0.5 0.03 264);
+  --chart-1: #6fc9d3;
+  --chart-2: #2196ac;
+  --chart-3: #bfe6e6;
+  --chart-4: #a3b0b2;
+  --chart-5: #f06292;
 
-  --sidebar: oklch(0.2 0.02 266);
-  --sidebar-foreground: oklch(0.95 0.008 255);
-  --sidebar-primary: oklch(0.7 0.18 264);
-  --sidebar-primary-foreground: oklch(0.16 0.02 266);
-  --sidebar-accent: oklch(0.28 0.03 266);
-  --sidebar-accent-foreground: oklch(0.95 0.008 255);
-  --sidebar-border: oklch(0.3 0.02 266);
-  --sidebar-ring: oklch(0.7 0.18 264);
+  --sidebar: #171d20;
+  --sidebar-foreground: #eef3f3;
+  --sidebar-primary: #6fc9d3;
+  --sidebar-primary-foreground: #10262a;
+  --sidebar-accent: #263337;
+  --sidebar-accent-foreground: #eef3f3;
+  --sidebar-border: #2c383c;
+  --sidebar-ring: #6fc9d3;
+
+  --admin-grid: rgba(120, 205, 205, 0.08);
+}
+
+/* The recipe editor keeps a dark canvas whatever the theme — dark chrome around
+   a photograph is how you judge the photograph. What it should not keep is an
+   accent unrelated to the brand: it was cyan, which belongs to no palette here.
+   These are the brand teal at weights that read on that dark chrome. */
+:root {
+  --editor-accent: #6fc9d3;
+  --editor-accent-strong: #2196ac;
+  --editor-accent-deep: #16707f;
+}
+
+/* Graph paper, shared with the public site but at a lower contrast: the console
+   is far denser, and a strong grid fights the tables and forms on top of it.
+   Applied to the shell rather than <body> so cards and panels stay flat. */
+.admin-paper {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(to right, var(--admin-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--admin-grid) 1px, transparent 1px);
+  background-size: 26px 26px;
 }
 
 /* On medium+ screens the top header is visible and the bottom nav is hidden */
@@ -122,8 +153,10 @@
    references (not literals) so .dark overrides actually take effect. */
 @theme inline {
   --font-sans: "Noto Sans JP", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Color Emoji";
-  --font-serif: "Cormorant Garamond", "Hiragino Mincho ProN", "Yu Mincho", "Times New Roman", serif;
-  --font-display: "Cormorant Garamond", "Hiragino Mincho ProN", "Yu Mincho", "Times New Roman", serif;
+  --font-serif: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", "Times New Roman", serif;
+  /* Headings match the public site. Oswald has no Japanese glyphs, so the
+     Japanese fallbacks are named rather than left to the platform. */
+  --font-display: "Oswald", "Hiragino Sans", "Noto Sans JP", sans-serif;
   --font-mono: "Space Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   --color-background: var(--background);

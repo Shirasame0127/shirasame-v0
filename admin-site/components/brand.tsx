@@ -4,11 +4,14 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 /**
- * Shirasame brand mark — a four-point sparkle ("star") with gently concave
- * sides, echoing the hand-drawn star motif of the brand. Uses currentColor so
- * it inherits text color; pass `variant="outline"` for the fine line-art look.
+ * Shirasame brand mark — three tapering strokes reading as rain, after 白雨
+ * ("a passing shower"). Matches the mark the public site uses as its icon, so
+ * the console and the site carry the same identity.
+ *
+ * Exported as `StarMark` as well, since call sites across the admin still use
+ * that name from when the mark was a four-point sparkle.
  */
-export function StarMark({
+export function BrandMark({
   className,
   size,
   variant = "solid",
@@ -19,7 +22,11 @@ export function StarMark({
   variant?: "solid" | "outline"
   strokeWidth?: number
 }) {
-  const d = "M12 0 C13 7 17 11 24 12 C17 13 13 17 12 24 C11 17 7 13 0 12 C7 11 11 7 12 0 Z"
+  const strokes = [
+    "M7 2 C8 8 7 13 3.5 19 C6 13 6 8 7 2 Z",
+    "M12.5 0.5 C13.5 7 12.5 13 8.5 21 C11 13 11.5 7 12.5 0.5 Z",
+    "M18 3 C19 8 18 13 14.5 19 C17 13 17 8 18 3 Z",
+  ]
   return (
     <svg
       viewBox="0 0 24 24"
@@ -29,16 +36,21 @@ export function StarMark({
       className={cn("inline-block", className)}
       {...props}
     >
-      <path
-        d={d}
-        fill={variant === "solid" ? "currentColor" : "none"}
-        stroke={variant === "outline" ? "currentColor" : "none"}
-        strokeWidth={variant === "outline" ? strokeWidth : undefined}
-        strokeLinejoin="round"
-      />
+      {strokes.map((d) => (
+        <path
+          key={d}
+          d={d}
+          fill={variant === "solid" ? "currentColor" : "none"}
+          stroke={variant === "outline" ? "currentColor" : "none"}
+          strokeWidth={variant === "outline" ? strokeWidth : undefined}
+          strokeLinejoin="round"
+        />
+      ))}
     </svg>
   )
 }
+
+export const StarMark = BrandMark
 
 /**
  * Shirasame wordmark: the brand name set in the editorial display serif with a
@@ -56,7 +68,7 @@ export function Wordmark({
 }) {
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
-      <StarMark size={compact ? 18 : 22} className="text-primary shrink-0" />
+      <BrandMark size={compact ? 18 : 22} className="text-primary shrink-0" />
       <div className="leading-none">
         <div
           className={cn(

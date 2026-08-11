@@ -109,7 +109,7 @@ export default function AdminLayout({
   // Standard admin shell: sidebar + (top bar / scrollable main / mobile bottom nav).
   // The single <main> is the only scroll owner.
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="admin-paper flex h-screen overflow-hidden text-foreground">
       <AdminNav />
       <div className="flex min-w-0 flex-1 flex-col">
         <AdminTopBar />
