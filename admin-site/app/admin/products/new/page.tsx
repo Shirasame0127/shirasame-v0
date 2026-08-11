@@ -44,6 +44,15 @@ type AttachmentSlot = {
   key: string
 }
 
+/** URL-safe slug from a title; empty when the title has no Latin/number runs. */
+function toSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 export default function ProductNewPage() {
   const router = useRouter()
   const { toast } = useToast()
@@ -67,7 +76,6 @@ export default function ProductNewPage() {
   const [affiliateLinks, setAffiliateLinks] = useState<Array<{ provider: string; url: string; label: string }>>([
     { provider: "", url: "", label: "" },
   ])
-  const [draftInitialized, setDraftInitialized] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({})
@@ -119,31 +127,33 @@ export default function ProductNewPage() {
       }
     })()
 
-    // Drafts disabled: do not load server-side saved drafts.
-    if (!currentUser?.id || draftInitialized) return
-    setDraftInitialized(true)
-  }, [currentUser?.id, draftInitialized])
+    // The draft-loading step that used to live here is gone along with the rest
+    // of the disabled draft feature. Its `draftInitialized` flag was also in
+    // this effect's dependency list while being set inside it, so the tag and
+    // group fetch above ran twice on every visit.
+  }, [currentUser?.id])
 
-  const draftState = useMemo(
-    () => ({
-      productId,
-      title,
-      shortDescription,
-      body,
-      notes,
-      relatedLinks,
-      price,
-      showPrice,
-      tags,
-      published,
-      affiliateLinks,
-      mainImageKey,
-      attachmentKeys: attachmentSlots.map((slot) => slot.key).filter(Boolean),
-    }),
-    [productId, title, shortDescription, body, notes, relatedLinks, price, showPrice, tags, published, affiliateLinks, mainImageKey, attachmentSlots],
-  )
+  // This form is long, and nothing on it is persisted until you press save.
+  // (A draft feature was started and left disabled; the state it built was
+  // recomputed on every keystroke and read by nothing, so it is gone.)
+  // Until drafts exist, at least refuse to let the tab close silently on a
+  // part-filled form.
+  const isDirty =
+    Boolean(title || shortDescription || body || notes || price || tags.length || imageFile || mainImageKey) ||
+    affiliateLinks.some((l) => l.url) ||
+    relatedLinks.some((l) => l.trim()) ||
+    attachmentSlots.some((slot) => slot.file || slot.key)
 
-  // Draft auto-save disabled.
+  useEffect(() => {
+    if (!isDirty || saving) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [isDirty, saving])
+
 
   const addTag = (tag: string) => {
     const trimmedTag = tag.trim()
@@ -247,6 +257,33 @@ export default function ProductNewPage() {
     setRelatedLinks(relatedLinks.filter((_, i) => i !== index))
   }
 
+  /**
+   * Upload a file and return its canonical key.
+   *
+   * Throws on failure. The previous code caught every error and carried on,
+   * so a failed upload looked like a successful save: the main image silently
+   * vanished, and attachments were persisted with an empty key — a record
+   * pointing at nothing. The edit screen already reported these properly;
+   * this brings the create screen in line.
+   */
+  const uploadImage = async (file: File): Promise<string> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
+    if (!res.ok) {
+      let message = `アップロードに失敗しました (${res.status})`
+      try {
+        const j = await res.json()
+        if (j?.error) message = String(j.error)
+      } catch {}
+      throw new Error(message)
+    }
+    const json = await res.json().catch(() => ({} as any))
+    const key = json?.result?.key || json?.key || null
+    if (!key) throw new Error('アップロードは完了しましたが、画像キーが返りませんでした')
+    return key
+  }
+
   const handleSave = async (publishOverride?: boolean) => {
     const user = currentUser || auth.getCurrentUser()
     if (!user) {
@@ -287,17 +324,18 @@ export default function ProductNewPage() {
     let finalMainKey = mainImageKey
     if (!finalMainKey && imageFile) {
       try {
-        const fd = new FormData()
-        fd.append('file', imageFile)
-        const res = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
-        const j = await res.json().catch(() => ({}))
-        const returnedKey = j?.result?.key || j?.key || null
-        if (returnedKey) {
-          finalMainKey = returnedKey
-          setMainImageKey(finalMainKey)
-        }
-      } catch (e) {
-        console.error('main image upload failed', e)
+        finalMainKey = await uploadImage(imageFile)
+        setMainImageKey(finalMainKey)
+      } catch (e: any) {
+        // Stop here rather than saving a product without the image the user
+        // chose. Their input stays on screen so they can retry.
+        toast({
+          variant: 'destructive',
+          title: 'メイン画像をアップロードできませんでした',
+          description: `${e?.message || '不明なエラー'} — 保存は中止しました。もう一度お試しください。`,
+        })
+        setSaving(false)
+        return
       }
     }
     // An image is required to publish, but a draft can be saved without one.
@@ -307,27 +345,31 @@ export default function ProductNewPage() {
       return
     }
 
-    const attachmentImages = await Promise.all(
-      attachmentSlots
-        .map((slot, idx) => ({ slot, idx }))
-        .filter(({ slot }) => slot.file || slot.key)
-        .map(async ({ slot, idx }) => ({
-          id: `img-attachment-${Date.now()}-${idx}`,
+    let attachmentImages: Array<{ id: string; productId: string; key: string; aspect: string; role: 'attachment' }>
+    try {
+      attachmentImages = await Promise.all(
+        attachmentSlots
+          .map((slot, idx) => ({ slot, idx }))
+          .filter(({ slot }) => slot.file || slot.key)
+          .map(async ({ slot, idx }) => ({
+            id: `img-attachment-${Date.now()}-${idx}`,
             productId: generatedProductId,
-            // persist attachment as key-only; if only file present, upload to obtain key
-            key: slot.key || (slot.file ? await (async () => {
-              try {
-                const fd = new FormData()
-                fd.append('file', slot.file as File)
-                const r = await apiFetch('/api/images/upload', { method: 'POST', body: fd })
-                const jj = await r.json().catch(() => ({}))
-                return jj?.result?.key || jj?.key || ''
-              } catch (e) { return '' }
-            })() : ""),
-            aspect: "1:1",
-            role: "attachment" as const,
-        })),
-    )
+            // Key-only persistence. A failed upload now aborts the save instead
+            // of storing an empty key that renders as a broken image.
+            key: slot.key || (await uploadImage(slot.file as File)),
+            aspect: '1:1',
+            role: 'attachment' as const,
+          })),
+      )
+    } catch (e: any) {
+      toast({
+        variant: 'destructive',
+        title: '添付画像をアップロードできませんでした',
+        description: `${e?.message || '不明なエラー'} — 保存は中止しました。もう一度お試しください。`,
+      })
+      setSaving(false)
+      return
+    }
 
     // Guard: do not allow URL-shaped keys to be persisted
     if (attachmentImages.some((a) => typeof a.key === 'string' && a.key.startsWith('http'))) {
@@ -344,7 +386,10 @@ export default function ProductNewPage() {
       id: generatedProductId,
       userId: user.id,
       title,
-      slug: title.toLowerCase().replace(/\s+/g, "-"),
+      // Latin titles keep their readable slug. A Japanese one reduces to an
+      // empty string here, which used to be stored as the slug and left the
+      // public URL pointing nowhere — fall back to the id in that case.
+      slug: toSlug(title) || generatedProductId,
       shortDescription,
       body,
       notes: notes.trim() || undefined,
