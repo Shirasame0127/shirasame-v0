@@ -14,6 +14,7 @@ import { Plus, Search, Filter, SlidersHorizontal, X, GripVertical, Package, Aler
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
 import { StarMark } from "@/components/brand"
+import { TagSetupBanner } from "@/components/admin/tag-setup-banner"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup,
   DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -219,6 +220,7 @@ export default function AdminProductsPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
+      <TagSetupBanner />
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="label-mono mb-2 flex items-center gap-2"><StarMark size={12} className="text-primary" /> Products</p>
