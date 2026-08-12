@@ -173,10 +173,50 @@ export default function HomeB({ data }: { data: HomeData }) {
     image?: string
   } | null>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  // Filter state for the "全アイテム" block at the foot of the collection view.
+  // Kept separate from the items/gallery tabs' filters so the two don't fight.
+  const [allQuery, setAllQuery] = useState("")
+  const [allDebounced, setAllDebounced] = useState("")
+  const [allTags, setAllTags] = useState<string[]>([])
   const [isStripStuck, setIsStripStuck] = useState(false)
   const stripSentinelRef = useRef<HTMLDivElement | null>(null)
 
   const composingRef = useRef(false)
+  const allComposingRef = useRef(false)
+  useEffect(() => {
+    if (allComposingRef.current) return
+    const id = window.setTimeout(() => setAllDebounced(allQuery), 250)
+    return () => window.clearTimeout(id)
+  }, [allQuery])
+
+  // Most-used tags across the catalogue, for the quick chip rail.
+  const allRankedTags = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const p of products as any[]) {
+      for (const t of Array.isArray(p.tags) ? p.tags : []) counts.set(t, (counts.get(t) || 0) + 1)
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja"))
+      .map(([t]) => t)
+      .slice(0, 20)
+  }, [products])
+
+  const allFiltered = useMemo(() => {
+    const q = allDebounced.trim().toLowerCase()
+    const tags = allTags.map((t) => t.toLowerCase())
+    return (products as any[]).filter((p) => {
+      if (q && !`${p.title || ""} ${p.shortDescription || ""}`.toLowerCase().includes(q)) return false
+      if (tags.length) {
+        const own = (Array.isArray(p.tags) ? p.tags : []).map((t: string) => t.toLowerCase())
+        if (!tags.every((t) => own.includes(t))) return false
+      }
+      return true
+    })
+  }, [products, allDebounced, allTags])
+
+  const toggleAllTag = (tag: string) =>
+    setAllTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
+  const allHasFilters = allDebounced.length > 0 || allTags.length > 0
   useEffect(() => {
     if (composingRef.current) return
     const id = window.setTimeout(() => setSearchText(queryInput), 250)
@@ -608,22 +648,111 @@ export default function HomeB({ data }: { data: HomeData }) {
                         browsing collections flows straight into everything else
                         without needing a separate tab. */}
                     {products.length > 0 && (
-                      <section id="all-items" className="scroll-mt-28 pt-4">
-                        <PanelHeader
-                          title="全アイテム"
-                          description="登録されているアイテムの一覧です"
-                          meta={`${products.length} 件`}
-                        />
-                        <div className="grid gap-3" style={cardGridStyle}>
-                          {products.map((product: any) => (
-                            <ItemCard
-                              key={`all-${product.id}`}
-                              product={product}
-                              saleName={activeSaleMap.get(String(product.id))}
-                              onClick={() => openProduct(product, product?.images?.[0]?.url)}
-                            />
-                          ))}
+                      <section id="all-items" className="scroll-mt-28 pt-6">
+                        {/* A full section header, not a collection-style panel bar:
+                            this is the whole catalogue, so it gets the large
+                            display heading the section titles use. */}
+                        <div className="mb-4 border-b-2 border-[var(--m-rule)] pb-3">
+                          <div className="flex items-end justify-between gap-3">
+                            <h3 className="m-heading text-3xl text-[var(--m-teal)] sm:text-4xl">All Items</h3>
+                            <span className="m-display shrink-0 pb-1 text-xs text-[var(--m-ink-soft)]">
+                              {allHasFilters ? `${allFiltered.length} / ${products.length} 件` : `${products.length} 件`}
+                            </span>
+                          </div>
+                          <p className="m-copy mt-1 text-sm">登録されているアイテムの一覧です</p>
                         </div>
+
+                        {/* Search + tag chips, scoped to this block. */}
+                        <div className="mb-4 space-y-3">
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--m-ink-soft)]" />
+                            <input
+                              value={allQuery}
+                              onChange={(e) => setAllQuery(e.target.value)}
+                              onCompositionStart={() => {
+                                allComposingRef.current = true
+                              }}
+                              onCompositionEnd={(e) => {
+                                allComposingRef.current = false
+                                setAllQuery((e.target as HTMLInputElement).value)
+                              }}
+                              placeholder="全アイテムを検索"
+                              aria-label="全アイテムを検索"
+                              className="h-11 w-full rounded-full border-2 border-[var(--m-rule-soft)] bg-white pl-10 pr-9 text-sm text-[var(--m-ink)] outline-none focus:border-[var(--m-rule)]"
+                            />
+                            {allQuery && (
+                              <button
+                                type="button"
+                                onClick={() => setAllQuery("")}
+                                aria-label="検索をクリア"
+                                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--m-ink-soft)]"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+
+                          {allRankedTags.length > 0 && (
+                            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                              {allHasFilters && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAllQuery("")
+                                    setAllTags([])
+                                  }}
+                                  className="m-display shrink-0 rounded-full border-2 border-[var(--m-rule-soft)] bg-white px-3 py-1.5 text-xs text-[var(--m-ink-soft)]"
+                                >
+                                  リセット
+                                </button>
+                              )}
+                              {allRankedTags.map((tag) => {
+                                const on = allTags.includes(tag)
+                                return (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => toggleAllTag(tag)}
+                                    aria-pressed={on}
+                                    className={`shrink-0 rounded-full border-2 px-3 py-1.5 text-xs transition-colors ${
+                                      on
+                                        ? "border-[var(--m-pink)] bg-[var(--m-pink)] text-white"
+                                        : "border-[var(--m-rule-soft)] bg-white text-[var(--m-ink-soft)]"
+                                    }`}
+                                  >
+                                    {tag}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {allFiltered.length === 0 ? (
+                          <div className="flex flex-col items-center gap-3 py-14 text-center">
+                            <p className="text-sm text-[var(--m-ink-soft)]">条件に合うアイテムがありません</p>
+                            <button
+                              onClick={() => {
+                                setAllQuery("")
+                                setAllTags([])
+                              }}
+                              className="m-display rounded-full border-2 border-[var(--m-rule)] bg-white px-4 py-2 text-sm"
+                            >
+                              条件をリセット
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="grid gap-3" style={cardGridStyle}>
+                            {allFiltered.map((product: any) => (
+                              <ItemCard
+                                key={`all-${product.id}`}
+                                product={product}
+                                saleName={activeSaleMap.get(String(product.id))}
+                                onClick={() => openProduct(product, product?.images?.[0]?.url)}
+                              />
+                            ))}
+                          </div>
+                        )}
                       </section>
                     )}
                   </div>
