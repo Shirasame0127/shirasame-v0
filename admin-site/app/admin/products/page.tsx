@@ -34,6 +34,9 @@ export default function AdminProductsPage() {
   const [tagGroups, setTagGroups] = useState<Record<string, string[]>>({})
   const [openGroups, setOpenGroups] = useState<string[] | undefined>(undefined)
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false)
+  // Drafts were previously unfindable: the list mixes them with published
+  // products and nothing filtered on that.
+  const [statusFilter, setStatusFilter] = useState<"all" | "published" | "draft">("all")
 
   const fetchProducts = async () => {
     setStatus("loading")
@@ -82,7 +85,7 @@ export default function AdminProductsPage() {
   const toggleTag = (tag: string) => setSelectedTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
   const clearTags = () => setSelectedTags([])
 
-  const isFiltering = searchQuery.trim().length > 0 || selectedTags.length > 0
+  const isFiltering = searchQuery.trim().length > 0 || selectedTags.length > 0 || statusFilter !== "all"
   const dragEnabled = sortBy === "manual" && !isFiltering
 
   const filteredAndSortedProducts = useMemo(() => {
@@ -90,7 +93,9 @@ export default function AdminProductsPage() {
       const q = searchQuery.toLowerCase().trim()
       const matchesSearch = !q || product.title.toLowerCase().includes(q) || (product.shortDescription && product.shortDescription.toLowerCase().includes(q))
       const matchesTags = selectedTags.length === 0 || selectedTags.some((tag) => Array.isArray(product?.tags) && product.tags.includes(tag))
-      return matchesSearch && matchesTags
+      const matchesStatus =
+        statusFilter === "all" || (statusFilter === "published" ? !!product.published : !product.published)
+      return matchesSearch && matchesTags && matchesStatus
     })
     const sorted = [...filtered]
     sorted.sort((a, b) => {
@@ -104,7 +109,7 @@ export default function AdminProductsPage() {
       }
     })
     return sorted
-  }, [products, searchQuery, selectedTags, sortBy])
+  }, [products, searchQuery, selectedTags, sortBy, statusFilter])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -133,6 +138,8 @@ export default function AdminProductsPage() {
     }
   }
 
+  const draftCount = useMemo(() => (products || []).filter((p) => !p.published).length, [products])
+
   const sortLabels: Record<SortKey, string> = {
     manual: "手動（ドラッグ並べ替え）", newest: "新しい順", clicks: "クリック数順",
     "price-asc": "価格が安い順", "price-desc": "価格が高い順",
@@ -144,7 +151,12 @@ export default function AdminProductsPage() {
         <div>
           <p className="label-mono mb-2 flex items-center gap-2"><StarMark size={12} className="text-primary" /> Products</p>
           <h1 className="text-2xl font-bold tracking-tight md:text-3xl">商品管理</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{filteredAndSortedProducts.length}件の商品</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isFiltering
+              ? `${filteredAndSortedProducts.length} 件を表示（全 ${products.length} 件）`
+              : `全 ${products.length} 件`}
+            {draftCount > 0 && `・下書き ${draftCount} 件`}
+          </p>
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" asChild>
@@ -157,6 +169,34 @@ export default function AdminProductsPage() {
       </div>
 
       <div className="sticky top-0 z-10 -mx-4 mb-4 space-y-3 bg-background/90 px-4 py-2 backdrop-blur md:-mx-8 md:px-8">
+        {/* Published / draft is the split you sort by most often when writing,
+            and nothing surfaced it before. */}
+        <div className="flex gap-1 rounded-full border bg-card p-1" role="group" aria-label="公開状態で絞り込み">
+          {([
+            { id: "all", label: "すべて", count: products.length },
+            { id: "published", label: "公開中", count: products.length - draftCount },
+            { id: "draft", label: "下書き", count: draftCount },
+          ] as const).map((opt) => {
+            const active = statusFilter === opt.id
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setStatusFilter(opt.id)}
+                aria-pressed={active}
+                className={`flex-1 rounded-full px-3 py-1.5 text-sm transition-colors ${
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                }`}
+              >
+                {opt.label}
+                <span className={`ml-1.5 text-xs ${active ? "text-primary-foreground/80" : ""}`}>{opt.count}</span>
+              </button>
+            )
+          })}
+        </div>
+
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

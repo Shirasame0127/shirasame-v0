@@ -704,6 +704,84 @@ function ProductEditPageInner() {
 
         <Card>
           <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>アフィリエイトリンク</CardTitle>
+              <Button type="button" size="sm" variant="outline" onClick={addAffiliateLink}>
+                <Plus className="w-4 h-4 mr-1" />
+                追加
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {affiliateLinks.map((link, index) => (
+              <div key={index} className="flex gap-3 items-start p-4 border rounded-lg bg-muted/30">
+                <div className="flex-1 space-y-3">
+                  <div className="space-y-2">
+                    <Label>リンク先テンプレート</Label>
+                    <Select
+                      value={link.provider || ""}
+                      onValueChange={(value) => applyAffiliateTemplate(index, value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="選択してください" />
+                      </SelectTrigger>
+                      <SelectContent>
+                          {/* explicit empty option to represent "選択なし" */}
+                          <SelectItem value="">選択なし</SelectItem>
+                          {affiliateTemplateOptions.length === 0 ? (
+                            <SelectItem value="__no-template__" disabled>テンプレートがありません</SelectItem>
+                          ) : (
+                            affiliateTemplateOptions.map((template) => (
+                              <SelectItem key={template.id} value={template.id}>
+                                {template.name}
+                              </SelectItem>
+                            ))
+                          )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>URL</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="https://..."
+                        value={link.url}
+                        onChange={(e) => updateAffiliateLink(index, "url", e.target.value)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => pasteFromClipboard(index)}
+                        title="クリップボードから貼り付け"
+                      >
+                        <Clipboard className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>ラベル</Label>
+                    <Input
+                      placeholder="例: Amazonで見る"
+                      value={link.label}
+                      onChange={(e) => updateAffiliateLink(index, "label", e.target.value)}
+                    />
+                  </div>
+                </div>
+                {affiliateLinks.length > 0 && (
+                  <Button type="button" variant="ghost" size="icon" onClick={() => removeAffiliateLink(index)}>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>タグ管理</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -885,84 +963,6 @@ function ProductEditPageInner() {
                 </div>
               )}
             </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>アフィリエイトリンク</CardTitle>
-              <Button type="button" size="sm" variant="outline" onClick={addAffiliateLink}>
-                <Plus className="w-4 h-4 mr-1" />
-                追加
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {affiliateLinks.map((link, index) => (
-              <div key={index} className="flex gap-3 items-start p-4 border rounded-lg bg-muted/30">
-                <div className="flex-1 space-y-3">
-                  <div className="space-y-2">
-                    <Label>リンク先テンプレート</Label>
-                    <Select
-                      value={link.provider || ""}
-                      onValueChange={(value) => applyAffiliateTemplate(index, value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="選択してください" />
-                      </SelectTrigger>
-                      <SelectContent>
-                          {/* explicit empty option to represent "選択なし" */}
-                          <SelectItem value="">選択なし</SelectItem>
-                          {affiliateTemplateOptions.length === 0 ? (
-                            <SelectItem value="__no-template__" disabled>テンプレートがありません</SelectItem>
-                          ) : (
-                            affiliateTemplateOptions.map((template) => (
-                              <SelectItem key={template.id} value={template.id}>
-                                {template.name}
-                              </SelectItem>
-                            ))
-                          )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>URL</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="https://..."
-                        value={link.url}
-                        onChange={(e) => updateAffiliateLink(index, "url", e.target.value)}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => pasteFromClipboard(index)}
-                        title="クリップボードから貼り付け"
-                      >
-                        <Clipboard className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>ラベル</Label>
-                    <Input
-                      placeholder="例: Amazonで見る"
-                      value={link.label}
-                      onChange={(e) => updateAffiliateLink(index, "label", e.target.value)}
-                    />
-                  </div>
-                </div>
-                {affiliateLinks.length > 0 && (
-                  <Button type="button" variant="ghost" size="icon" onClick={() => removeAffiliateLink(index)}>
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                )}
-              </div>
-            ))}
-          </CardContent>
         </Card>
 
         <Card>

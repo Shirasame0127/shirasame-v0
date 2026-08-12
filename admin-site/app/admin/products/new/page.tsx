@@ -470,6 +470,24 @@ export default function ProductNewPage() {
       <div className="space-y-6">
         <Card>
           <CardHeader>
+            <CardTitle>商品画像 *</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ImageUpload
+                  value={mainImagePreview || getPublicImageUrl(mainImageKey || '') || ""}
+                  onChange={setImageFile}
+                  aspectRatioType="product"
+                  onUploadComplete={(key) => {
+                    if (!key) return
+                    setMainImageKey(key)
+                    try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
+                  }}
+                />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>基本情報</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -527,133 +545,6 @@ export default function ProductNewPage() {
                 <Switch checked={published} onCheckedChange={setPublished} />
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>タグ管理</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>選択中のタグ</Label>
-              <div className="flex flex-wrap gap-2 min-h-10 p-3 border rounded-md bg-muted/30">
-                {tags.length === 0 ? (
-                  <span className="text-sm text-muted-foreground">タグを追加してください</span>
-                ) : (
-                  tags.map((tag) => (
-                    <Badge key={tag} variant="secondary" className="gap-1">
-                      {tag}
-                      <button onClick={() => removeTag(tag)} className="hover:bg-destructive/20 rounded-full p-0.5">
-                        <X className="w-3 h-3" />
-                      </button>
-                    </Badge>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>カスタムタグを追加</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="タグを入力"
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      addTag(tagInput)
-                    }
-                  }}
-                />
-                <Button type="button" onClick={() => addTag(tagInput)}>
-                  追加
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {Object.entries(tagGroups).map(([category, categoryTags]) => (
-                <div key={category} className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">{category}</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {categoryTags.map((tag) => (
-                      <Badge
-                        key={tag}
-                        variant={tags.includes(tag) ? "default" : "outline"}
-                        className="cursor-pointer hover:scale-105 transition-transform"
-                        onClick={() => {
-                          if (tags.includes(tag)) {
-                            removeTag(tag)
-                          } else {
-                            addTag(tag)
-                          }
-                        }}
-                      >
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>商品画像 *</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ImageUpload
-                  value={mainImagePreview || getPublicImageUrl(mainImageKey || '') || ""}
-                  onChange={setImageFile}
-                  aspectRatioType="product"
-                  onUploadComplete={(key) => {
-                    if (!key) return
-                    setMainImageKey(key)
-                    try { setMainImagePreview(getPublicImageUrl(key) || '') } catch (e) {}
-                  }}
-                />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>添付画像（最大4枚）</CardTitle>
-              {attachmentSlots.length < 4 && (
-                <Button type="button" size="sm" variant="outline" onClick={addAttachmentSlot}>
-                  <Plus className="w-4 h-4 mr-1" />
-                  追加
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {attachmentSlots.map((slot, index) => (
-              <div key={index} className="relative">
-                <ImageUpload
-                  value={getPublicImageUrl(slot.key) || ""}
-                  onChange={(f) => handleAttachmentChange(index, f)}
-                  aspectRatioType="product"
-                  onUploadComplete={(key) => {
-                      if (!key) return
-                      if (typeof key === 'string' && key.startsWith('http')) {
-                        toast({ variant: 'destructive', title: '無効な画像キー', description: 'アップロード結果がURLでした。管理画面はキーのみを保存します。' })
-                        return
-                      }
-                      setAttachmentSlots((prev) => {
-                        const next = [...prev]
-                        if (next[index]) next[index] = { ...next[index], key: key }
-                        return next
-                      })
-                    }}
-                />
-              </div>
-            ))}
-            {attachmentSlots.length === 0 && <p className="text-sm text-muted-foreground">添付画像はありません</p>}
           </CardContent>
         </Card>
 
@@ -740,6 +631,115 @@ export default function ProductNewPage() {
                 )}
               </div>
             ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>タグ管理</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>選択中のタグ</Label>
+              <div className="flex flex-wrap gap-2 min-h-10 p-3 border rounded-md bg-muted/30">
+                {tags.length === 0 ? (
+                  <span className="text-sm text-muted-foreground">タグを追加してください</span>
+                ) : (
+                  tags.map((tag) => (
+                    <Badge key={tag} variant="secondary" className="gap-1">
+                      {tag}
+                      <button onClick={() => removeTag(tag)} className="hover:bg-destructive/20 rounded-full p-0.5">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </Badge>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>カスタムタグを追加</Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="タグを入力"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      addTag(tagInput)
+                    }
+                  }}
+                />
+                <Button type="button" onClick={() => addTag(tagInput)}>
+                  追加
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {Object.entries(tagGroups).map(([category, categoryTags]) => (
+                <div key={category} className="space-y-2">
+                  <Label className="text-sm text-muted-foreground">{category}</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {categoryTags.map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant={tags.includes(tag) ? "default" : "outline"}
+                        className="cursor-pointer hover:scale-105 transition-transform"
+                        onClick={() => {
+                          if (tags.includes(tag)) {
+                            removeTag(tag)
+                          } else {
+                            addTag(tag)
+                          }
+                        }}
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>添付画像（最大4枚）</CardTitle>
+              {attachmentSlots.length < 4 && (
+                <Button type="button" size="sm" variant="outline" onClick={addAttachmentSlot}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  追加
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {attachmentSlots.map((slot, index) => (
+              <div key={index} className="relative">
+                <ImageUpload
+                  value={getPublicImageUrl(slot.key) || ""}
+                  onChange={(f) => handleAttachmentChange(index, f)}
+                  aspectRatioType="product"
+                  onUploadComplete={(key) => {
+                      if (!key) return
+                      if (typeof key === 'string' && key.startsWith('http')) {
+                        toast({ variant: 'destructive', title: '無効な画像キー', description: 'アップロード結果がURLでした。管理画面はキーのみを保存します。' })
+                        return
+                      }
+                      setAttachmentSlots((prev) => {
+                        const next = [...prev]
+                        if (next[index]) next[index] = { ...next[index], key: key }
+                        return next
+                      })
+                    }}
+                />
+              </div>
+            ))}
+            {attachmentSlots.length === 0 && <p className="text-sm text-muted-foreground">添付画像はありません</p>}
           </CardContent>
         </Card>
 
