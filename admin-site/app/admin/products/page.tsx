@@ -37,6 +37,11 @@ export default function AdminProductsPage() {
   // Drafts were previously unfindable: the list mixes them with published
   // products and nothing filtered on that.
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "draft">("all")
+  // Bulk tagging. Re-tagging a batch of products one editor visit at a time is
+  // the slowest job on this screen, so selection lives here rather than in a
+  // separate mode.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const fetchProducts = async () => {
     setStatus("loading")
@@ -135,6 +140,73 @@ export default function AdminProductsPage() {
     } catch {
       setProducts(prevOrder) // roll back
       toast({ title: '並び順の保存に失敗しました', variant: 'destructive' })
+    }
+  }
+
+  const toggleSelected = (id: string, on: boolean) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      on ? next.add(id) : next.delete(id)
+      return next
+    })
+
+  /**
+   * Add or remove one tag across every selected product.
+   *
+   * The worker's product PUT only writes the fields present in the body, so
+   * sending `{ tags }` alone cannot disturb anything else on the record.
+   */
+  const applyBulkTag = async (tag: string, mode: "add" | "remove") => {
+    const targets = products.filter((p) => selectedIds.has(String(p.id)))
+    if (targets.length === 0) return
+    setBulkBusy(true)
+
+    const updated: Record<string, string[]> = {}
+    const failed: string[] = []
+
+    for (const p of targets) {
+      const current = Array.isArray(p.tags) ? p.tags : []
+      const next =
+        mode === "add"
+          ? current.includes(tag)
+            ? current
+            : [...current, tag]
+          : current.filter((t) => t !== tag)
+      if (next.length === current.length && mode === "add") {
+        updated[String(p.id)] = next
+        continue // already tagged; nothing to send
+      }
+      try {
+        const res = await apiFetch(`/api/admin/products/${p.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tags: next }),
+        })
+        if (!res.ok) throw new Error(String(res.status))
+        updated[String(p.id)] = next
+      } catch {
+        failed.push(p.title)
+      }
+    }
+
+    // Reflect only what actually saved.
+    setProducts((prev) =>
+      prev.map((p) => (updated[String(p.id)] ? { ...p, tags: updated[String(p.id)] } : p)),
+    )
+    setBulkBusy(false)
+
+    if (failed.length === 0) {
+      toast({
+        title: mode === "add" ? `「${tag}」を付けました` : `「${tag}」を外しました`,
+        description: `${targets.length} 件を更新しました`,
+      })
+      setSelectedIds(new Set())
+    } else {
+      toast({
+        variant: "destructive",
+        title: `${failed.length} 件で失敗しました`,
+        description: `${failed.slice(0, 3).join("、")}${failed.length > 3 ? " ほか" : ""} — 選択は残してあります`,
+      })
     }
   }
 
@@ -327,7 +399,12 @@ export default function AdminProductsPage() {
             <div className="space-y-3">
               {filteredAndSortedProducts.map((product) => (
                 <SortableProductRow key={product.id} id={product.id}>
-                  <ProductListItem product={product} onDeleted={() => setProducts((prev) => prev.filter((x) => x.id !== product.id))} />
+                  <ProductListItem
+                    product={product}
+                    selected={selectedIds.has(String(product.id))}
+                    onSelectedChange={(on) => toggleSelected(String(product.id), on)}
+                    onDeleted={() => setProducts((prev) => prev.filter((x) => x.id !== product.id))}
+                  />
                 </SortableProductRow>
               ))}
             </div>
@@ -336,11 +413,89 @@ export default function AdminProductsPage() {
       ) : (
         <div className="space-y-3">
           {filteredAndSortedProducts.map((product) => (
-            <ProductListItem key={product.id} product={product} onDeleted={() => setProducts((prev) => prev.filter((x) => x.id !== product.id))} />
+            <ProductListItem
+              key={product.id}
+              product={product}
+              selected={selectedIds.has(String(product.id))}
+              onSelectedChange={(on) => toggleSelected(String(product.id), on)}
+              onDeleted={() => setProducts((prev) => prev.filter((x) => x.id !== product.id))}
+            />
           ))}
         </div>
       )}
+
+      {/* Bulk bar. Appears only with a selection, and sits above the mobile
+          bottom nav so it never hides behind it. */}
+      {selectedIds.size > 0 && (
+        <div className="fixed inset-x-0 bottom-[var(--admin-footer-height)] z-30 border-t bg-card/95 px-4 py-3 backdrop-blur md:px-8">
+          <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">{selectedIds.size} 件を選択中</span>
+
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <BulkTagMenu
+                label="タグを付ける"
+                tagGroups={tagGroups}
+                disabled={bulkBusy}
+                onPick={(tag) => applyBulkTag(tag, "add")}
+              />
+              <BulkTagMenu
+                label="タグを外す"
+                tagGroups={tagGroups}
+                disabled={bulkBusy}
+                onPick={(tag) => applyBulkTag(tag, "remove")}
+              />
+              <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())} disabled={bulkBusy}>
+                選択を解除
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Keep the last rows clear of the bulk bar. */}
+      {selectedIds.size > 0 && <div className="h-20" aria-hidden />}
     </div>
+  )
+}
+
+function BulkTagMenu({
+  label,
+  tagGroups,
+  disabled,
+  onPick,
+}: {
+  label: string
+  tagGroups: Record<string, string[]>
+  disabled?: boolean
+  onPick: (tag: string) => void
+}) {
+  const groups = Object.entries(tagGroups).filter(([, tags]) => Array.isArray(tags) && tags.length > 0)
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" disabled={disabled || groups.length === 0}>
+          {label}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-[60vh] w-56 overflow-y-auto">
+        {groups.map(([groupName, tags]) => (
+          <div key={groupName}>
+            <DropdownMenuLabel className="text-xs text-muted-foreground">{groupName}</DropdownMenuLabel>
+            {tags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => onPick(tag)}
+                className="flex w-full items-center px-2 py-1.5 text-left text-sm hover:bg-accent"
+              >
+                {tag}
+              </button>
+            ))}
+            <DropdownMenuSeparator />
+          </div>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

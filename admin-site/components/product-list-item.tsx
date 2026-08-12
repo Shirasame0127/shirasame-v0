@@ -17,6 +17,9 @@ import type { Product } from "@/lib/db/schema"
 interface ProductListItemProps {
   product: Product
   onDeleted?: () => void
+  /** Bulk-selection state; omitted when the list is not in selection mode. */
+  selected?: boolean
+  onSelectedChange?: (selected: boolean) => void
 }
 
 /**
@@ -27,7 +30,7 @@ interface ProductListItemProps {
  * that are not "open this product" (publish, delete) sit outside that link so
  * they stay reachable and cannot be triggered by opening the row.
  */
-export function ProductListItem({ product, onDeleted }: ProductListItemProps) {
+export function ProductListItem({ product, onDeleted, selected, onSelectedChange }: ProductListItemProps) {
   const { toast } = useToast()
   const [publishedState, setPublishedState] = useState<boolean>(!!product.published)
   const [deleting, setDeleting] = useState(false)
@@ -95,6 +98,22 @@ export function ProductListItem({ product, onDeleted }: ProductListItemProps) {
       }`}
     >
       <div className="flex items-stretch">
+        {onSelectedChange && (
+          <label
+            className="flex w-11 shrink-0 cursor-pointer items-center justify-center border-r"
+            data-no-drag
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={!!selected}
+              onChange={(e) => onSelectedChange(e.target.checked)}
+              aria-label={`${product.title} を選択`}
+              className="h-4 w-4 accent-[var(--primary)]"
+            />
+          </label>
+        )}
+
         <Link
           href={`/admin/products/edit?id=${product.id}`}
           prefetch={false}
