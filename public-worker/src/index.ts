@@ -489,6 +489,22 @@ app.get('/api/debug/headers', async (c) => {
 
 // Cache/ETag ヘルパ（GET専用）
 async function cacheJson(c: any, key: string, getPayload: () => Promise<Response>) {
+  // Admin mirror routes (see mirrorGet) opt out of edge caching entirely, so
+  // the console always shows the current state. CORS headers are still applied.
+  if ((c as any).__adminNoCache) {
+    const fresh = await getPayload()
+    try {
+      const buf = await fresh.clone().arrayBuffer()
+      const cors = computeCorsHeaders(c.req.header('Origin') || c.req.header('origin') || null, c.env)
+      const headers: Record<string, string> = Object.assign(
+        { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+        cors,
+      )
+      return new Response(buf, { status: fresh.status, headers })
+    } catch {
+      return fresh
+    }
+  }
   const cache = (caches as any).default
   const req = new Request(new URL(key, 'http://dummy').toString())
   const ifNoneMatch = c.req.header('If-None-Match')
@@ -1486,6 +1502,13 @@ const mirrorGet = async (c: any, handler: (c: any) => Promise<Response>) => {
     try {
       console.log('[MIRROR] incoming', { host: c.req.header('host') || c.req.header('Host'), path: (new URL(c.req.url)).pathname, url: c.req.url })
     } catch {}
+    // Admin reads must reflect writes at once. Flag the request so cacheJson
+    // bypasses the edge cache for it — without this, a tag or product edit kept
+    // showing the pre-edit list for up to `max-age` (60s) plus the
+    // stale-while-revalidate window (300s), because these admin requests reach
+    // the worker via the admin server proxy with no Origin header and so miss
+    // cacheJson's browser-request fast path.
+    try { (c as any).__adminNoCache = true } catch {}
     return await handler(c)
   } catch (e: any) {
     const base = { 'Content-Type': 'application/json; charset=utf-8' }
