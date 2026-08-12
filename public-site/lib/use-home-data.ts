@@ -257,7 +257,17 @@ export function useHomeData(): HomeData {
 
         setIsBackfilling(true)
         const seen = new Set(firstItems.map((i) => i.id))
-        let offset = asArray(firstPage).length
+
+        // Backfill from offset 0, NOT from the first page's length.
+        //
+        // The first page is fetched with `shuffle=true`, so its 24 items are a
+        // random slice of the whole set. The backfill is unshuffled, so its
+        // offsets index a completely different ordering. Starting the backfill
+        // at offset 24 therefore skipped every product that sits in the first
+        // 24 of the unshuffled order but wasn't among the random 24 — roughly
+        // 15-20 of 112 never loaded. Walking the unshuffled list from 0 and
+        // letting `seen` drop the duplicates covers all of them.
+        let offset = 0
 
         for (let page = 0; page < MAX_PAGES; page++) {
           if (!aliveRef.current) return
